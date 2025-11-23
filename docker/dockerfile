@@ -1,0 +1,48 @@
+# Multi-stage build for optimal layer caching and smaller final image
+
+# Stage 1: Build environment with Nix
+FROM nixos/nix:latest AS builder
+
+# Enable flakes and configure Nix for Docker
+RUN echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf
+
+# Copy flake files first for better caching
+WORKDIR /build
+COPY flake.nix flake.lock ./
+
+# Pre-fetch dependencies to cache this layer
+RUN nix flake lock --update-input nixpkgs || true
+
+# Copy source code
+COPY . .
+
+# Build the application using Nix
+RUN nix build .#default --print-build-logs
+
+# Stage 2: Runtime image - minimal with only what's needed
+FROM nixos/nix:latest
+
+# Install runtime dependencies via Nix
+RUN echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf && \
+    nix profile install nixpkgs#gtk4 nixpkgs#tesseract nixpkgs#ollama
+
+# Copy built application from builder
+COPY --from=builder /build/result /app
+
+# Set up runtime environment
+ENV PYTHONPATH=/app/lib \
+    GI_TYPELIB_PATH=/nix/var/nix/profiles/default/lib/girepository-1.0 \
+    XDG_CONFIG_HOME=/config \
+    XDG_DATA_HOME=/data
+
+# Create volume mount points
+VOLUME ["/config", "/data"]
+
+WORKDIR /app
+
+# Health check for container orchestration
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD test -f /app/bin/anki-ocr || exit 1
+
+# Run the application
+ENTRYPOINT ["/app/bin/anki-ocr"]

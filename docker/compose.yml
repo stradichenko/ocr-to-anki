@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  ocr-to-anki:
+    image: ocr-to-anki:latest
+    container_name: ocr-to-anki
+    build:
+      context: ..
+      dockerfile: docker/dockerfile
+    
+    # Volumes for persistent data
+    volumes:
+      - config-data:/config
+      - app-data:/data
+      - ./sample-images:/images:ro
+    
+    # Environment variables
+    environment:
+      - DISPLAY=${DISPLAY}
+      - XDG_RUNTIME_DIR=/tmp
+      - OLLAMA_HOST=ollama:11434
+    
+    # Network for X11 forwarding (if needed for GTK)
+    network_mode: "host"
+    
+    # Security options
+    security_opt:
+      - seccomp:unconfined
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    
+    depends_on:
+      - ollama
+    
+    restart: unless-stopped
+
+  # Ollama LLM service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    
+    volumes:
+      - ollama-data:/root/.ollama
+    
+    ports:
+      - "11434:11434"
+    
+    # GPU support (uncomment if using NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    
+    restart: unless-stopped
+
+volumes:
+  config-data:
+    driver: local
+  app-data:
+    driver: local
+  ollama-data:
+    driver: local

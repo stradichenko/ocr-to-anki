@@ -1,0 +1,211 @@
+# Tests
+
+## Test Scripts Overview
+
+### 1. Ollama Health Check (`test_ollama_health.py`)
+
+Verifies Ollama server and model are working properly.
+
+```bash
+python tests/test_ollama_health.py
+```
+
+**Checks:**
+- Server connectivity
+- Model availability
+- Text generation
+- Vision processing
+- System resources
+
+### 2. Cropped Section Test (`test_crop_and_ocr.py`)
+
+Crops large images into smaller sections and tests each individually.
+
+```bash
+python tests/test_crop_and_ocr.py
+```
+
+**What it does:**
+- Splits image into 6 horizontal sections
+- Resizes each to max 400px width
+- Tests OCR on each section with 90s timeout
+- Shows which sections work and which fail
+
+**When to use:**
+- When full image times out
+- To identify problematic image regions
+- To test if chunking strategy would work
+
+**Output:**
+- Shows processing time per section
+- Lists all extracted words by section
+- Saves results to `cropped_test_results.json`
+
+### 3. Simple OCR Test (`test_ollama_ocr.py`)
+
+Tests OCR on full image with basic settings.
+
+```bash
+python tests/test_ollama_ocr.py
+```
+
+**Use after** health check and cropping test pass.
+
+### 4. Enhanced OCR Test (`test_ollama_ocr_enhanced.py`)
+
+Tests OCR with image preprocessing (contrast and sharpening enhancement).
+
+```bash
+python tests/test_ollama_ocr_enhanced.py
+```
+
+**What it does:**
+- Tests 3 enhancement levels: Moderate, Strong, Aggressive
+- Applies contrast increase (1.8x to 3.0x)
+- Applies sharpening (1.5x to 2.5x)
+- Uses unsharp mask for additional clarity
+- Compares results across enhancement levels
+- Identifies best enhancement settings
+
+**Enhancement levels:**
+- **Moderate**: Contrast 1.8x, Sharpness 1.5x (safe baseline)
+- **Strong**: Contrast 2.5x, Sharpness 2.0x (recommended)
+- **Aggressive**: Contrast 3.0x, Sharpness 2.5x (maximum enhancement)
+
+**Output:**
+- Comparison table showing words found per enhancement level
+- Identifies best performing enhancement
+- Saves all results to `test_enhanced_results.json`
+- Provides recommendations for production settings
+
+**When to use:**
+- When basic OCR has poor accuracy
+- For low-contrast or blurry images
+- To find optimal preprocessing settings
+- Before implementing production pipeline
+
+**Trade-offs:**
+- Higher enhancement = better text clarity
+- Too much enhancement = potential artifacts
+- Slightly larger file size (quality=95)
+
+### 5. Crop + Enhancement Test (`test_crop_enhanced_ocr.py`)
+
+**Best approach**: Combines cropping AND enhancement for optimal OCR results.
+
+```bash
+python tests/test_crop_enhanced_ocr.py
+```
+
+**What it does:**
+- Tests 3 enhancement levels (Light, Moderate, Strong)
+- Crops image into 8 horizontal sections for each level
+- Applies enhancements to each section BEFORE OCR
+- Compares results across all configurations
+- Saves enhanced sections for inspection
+
+**Why this works better:**
+- **Smaller chunks** = faster processing, less timeout risk
+- **Enhanced sections** = clearer text, better accuracy
+- **Multiple configs** = finds optimal settings automatically
+
+**Enhancement levels:**
+- **Light**: Contrast 1.5x, Sharpness 1.2x (minimal, preserves detail)
+- **Moderate**: Contrast 2.0x, Sharpness 1.5x (balanced)
+- **Strong**: Contrast 2.5x, Sharpness 2.0x (maximum clarity)
+
+**Output:**
+- Saves all enhanced sections to `tests/enhanced_sections/{level}/`
+- Comparison table of words found per level
+- Complete word list from best configuration
+- JSON results with all details
+
+**When to use:**
+- **Always** - this is the recommended approach
+- When other tests fail or give poor results
+- To find optimal preprocessing settings
+- For production pipeline configuration
+
+**Expected results:**
+- 20-100+ words depending on image content
+- Processing time: 15-30s per section
+- Best config identified automatically
+
+### 6. Gemma Vocabulary Enricher (`test_gemma_enricher.py`)
+
+**Automatically enrich Anki vocabulary** with definitions, examples, and smart tags using Gemma AI.
+
+```bash
+python tests/test_gemma_enricher.py
+```
+
+**What it does:**
+- Reads vocabulary JSON file (format: `[{"front": "word"}, ...]`)
+- Auto-detects language of each word
+- Detects part(s) of speech (noun, verb, adjective, etc.)
+- Generates definition in target language
+- Creates 2 example phrases in target language
+- Adds smart tags (language::french, pos::noun, etc.)
+- Saves enriched vocabulary ready for Anki import
+
+**Input format** (`data/vocabulary_input.json`):
+```json
+[
+  {"front": "bonjour"},
+  {"front": "cat"},
+  {"front": "correr", "tags": ["chapter::1"]}
+]
+```
+
+**Output format** (`data/enriched_vocabulary/enriched_vocabulary_TIMESTAMP.json`):
+```json
+[
+  {
+    "front": "bonjour",
+    "back": "A French greeting meaning 'hello' or 'good day'",
+    "examples": [
+      "Bonjour, comment allez-vous?",
+      "She said bonjour to everyone at the party."
+    ],
+    "tags": ["language::french", "pos::noun", "pos::interjection"]
+  }
+]
+```
+
+**Configuration** (in `config/settings.yaml`):
+```yaml
+gemma_enricher:
+  model: "gemma3:1b"
+  definition_language: "english"  # Language for definitions
+  examples_language: "english"    # Language for examples
+  add_language_tags: true         # Auto-detect word language
+  add_pos_tags: true              # Detect part of speech
+```
+
+**Prerequisites:**
+```bash
+# Install Gemma model
+ollama pull gemma3:1b
+
+# Verify it's available
+ollama list
+```
+
+**When to use:**
+- After OCR extraction to add context to words
+- To prepare vocabulary lists for Anki
+- To auto-tag and organize vocabulary by language/POS
+- When creating flashcards from word lists
+
+**Performance:**
+- Processing time: ~5-10s per word
+- Batch processing with delays to avoid overwhelming model
+- Configurable batch size (default: 5 words)
+
+**Features:**
+- **Smart language detection**: Automatically identifies word language
+- **POS tagging**: Adds grammatical category tags
+- **Bilingual support**: Definitions and examples in different languages
+- **Preserves existing tags**: Keeps any tags from input
+- **Error handling**: Gracefully handles timeouts and errors
+- **Sample creation**: Auto-creates sample input if none exists

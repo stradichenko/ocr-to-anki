@@ -1,0 +1,52 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/26.1.1 Chrome/140.0.7339.249 Electron/38.7.0 Safari/537.36" version="26.1.1">
+  <diagram name="Page-1" id="y_kLO8aKy5LWgGU22Zfk">
+    <mxGraphModel dx="463" dy="871" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="tRkxH7GEWGr5kBQ7z2ze-1" target="tRkxH7GEWGr5kBQ7z2ze-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-1" value="ocr_to_json.py" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="190" y="460" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="tRkxH7GEWGr5kBQ7z2ze-6" target="tRkxH7GEWGr5kBQ7z2ze-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-6" value="anki-note.json" style="rhombus;whiteSpace=wrap;html=1;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="210" y="590" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-8" value="anki_importer.py" style="whiteSpace=wrap;html=1;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="190" y="760" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="tRkxH7GEWGr5kBQ7z2ze-10" target="tRkxH7GEWGr5kBQ7z2ze-1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-10" value="tesseract_ocr_image,py" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="110" y="280" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-17" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="tRkxH7GEWGr5kBQ7z2ze-13" target="tRkxH7GEWGr5kBQ7z2ze-16">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="tRkxH7GEWGr5kBQ7z2ze-13" target="tRkxH7GEWGr5kBQ7z2ze-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-13" value="image" style="rhombus;whiteSpace=wrap;html=1;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="130" width="80" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-20" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="tRkxH7GEWGr5kBQ7z2ze-16" target="tRkxH7GEWGr5kBQ7z2ze-19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-16" value="image_preprocessing.py" style="whiteSpace=wrap;html=1;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="260" y="90" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="tRkxH7GEWGr5kBQ7z2ze-19" target="tRkxH7GEWGr5kBQ7z2ze-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-19" value="processed_image" style="rhombus;whiteSpace=wrap;html=1;rounded=1;arcSize=0;" vertex="1" parent="1">
+          <mxGeometry x="280" y="270" width="80" height="80" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

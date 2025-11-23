@@ -1,0 +1,62 @@
+# Configuration file: config/settings.yaml
+# This file contains all settings for the OCR to Anki application
+
+anki_connect:
+  url: "http://localhost:8765"  # AnkiConnect server URL (default: http://localhost:8765)
+  version: 6  # AnkiConnect API version (default: 6)
+  timeout: 10  # Request timeout in seconds (default: 10)
+
+import_defaults:
+  deck: "Vocabulary::Japanese"  # Target Anki deck name (default: "Vocabulary::Japanese")
+  model: "Basic"  # Anki note type/model (default: "Basic")
+  batch_size: 10  # Number of cards to import at once (default: 10, range: 1-100)
+  allow_duplicates: false  # Allow duplicate cards (options: true, false)
+  duplicate_scope: "deck"  # Check duplicates in "deck" or "collection" (options: deck, collection)
+
+logging:
+  verbose: true  # Enable detailed logging output (options: true, false)
+  show_progress: true  # Display progress indicators (options: true, false)
+
+ocr:
+  tesseract_cmd: "tesseract"  # Path to Tesseract executable (default: "tesseract")
+  default_language: "eng"  # OCR language code (default: "eng", e.g., jpn, spa, fra)
+  psm: 3  # Page segmentation mode (default: 3, range: 0-13)
+  oem: 3  # OCR Engine mode (default: 3, range: 0-3)
+  config: ""  # Additional Tesseract config options (default: empty string)
+  
+  # Input directory for images to process
+  input_dir: "data/images"  # Source directory for input images (default: "data/images")
+  output_dir: "data/processed_images"  # Directory for processed images (default: "data/processed")
+
+image_preprocessing:
+  # Grayscale conversion (reduces color noise)
+  grayscale: true  # Convert to grayscale (options: true, false, default: true)
+  
+  # Contrast and brightness enhancement
+  enhance_contrast: true  # Enable contrast enhancement (options: true, false, default: true)
+  contrast: 1.8  # Contrast multiplier (default: 1.8, range: 0.5-3.0, 1.0 = no change)
+  brightness: 0.05  # Brightness adjustment (default: 0.05, range: -1.0 to 1.0)
+  
+  # Noise reduction
+  denoise: true  # Enable noise reduction (options: true, false, default: true)
+  denoise_strength: "medium"  # Noise reduction level (options: light, medium, heavy, default: medium)
+  
+  # Sharpening (improves edge definition)
+  sharpen: true  # Enable sharpening (options: true, false, default: true)
+  sharpen_strength: 1.2  # Sharpening intensity (default: 1.2, range: 0.0-2.0)
+  
+  # Scaling (resize for optimal processing)
+  scale: true  # Enable image scaling (options: true, false, default: true)
+  scale_width: 2048  # Target width in pixels, maintains aspect ratio (default: 2048)
+  
+  # Rotation (deskew)
+  rotate: false  # Enable manual rotation (options: true, false, default: false)
+  rotation_degrees: 0  # Rotation angle in degrees (default: 0, negative = counter-clockwise)
+  
+  # Binarization (black and white only - use for high contrast docs)
+  binarize: false  # Convert to pure black and white (options: true, false, default: false)
+  threshold_value: 0.5  # Binarization threshold (default: 0.5, range: 0.0-1.0)
+  
+  # Output settings
+  output_format: "png"  # Image format for processed files (options: png, jpg, tiff, default: png)
+  output_quality: 2  # Compression quality (default: 2, range: 1-31 for JPEG/PNG, lower = better)
