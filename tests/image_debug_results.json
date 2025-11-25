@@ -1,0 +1,50 @@
+{
+  "image": "/home/gespitia/projects/ocr-to-anki/data/images/1d21248b-9dda-4e67-972b-70aa96e35eee.jpeg",
+  "tests": [
+    {
+      "name": "Standard (600px, no enhancement)",
+      "success": true,
+      "time": 111.86869049072266,
+      "response": "",
+      "words": [],
+      "word_count": 0
+    },
+    {
+      "name": "Minimal Prompt",
+      "success": true,
+      "time": 33.013312101364136,
+      "response": "",
+      "words": [],
+      "word_count": 0
+    },
+    {
+      "name": "Ultra Simple",
+      "success": true,
+      "time": 33.080623626708984,
+      "response": "",
+      "words": [],
+      "word_count": 0
+    },
+    {
+      "name": "Enhanced Image (contrast + sharpness)",
+      "success": true,
+      "time": 112.663747549057,
+      "response": "",
+      "words": [],
+      "word_count": 0
+    },
+    {
+      "name": "Smaller Resolution (400px)",
+      "success": true,
+      "time": 51.52081513404846,
+      "response": "",
+      "words": [],
+      "word_count": 0
+    },
+    {
+      "name": "Larger Resolution (800px)",
+      "success": false,
+      "error": "HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=150)"
+    }
+  ]
+}

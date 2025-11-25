@@ -15,6 +15,26 @@ from datetime import datetime
 from PIL import Image
 import io
 import time
+import sys
+
+
+class TeeOutput:
+    """Captures stdout/stderr and writes to both console and file."""
+    def __init__(self, log_file):
+        self.terminal = sys.stdout
+        self.log = open(log_file, 'w', encoding='utf-8')
+    
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush()  # Ensure immediate write
+    
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+    
+    def close(self):
+        self.log.close()
 
 
 def load_config(config_path: str = "config/settings.yaml") -> Dict[str, Any]:
@@ -105,33 +125,38 @@ def build_ocr_prompt(config: Dict[str, Any]) -> str:
     highlight_color = config['ollama_ocr']['highlight_color']
     language = config['ollama_ocr']['language']
     
-    prompt_parts = []
+    # Start with clear OCR instructions
+    prompt = "You are an OCR system. Your ONLY job is to extract visible text from images.\n\n"
     
     # Text type specification
     if text_type == "detect":
-        prompt_parts.append("Analyze this image and detect whether the text is handwritten or printed.")
+        prompt += "Detect whether the text is handwritten or printed. "
     elif text_type == "handwritten":
-        prompt_parts.append("This image contains handwritten text.")
+        prompt += "This image contains handwritten text. "
     elif text_type == "printed":
-        prompt_parts.append("This image contains printed text.")
+        prompt += "This image contains printed/typed text. "
     
     # Analysis scope specification
     if analysis_scope == "highlighted":
-        prompt_parts.append(f"Focus only on words that are highlighted in {highlight_color}.")
+        prompt += f"Focus ONLY on text that is highlighted in {highlight_color}. "
     else:
-        prompt_parts.append("Analyze all text in the entire image.")
+        prompt += "Extract ALL visible text from the entire image. "
     
     # Language specification
     if language == "detect":
-        prompt_parts.append("Detect the language automatically.")
+        prompt += "The text may be in any language. "
     else:
-        prompt_parts.append(f"The text is in {language}.")
+        prompt += f"The text is in {language}. "
     
-    # Output format
-    prompt_parts.append("Extract all text and provide a list of words detected.")
-    prompt_parts.append("Output format: Return a JSON array of words, for example: [\"word1\", \"word2\", \"word3\"]")
+    # Critical output format instructions
+    prompt += "\n\nIMPORTANT: Return ONLY a JSON array of words. "
+    prompt += "Do NOT add explanations, descriptions, or any other text. "
+    prompt += 'Example format: ["word1", "word2", "word3"] '
+    prompt += "If you cannot read any text, return an empty array: [] "
+    prompt += "\nDo NOT explain what you see. Do NOT write sentences about the image. "
+    prompt += "ONLY return the JSON array of extracted words."
     
-    return " ".join(prompt_parts)
+    return prompt
 
 
 def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -148,6 +173,10 @@ def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
     ollama_config = config['ollama_ocr']
     url = f"{ollama_config['url']}/api/generate"
     
+    verbose = ollama_config.get('verbose_logging', False)
+    save_raw_request = ollama_config.get('save_raw_request', False)
+    save_model_info = ollama_config.get('save_model_info', False)
+    
     # Get and print image shape
     try:
         width, height, channels, img_format, file_size_mb = get_image_shape(image_path)
@@ -158,7 +187,7 @@ def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
         img_format = "Unknown"
         file_size_mb = 0
     
-    # Resize and encode image (more aggressive resizing)
+    # Resize and encode image
     max_width = ollama_config.get('max_image_width', 600)
     image_base64 = resize_image_for_ocr(image_path, max_width=max_width)
     encoded_size_mb = len(image_base64) / (1024 * 1024)
@@ -167,19 +196,48 @@ def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
     # Build prompt
     prompt = build_ocr_prompt(config)
     
-    # Prepare request payload
+    if verbose:
+        print(f"  Prompt length: {len(prompt)} characters")
+        print(f"  Image size: {len(image_base64)} bytes")
+        # Estimate text prompt tokens (rough estimate: ~4 chars per token)
+        estimated_prompt_tokens = len(prompt) // 4
+        print(f"  Estimated text prompt tokens: ~{estimated_prompt_tokens}")
+    
+    # Prepare request payload with increased limits
     payload = {
         "model": ollama_config['model'],
         "prompt": prompt,
         "images": [image_base64],
-        "stream": False
+        "stream": False, # iterative output not needed for OCR
+        "options": {
+            "num_ctx": 4096,  # Context window: prompt + response
+            "num_predict": 4096,  # Increased max tokens - allow model to complete response
+            "presence_penalty": 0.0,  # Penalizes tokens based on whether they've appeared at all (regardless of frequency). vocabulary diversity.
+            "temperature": 0.1,  # Lower temperature for more consistent output
+            "top_k": 40,  # Top-K sampling: limits token pool (range: 1-100, default: 40)
+            "top_p": 0.9,  # Nucleus sampling: cumulative probability threshold (range: 0-1, default: 0.9). 
+            "repeat_penalty": 1.2,  # Penalize token repetition (range: 0-2, default: 1.0, >1 reduces repetition)
+            "stop": ["]\n\n", "</s>", "\n\n\n"],  # Multiple stop sequences to prevent rambling
+            "num_gpu": -1,  # Use all available GPUs (RANGE: -1 to 8, default: -1)
+            "num_batch": 1024#,  # Increase batch size for processing larger inputs efficiently (default: 512, Range: 1-2048)
+            #"thinking": False,  # Enable 'thinking' field for debugging"
+            #"reasoning": False  # Enable 'reasoning' field for debugging"
+        }
     }
+    
+    # Add verbose flag to get more model info
+    if verbose:
+        payload["verbose"] = True
     
     # Make request with timing
     print(f"  Processing...")
     start_time = time.time()
     
     try:
+        if verbose:
+            print(f"  Sending request to {url}")
+            print(f"  Model: {ollama_config['model']}")
+        
         response = requests.post(
             url,
             json=payload,
@@ -192,9 +250,105 @@ def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
         
         result = response.json()
         
+        # DEBUG: Print the entire result structure
+        if verbose:
+            print(f"  Full result keys: {list(result.keys())}")
+            print(f"  Full result (first 500 chars): {str(result)[:500]}")
+            
+            # Check what's actually in 'response' field
+            if 'response' in result:
+                resp = result['response']
+                print(f"  'response' type: {type(resp)}")
+                print(f"  'response' length: {len(resp) if resp else 0}")
+                print(f"  'response' repr: {repr(resp)[:500]}")
+                
+                # Check for non-printable characters
+                if resp:
+                    printable_chars = sum(1 for c in resp if c.isprintable())
+                    total_chars = len(resp)
+                    print(f"  Printable characters: {printable_chars}/{total_chars}")
+                    
+                    # Show hex dump of first 100 bytes
+                    print(f"  First 100 bytes (hex): {resp[:100].encode('utf-8').hex()}")
+        
+        # Log model metadata if available
+        if verbose and save_model_info:
+            model_info = {
+                'model': result.get('model'),
+                'created_at': result.get('created_at'),
+                'done': result.get('done'),
+                'total_duration_s': result.get('total_duration', 0) / 1_000_000_000 if result.get('total_duration') else None,
+                'load_duration_s': result.get('load_duration', 0) / 1_000_000_000 if result.get('load_duration') else None,
+                'prompt_eval_count': result.get('prompt_eval_count'),
+                'prompt_eval_duration_s': result.get('prompt_eval_duration', 0) / 1_000_000_000 if result.get('prompt_eval_duration') else None,
+                'eval_count': result.get('eval_count'),
+                'eval_duration_s': result.get('eval_duration', 0) / 1_000_000_000 if result.get('eval_duration') else None,
+            }
+            print(f"  Model info: {json.dumps(model_info, indent=2)}")
+        
         # Extract words from response
         response_text = result.get('response', '')
+        thinking_text = result.get('thinking', '')
+        
+        # Show thinking if verbose
+        if verbose and thinking_text:
+            print(f"  Model thinking (first 200 chars): {thinking_text[:200]}...")
+            print(f"  Thinking length: {len(thinking_text)} characters")
+        
+        # DEBUG: Check all possible response fields
+        if verbose:
+            for key in ['response', 'text', 'output', 'content', 'message', 'choices', 'thinking']:
+                if key in result:
+                    val = result[key]
+                    print(f"  Found key '{key}': type={type(val)}, len={len(str(val))}, preview={repr(str(val)[:100])}")
+        
+        # Debugging output
+        print(f"  Response type: {type(response_text)}")
+        print(f"  Response repr: {repr(response_text[:200])}")
+        print(f"  Response bytes: {response_text.encode('utf-8')[:200]}")
+        
+        # Calculate image tokens
+        if verbose and result.get('prompt_eval_count'):
+            prompt_tokens = result.get('prompt_eval_count')
+            text_prompt_tokens = len(prompt) // 4  # Rough estimate
+            image_tokens = prompt_tokens - text_prompt_tokens
+            print(f"  Prompt tokens breakdown:")
+            print(f"    - Total prompt tokens: {prompt_tokens}")
+            print(f"    - Text prompt tokens (est): ~{text_prompt_tokens}")
+            print(f"    - Image tokens (est): ~{image_tokens}")
+        
         words = extract_words_from_response(response_text)
+        
+        if verbose:
+            print(f"  Response length: {len(response_text)} characters")
+            print(f"  Words extracted: {len(words)}")
+            if result.get('eval_count'):
+                print(f"  Tokens generated: {result.get('eval_count')}")
+            if result.get('prompt_eval_count'):
+                print(f"  Prompt tokens: {result.get('prompt_eval_count')}")
+            
+            # Display special tokens and image tokens if available
+            if result.get('prompt_eval_count') and result.get('eval_count'):
+                total_tokens = result.get('prompt_eval_count', 0) + result.get('eval_count', 0)
+                print(f"  Total tokens: {total_tokens}")
+            
+            # Display durations in seconds with high precision
+            if result.get('total_duration'):
+                total_s = result.get('total_duration') / 1_000_000_000
+                print(f"  Total duration: {total_s:.6f}s")
+            if result.get('load_duration'):
+                load_s = result.get('load_duration') / 1_000_000_000
+                print(f"  Load duration: {load_s:.6f}s")
+            if result.get('prompt_eval_duration'):
+                prompt_eval_s = result.get('prompt_eval_duration') / 1_000_000_000
+                print(f"  Prompt eval duration: {prompt_eval_s:.6f}s")
+            if result.get('eval_duration'):
+                eval_s = result.get('eval_duration') / 1_000_000_000
+                print(f"  Eval duration: {eval_s:.6f}s")
+            
+            # Show response preview if no words extracted
+            if not words and response_text:
+                print(f"  Response preview: {response_text[:200]}...")
         
         result_dict = {
             'image_path': image_path,
@@ -212,6 +366,28 @@ def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
             'word_count': len(words)
         }
         
+        # Add model metadata if available
+        if save_model_info:
+            result_dict['model_info'] = {
+                'model': result.get('model'),
+                'total_duration_s': result.get('total_duration', 0) / 1_000_000_000 if result.get('total_duration') else None,
+                'load_duration_s': result.get('load_duration', 0) / 1_000_000_000 if result.get('load_duration') else None,
+                'prompt_eval_count': result.get('prompt_eval_count'),
+                'prompt_eval_duration_s': result.get('prompt_eval_duration', 0) / 1_000_000_000 if result.get('prompt_eval_duration') else None,
+                'eval_count': result.get('eval_count'),
+                'eval_duration_s': result.get('eval_duration', 0) / 1_000_000_000 if result.get('eval_duration') else None,
+            }
+        
+        # Save raw request if enabled
+        if save_raw_request:
+            result_dict['raw_request'] = {
+                'url': url,
+                'model': payload['model'],
+                'prompt': payload['prompt'],
+                'image_size_bytes': len(image_base64),
+                'options': payload.get('options', {})
+            }
+        
         # Add image metadata if available
         if width and height:
             result_dict['image_info'] = {
@@ -227,13 +403,28 @@ def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
     except requests.exceptions.RequestException as e:
         elapsed_time = time.time() - start_time
         
+        if verbose:
+            print(f"  Request failed after {elapsed_time:.2f}s")
+            print(f"  Error type: {type(e).__name__}")
+        
         result_dict = {
             'image_path': image_path,
             'timestamp': datetime.now().isoformat(),
             'processing_time': round(elapsed_time, 2),
             'error': str(e),
+            'error_type': type(e).__name__,
             'words': []
         }
+        
+        # Save raw request on error if enabled
+        if save_raw_request:
+            result_dict['raw_request'] = {
+                'url': url,
+                'model': payload['model'],
+                'prompt': payload['prompt'],
+                'image_size_bytes': len(image_base64),
+                'options': payload.get('options', {})
+            }
         
         # Add image metadata even on error
         if width and height:
@@ -253,6 +444,9 @@ def extract_words_from_response(response_text: str) -> List[str]:
     Extract words list from model response.
     Tries to parse JSON array, falls back to text splitting.
     """
+    if not response_text or not response_text.strip():
+        return []
+    
     try:
         # Try to find JSON array in response
         start = response_text.find('[')
@@ -262,18 +456,90 @@ def extract_words_from_response(response_text: str) -> List[str]:
             json_str = response_text[start:end]
             words = json.loads(json_str)
             if isinstance(words, list):
-                return [str(w).strip() for w in words if w]
+                # Clean and filter words from JSON
+                cleaned_words = []
+                for w in words:
+                    if w:
+                        cleaned = clean_word(str(w))
+                        if cleaned:
+                            cleaned_words.append(cleaned)
+                return cleaned_words
     except (json.JSONDecodeError, ValueError):
         pass
     
-    # Fallback: split by whitespace and common delimiters
+    # Fallback: aggressive text extraction
     words = []
-    for line in response_text.split('\n'):
+    lines = response_text.split('\n')
+    
+    for line in lines:
         line = line.strip()
-        if line and not line.startswith('{') and not line.startswith('['):
-            words.extend(line.split())
+        
+        # Skip empty lines and common response patterns
+        if not line:
+            continue
+        
+        # Skip lines that look like explanations or markdown
+        skip_patterns = [
+            'the image', 'i see', 'i can see', 'this is', 'there is', 'there are',
+            'the text', 'words are', 'contains', 'appears to', 'seems to',
+            '#', '*', '**', '```', 'json', 'array', '---', '===',
+            'note:', 'warning:', 'important:'
+        ]
+        
+        if any(pattern in line.lower() for pattern in skip_patterns):
+            continue
+        
+        # Skip lines that are pure JSON/code syntax
+        if line in ['{', '}', '[', ']', ',']:
+            continue
+        
+        # Extract actual words
+        import re
+        # Split by whitespace and common delimiters
+        extracted = re.findall(r"[^\s,;|]+", line)
+        
+        for word in extracted:
+            cleaned = clean_word(word)
+            if cleaned:
+                words.append(cleaned)
     
     return words
+
+
+def clean_word(word: str) -> str:
+    """
+    Clean a word by removing unwanted punctuation and validating.
+    
+    Args:
+        word: Raw word string
+    
+    Returns:
+        Cleaned word or empty string if invalid
+    """
+    if not word:
+        return ""
+    
+    # Remove leading/trailing quotes, brackets, parentheses
+    word = word.strip('",[](){}*_-+=<>/')
+    
+    # Remove leading/trailing punctuation but preserve internal punctuation
+    # Keep: apostrophes, hyphens, periods (for abbreviations)
+    # Remove: leading/trailing ? ! . , : ;
+    word = word.strip('?!.,;:')
+    
+    # Skip if word is now empty
+    if not word:
+        return ""
+    
+    # Skip if word is only punctuation
+    if all(c in '?!.,;:+-=*/\\|@#$%^&*()[]{}' for c in word):
+        return ""
+    
+    # Skip very short "words" that are likely noise (but keep 1-2 char words that have letters)
+    if len(word) <= 2 and not any(c.isalpha() for c in word):
+        return ""
+    
+    return word
 
 
 def process_images(config: Dict[str, Any], input_dir: str = None) -> List[Dict[str, Any]]:
@@ -364,24 +630,67 @@ def main():
     # Load configuration
     config = load_config()
     
-    print("=== Ollama OCR ===")
-    print(f"Model: {config['ollama_ocr']['model']}")
-    print(f"Text Type: {config['ollama_ocr']['text_type']}")
-    print(f"Analysis Scope: {config['ollama_ocr']['analysis_scope']}")
-    print(f"Language: {config['ollama_ocr']['language']}")
-    print()
+    # Setup logging to file
+    output_dir = Path(config['ollama_ocr']['output_dir'])
+    output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Process images
-    results = process_images(config)
+    log_file = output_dir / f"ocr_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
     
-    # Save results if configured
-    if results and config['ollama_ocr']['save_response']:
-        save_results(results, config)
+    # Redirect stdout to both console and file
+    tee = TeeOutput(log_file)
+    old_stdout = sys.stdout
+    sys.stdout = tee
     
-    # Print summary
-    print("\n=== Summary ===")
-    print(f"Total images processed: {len(results)}")
-    print(f"Total words found: {sum(r.get('word_count', 0) for r in results)}")
+    verbose = config['ollama_ocr'].get('verbose_logging', False)
+    
+    try:
+        print("=== Ollama OCR ===")
+        print(f"Log file: {log_file}")
+        print(f"Model: {config['ollama_ocr']['model']}")
+        print(f"Text Type: {config['ollama_ocr']['text_type']}")
+        print(f"Analysis Scope: {config['ollama_ocr']['analysis_scope']}")
+        print(f"Language: {config['ollama_ocr']['language']}")
+        print(f"Verbose logging: {verbose}")
+        print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print()
+        
+        # Process images
+        results = process_images(config)
+        
+        # Save results if configured
+        if results and config['ollama_ocr']['save_response']:
+            save_results(results, config)
+        
+        # Print summary
+        print("\n=== Summary ===")
+        print(f"Total images processed: {len(results)}")
+        print(f"Total words found: {sum(r.get('word_count', 0) for r in results)}")
+        
+        if verbose:
+            successful = [r for r in results if 'error' not in r]
+            if successful:
+                avg_time = sum(r['processing_time'] for r in successful) / len(successful)
+                print(f"Average processing time: {avg_time:.6f}s")
+                
+                # If model_info available, show token stats
+                with_tokens = [r for r in successful if 'model_info' in r and r['model_info'].get('eval_count')]
+                if with_tokens:
+                    avg_tokens = sum(r['model_info']['eval_count'] for r in with_tokens) / len(with_tokens)
+                    print(f"Average tokens generated: {avg_tokens:.2f}")
+                    
+                    # Show average prompt tokens if available
+                    with_prompt_tokens = [r for r in with_tokens if r['model_info'].get('prompt_eval_count')]
+                    if with_prompt_tokens:
+                        avg_prompt_tokens = sum(r['model_info']['prompt_eval_count'] for r in with_prompt_tokens) / len(with_prompt_tokens)
+                        print(f"Average prompt tokens: {avg_prompt_tokens:.2f}")
+        
+        print(f"End time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"\n✓ Log saved to: {log_file}")
+    
+    finally:
+        # Restore stdout and close log file
+        sys.stdout = old_stdout
+        tee.close()
 
 
 if __name__ == "__main__":

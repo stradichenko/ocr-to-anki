@@ -75,6 +75,11 @@ ollama_ocr:
   highlight_color: "yellow"  # Color to focus on if analysis_scope is "highlighted" (options: yellow, orange, blue, green, purple, red)
   language: "detect"  # Language to expect (options: detect, english, japanese, spanish, french, etc., default: detect)
   
+  # Debug settings
+  verbose_logging: true  # Log detailed model information (options: true, false, default: false)
+  save_raw_request: true  # Save complete API request payload (options: true, false, default: false)
+  save_model_info: true  # Save model metadata from responses (options: true, false, default: false)
+  
   # Output settings
   output_dir: "data/ollama_ocr_results"  # Directory for OCR results (default: "data/ollama_ocr_results")
   save_response: true  # Save full model response to JSON (options: true, false, default: true)

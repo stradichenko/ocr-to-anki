@@ -209,3 +209,51 @@ ollama list
 - **Preserves existing tags**: Keeps any tags from input
 - **Error handling**: Gracefully handles timeouts and errors
 - **Sample creation**: Auto-creates sample input if none exists
+
+### 7. Image Inspection Tool (`test_image_inspect.py`)
+
+**Diagnose why OCR returns empty results** by analyzing image properties.
+
+```bash
+python tests/test_image_inspect.py
+```
+
+**What it analyzes:**
+- Image dimensions and format
+- Color distribution and brightness
+- Contrast levels
+- Edge detection (content density)
+- Whether image is blank/uniform
+
+**Output:**
+- Detailed statistics about image properties
+- Visual warning for problematic characteristics
+- Saves analysis visualizations:
+  - `_original.jpg` - Resized view
+  - `_grayscale.jpg` - B&W conversion
+  - `_contrast.jpg` - High contrast version
+  - `_edges.jpg` - Edge detection
+
+**When to use:**
+- When OCR returns empty/blank responses
+- To verify image actually contains text
+- Before spending time on OCR debugging
+- To check image quality issues
+
+**Common findings:**
+- **Blank image**: Uniform color, no edges detected
+- **Low contrast**: Text same color as background
+- **Overexposed**: Brightness > 200, washed out
+- **Underexposed**: Brightness < 50, too dark
+
+### 8. Image Debug Tool (`test_image_debug.py`)
+
+**Test multiple OCR configurations** on problematic images.
+
+```bash
+python tests/test_image_debug.py
+```
+
+Tests 6 different approaches to find what works best.
+
+**Use after** `test_image_inspect.py` confirms image has content.
