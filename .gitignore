@@ -29,6 +29,9 @@ env/
 ENV/
 .venv
 
+# files created in the pipeline.
+*.json
+
 # IDE
 .vscode/
 .idea/

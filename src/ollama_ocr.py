@@ -125,36 +125,25 @@ def build_ocr_prompt(config: Dict[str, Any]) -> str:
     highlight_color = config['ollama_ocr']['highlight_color']
     language = config['ollama_ocr']['language']
     
-    # Start with clear OCR instructions
-    prompt = "You are an OCR system. Your ONLY job is to extract visible text from images.\n\n"
+    # Use conversational style - more natural for models
+    prompt = "Can you do OCR of this image? "
     
-    # Text type specification
-    if text_type == "detect":
-        prompt += "Detect whether the text is handwritten or printed. "
-    elif text_type == "handwritten":
-        prompt += "This image contains handwritten text. "
+    # Add specific instructions based on config
+    if text_type == "handwritten":
+        prompt += "This is handwritten text. "
     elif text_type == "printed":
-        prompt += "This image contains printed/typed text. "
+        prompt += "This is printed/typed text. "
     
-    # Analysis scope specification
     if analysis_scope == "highlighted":
-        prompt += f"Focus ONLY on text that is highlighted in {highlight_color}. "
+        prompt += f"Please extract only the text highlighted in {highlight_color}. "
     else:
-        prompt += "Extract ALL visible text from the entire image. "
+        prompt += "Please extract all visible text. "
     
-    # Language specification
-    if language == "detect":
-        prompt += "The text may be in any language. "
-    else:
+    if language != "detect":
         prompt += f"The text is in {language}. "
     
-    # Critical output format instructions
-    prompt += "\n\nIMPORTANT: Return ONLY a JSON array of words. "
-    prompt += "Do NOT add explanations, descriptions, or any other text. "
-    prompt += 'Example format: ["word1", "word2", "word3"] '
-    prompt += "If you cannot read any text, return an empty array: [] "
-    prompt += "\nDo NOT explain what you see. Do NOT write sentences about the image. "
-    prompt += "ONLY return the JSON array of extracted words."
+    # Request structured output for easier parsing
+    prompt += "\nPlease list each word on a separate line, or provide a JSON array of words."
     
     return prompt
 
@@ -203,7 +192,7 @@ def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
         estimated_prompt_tokens = len(prompt) // 4
         print(f"  Estimated text prompt tokens: ~{estimated_prompt_tokens}")
     
-    # Prepare request payload with increased limits
+    # tune model parameters for OCR
     payload = {
         "model": ollama_config['model'],
         "prompt": prompt,
@@ -211,17 +200,18 @@ def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
         "stream": False, # iterative output not needed for OCR
         "options": {
             "num_ctx": 4096,  # Context window: prompt + response
-            "num_predict": 4096,  # Increased max tokens - allow model to complete response
-            "presence_penalty": 0.0,  # Penalizes tokens based on whether they've appeared at all (regardless of frequency). vocabulary diversity.
-            "temperature": 0.1,  # Lower temperature for more consistent output
-            "top_k": 40,  # Top-K sampling: limits token pool (range: 1-100, default: 40)
-            "top_p": 0.9,  # Nucleus sampling: cumulative probability threshold (range: 0-1, default: 0.9). 
-            "repeat_penalty": 1.2,  # Penalize token repetition (range: 0-2, default: 1.0, >1 reduces repetition)
+            "num_predict": 2048,  # Increased max tokens - allow model to complete response
+            "presence_penalty": 0.0,  # Penalizes tokens based on whether they've appeared at all (regardless of frequency). Discourage repetition.
+            "temperature": 0.0,  # Lower temperature for more consistent output
+            "top_k": 1,  # Top-K sampling: limits token pool (range: 1-100, default: 40). Lower means less random.
+            "top_p": 1,  # Nucleus sampling: cumulative probability threshold (range: 0-1, default: 0.9). More means diverse output.
+            "repeat_penalty": 1.05,  # Penalize token repetition (range: 0-2, default: 1.0, >1 reduces repetition)
             "stop": ["]\n\n", "</s>", "\n\n\n"],  # Multiple stop sequences to prevent rambling
             "num_gpu": -1,  # Use all available GPUs (RANGE: -1 to 8, default: -1)
-            "num_batch": 1024#,  # Increase batch size for processing larger inputs efficiently (default: 512, Range: 1-2048)
+            "num_batch": 1024  # Increase batch size for processing larger inputs efficiently (default: 512, Range: 1-2048)
             #"thinking": False,  # Enable 'thinking' field for debugging"
             #"reasoning": False  # Enable 'reasoning' field for debugging"
+            #"enable_thinking": False  # Disables thinking mode
         }
     }
     
@@ -253,14 +243,14 @@ def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
         # DEBUG: Print the entire result structure
         if verbose:
             print(f"  Full result keys: {list(result.keys())}")
-            print(f"  Full result (first 500 chars): {str(result)[:500]}")
+            print(f"  Full result (first 1000 chars): {str(result)[:1000]}")
             
             # Check what's actually in 'response' field
             if 'response' in result:
                 resp = result['response']
                 print(f"  'response' type: {type(resp)}")
                 print(f"  'response' length: {len(resp) if resp else 0}")
-                print(f"  'response' repr: {repr(resp)[:500]}")
+                print(f"  'response' repr: {repr(resp)[:1000]}")
                 
                 # Check for non-printable characters
                 if resp:
@@ -362,6 +352,7 @@ def perform_ocr(image_path: str, config: Dict[str, Any]) -> Dict[str, Any]:
             },
             'prompt': prompt,
             'raw_response': response_text,
+            'thinking': thinking_text if thinking_text else None,  # ADD THIS
             'words': words,
             'word_count': len(words)
         }
@@ -608,6 +599,17 @@ def save_results(results: List[Dict[str, Any]], config: Dict[str, Any]):
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
     
+    # Collect all words from all images
+    all_words = []
+    for result in results:
+        all_words.extend(result.get('words', []))
+    
+    # Save all words as plain text (one per line) for easy piping
+    words_file = output_dir / f"all_words_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    with open(words_file, 'w', encoding='utf-8') as f:
+        for word in all_words:
+            f.write(f"{word}\n")
+    
     # Save summary
     summary_file = output_dir / f"ocr_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     summary = {
@@ -615,6 +617,7 @@ def save_results(results: List[Dict[str, Any]], config: Dict[str, Any]):
         'successful': len([r for r in results if 'error' not in r]),
         'failed': len([r for r in results if 'error' in r]),
         'total_words': sum(r.get('word_count', 0) for r in results),
+        'unique_words': len(set(all_words)),
         'results': results
     }
     
@@ -623,6 +626,9 @@ def save_results(results: List[Dict[str, Any]], config: Dict[str, Any]):
     
     print(f"\nResults saved to: {output_dir}")
     print(f"Summary: {summary_file}")
+    print(f"All words: {words_file}")
+    print(f"\nTo convert to Anki format:")
+    print(f"  python src/ocr_to_json.py -i {words_file} -o anki_notes.json --pretty")
 
 
 def main():
