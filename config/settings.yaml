@@ -90,8 +90,8 @@ gemma_enricher:
   timeout: 60  # Request timeout in seconds (default: 60)
   
   # Language settings
-  definition_language: "english"  # Language for definitions (options: english, spanish, french, japanese, etc.)
-  examples_language: "english"  # Language for example phrases (options: english, spanish, french, japanese, etc.)
+  definition_language: "italian"  # Language for definitions (options: english, spanish, french, japanese, etc.)
+  examples_language: "italian"  # Language for example phrases (options: english, spanish, french, japanese, etc.)
   
   # Processing settings
   batch_size: 5  # Number of words to process at once (default: 5)

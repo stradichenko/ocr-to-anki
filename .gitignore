@@ -77,6 +77,8 @@ tests/crop_enhanced_results.json
 tests/test_enhanced_results.json
 tests/enhanced_images/*
 tests/enhanced_sections/*
+logs/*
+
 
 # Logs
 *.log

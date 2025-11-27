@@ -257,3 +257,103 @@ python tests/test_image_debug.py
 Tests 6 different approaches to find what works best.
 
 **Use after** `test_image_inspect.py` confirms image has content.
+
+### 9. Gemma3:4b Vocabulary Enricher (`test_gemma_vocabulary_enricher.py`)
+
+**Automatically enrich Anki vocabulary** with definitions and examples using Gemma3:4b AI.
+
+```bash
+python tests/test_gemma_vocabulary_enricher.py
+```
+
+**What it does:**
+- Reads notes.json file (output from ocr_to_json.py)
+- Generates clear definitions in configured language (from settings.yaml)
+- Creates 2 natural example sentences in configured language
+- Uses conversational prompts for better Gemma responses
+- Adds enrichment metadata tags
+- Saves detailed logs for debugging
+
+**Prerequisites:**
+```bash
+# Install Gemma3:4b model (larger, more capable)
+ollama pull gemma3:4b
+
+# Verify it's available
+ollama list | grep gemma3:4b
+```
+
+**Input format** (`notes.json`):
+```json
+{
+  "notes": [
+    {
+      "fields": {"Front": "coûta", "Back": ""},
+      "tags": ["ocr"]
+    }
+  ]
+}
+```
+
+**Output format** (`tests/enriched_vocabulary/enriched_notes_TIMESTAMP.json`):
+```json
+{
+  "notes": [
+    {
+      "fields": {
+        "Front": "coûta",
+        "Back": "Definition: Past tense of 'coûter', meaning to cost or require payment.\n\nExamples:\n1. Cette voiture m'a coûté très cher.\n2. Le voyage nous a coûté mille euros."
+      },
+      "tags": ["ocr", "gemma-enriched", "def-lang:english", "ex-lang:english"]
+    }
+  ]
+}
+```
+
+**Features:**
+- **Conversational prompts**: Better responses from Gemma
+- **Batch processing**: Processes words in groups with pauses
+- **Detailed logging**: Every request/response saved to logs/
+- **Progress tracking**: Real-time progress with percentage
+- **Error handling**: Gracefully handles timeouts and failures
+- **Language configuration**: Uses settings from config/settings.yaml
+
+**Configuration** (in `config/settings.yaml`):
+```yaml
+gemma_enricher:
+  definition_language: "english"  # Language for definitions
+  examples_language: "english"    # Language for example sentences
+```
+
+**When to use:**
+- After OCR extraction to add context to vocabulary
+- To prepare flashcards with complete information
+- When you need definitions and usage examples
+- For language learning material preparation
+
+**Performance:**
+- Processing time: ~10-15s per word
+- Includes 2s pause between definition and examples
+- 5s pause between batches (default: 3 words)
+- Test mode processes first 5 words only
+
+**Logs and debugging:**
+- Main log: `logs/gemma_enrichment_TIMESTAMP/enrichment.log`
+- Per-word logs: `logs/gemma_enrichment_TIMESTAMP/[word]_definition.json`
+- Per-word logs: `logs/gemma_enrichment_TIMESTAMP/[word]_examples.json`
+- Summary: `logs/gemma_enrichment_TIMESTAMP/summary.txt`
+
+**Example workflow:**
+```bash
+# 1. Extract text from image
+python src/ocr_image.py image.jpg > extracted.txt
+
+# 2. Convert to Anki notes
+python src/ocr_to_json.py -i extracted.txt -o notes.json
+
+# 3. Enrich with definitions and examples
+python tests/test_gemma_vocabulary_enricher.py
+
+# 4. Import enriched notes to Anki
+python src/anki_importer.py tests/enriched_vocabulary/enriched_notes_*.json
+```

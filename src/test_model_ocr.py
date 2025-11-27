@@ -162,7 +162,7 @@ If no text is visible, return: []"""
 
 def test_deepseek_ocr(image_path: str, url: str = "http://localhost:11434", 
                       model: str = "deepseek-ocr:latest", max_width: int = 800,
-                      prompt_style: str = "simple", quiet: bool = False):
+                      prompt_style: str = "simple"):
     """
     Test OCR on a single image using any Ollama vision model.
     
@@ -172,30 +172,27 @@ def test_deepseek_ocr(image_path: str, url: str = "http://localhost:11434",
         model: Model name to use
         max_width: Maximum image width for resizing
         prompt_style: Prompt style ('simple', 'detailed', or 'json')
-        quiet: If True, only output words (for piping)
     """
-    if not quiet:
-        print("=== Ollama Vision OCR Test ===")
-        print(f"Model: {model}")
-        print(f"Image: {image_path}")
-        print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    print("=== Ollama Vision OCR Test ===")
+    print(f"Model: {model}")
+    print(f"Image: {image_path}")
+    print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
     
     # Check if model is available
     model_available = check_model_available(url, model)
     if not model_available:
-        if not quiet:
-            print(f"⚠️ Warning: Model '{model}' not found in available models.")
-            print(f"You may need to pull it first: ollama pull {model}\n")
-        return []
+        print(f"⚠️ Warning: Model '{model}' not found in available models.")
+        print(f"You may need to pull it first: ollama pull {model}\n")
+        return
     
-    # Verify model health (skip if quiet mode)
-    if not quiet and not verify_model_health(url, model):
+    # Verify model health
+    if not verify_model_health(url, model):
         print(f"❌ Model '{model}' failed health check. The model may be corrupted.")
         print(f"\nRecommended fix:")
         print(f"1. Remove the corrupted model: ollama rm {model}")
         print(f"2. Re-pull the model: ollama pull {model}")
         print(f"3. Run this test again\n")
-        return []
+        return
     
     # Check if image exists
     if not os.path.exists(image_path):
@@ -269,8 +266,7 @@ def test_deepseek_ocr(image_path: str, url: str = "http://localhost:11434",
         response.raise_for_status()
         result = response.json()
         
-        if not quiet:
-            print(f"✓ Completed in {elapsed_time:.2f}s\n")
+        print(f"✓ Completed in {elapsed_time:.2f}s\n")
         
         # Check if model hit token limit
         done_reason = result.get('done_reason', '')
@@ -539,77 +535,56 @@ def main():
     # Default values
     default_model = "gemma2:2b"
     default_image = "data/images/handwritten.jpeg"
-    default_prompt_style = "conversational"
+    default_prompt_style = "conversational"  # Changed from "simple"
     
     # Parse command line arguments
     model = default_model
     image_path = default_image
     prompt_style = default_prompt_style
-    quiet = False
-    words_only = False
     
-    # Handle flags
-    args = []
-    for arg in sys.argv[1:]:
-        if arg in ['-q', '--quiet']:
-            quiet = True
-        elif arg in ['-w', '--words-only']:
-            words_only = True
-        elif arg not in ['-h', '--help', 'help']:
-            args.append(arg)
+    if len(sys.argv) > 1:
+        model = sys.argv[1]
     
-    if len(args) > 0:
-        model = args[0]
+    if len(sys.argv) > 2:
+        image_path = sys.argv[2]
     
-    if len(args) > 1:
-        image_path = args[1]
-    
-    if len(args) > 2:
-        prompt_style = args[2]
+    if len(sys.argv) > 3:
+        prompt_style = sys.argv[3]
     
     # Show usage if help requested
-    if sys.argv[1] if len(sys.argv) > 1 else "" in ['-h', '--help', 'help']:
-        print("Usage: python src/test_model_ocr.py [OPTIONS] [MODEL] [IMAGE_PATH] [PROMPT_STYLE]")
-        print()
-        print("Options:")
-        print("  -q, --quiet       Suppress verbose output")
-        print("  -w, --words-only  Output only words (one per line) for piping")
+    if model in ['-h', '--help', 'help']:
+        print("Usage: python src/test_model_ocr.py [MODEL] [IMAGE_PATH] [PROMPT_STYLE]")
         print()
         print("Arguments:")
         print("  MODEL         Ollama model to use (default: gemma2:2b)")
         print("                Examples: gemma3:4b, deepseek-ocr:latest, qwen2-vl:2b")
         print("  IMAGE_PATH    Path to image file (default: data/images/handwritten.jpeg)")
         print("  PROMPT_STYLE  Prompt style (default: conversational)")
-        print("                Options: conversational, simple, detailed, json")
+        print("                Options:")
+        print("                  conversational - Natural chat style (recommended)")
+        print("                  simple        - Direct instruction")
+        print("                  detailed      - Emphasis on accuracy")
+        print("                  json          - Structured JSON output")
         print()
         print("Examples:")
-        print("  # Normal usage")
-        print("  python src/test_model_ocr.py gemma3:4b data/images/test.jpg")
+        print("  python src/test_model_ocr.py gemma3:4b")
+        print("  python src/test_model_ocr.py gemma3:4b data/images/test.jpg conversational")
+        print("  python src/test_model_ocr.py gemma3:4b data/images/test.jpg detailed")
         print()
-        print("  # Quiet mode (less output)")
-        print("  python src/test_model_ocr.py -q gemma3:4b data/images/test.jpg")
-        print()
-        print("  # Pipe to ocr_to_json.py")
-        print("  python src/test_model_ocr.py -w gemma3:4b data/images/test.jpg | python src/ocr_to_json.py -o notes.json")
-        print()
-        print("  # Complete pipeline")
-        print("  python src/test_model_ocr.py --words-only gemma3:4b image.jpg | python src/ocr_to_json.py --pretty | python src/import_to_anki.py")
+        print("Comparison:")
+        print("  Test different prompts on same model:")
+        print("    python src/test_model_ocr.py gemma3:4b data/images/test.jpg conversational")
+        print("    python src/test_model_ocr.py gemma3:4b data/images/test.jpg simple")
+        print("    python src/test_model_ocr.py gemma3:4b data/images/test.jpg detailed")
         return
     
-    # Run OCR
-    words = test_deepseek_ocr(
+    test_deepseek_ocr(
         image_path=image_path,
         url="http://localhost:11434",
         model=model,
         max_width=800,
-        prompt_style=prompt_style,
-        quiet=quiet or words_only
+        prompt_style=prompt_style
     )
-    
-    # Output words for piping
-    if words_only and words:
-        for word in words:
-            print(word)
 
 
 if __name__ == "__main__":

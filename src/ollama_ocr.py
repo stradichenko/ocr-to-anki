@@ -599,17 +599,6 @@ def save_results(results: List[Dict[str, Any]], config: Dict[str, Any]):
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
     
-    # Collect all words from all images
-    all_words = []
-    for result in results:
-        all_words.extend(result.get('words', []))
-    
-    # Save all words as plain text (one per line) for easy piping
-    words_file = output_dir / f"all_words_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    with open(words_file, 'w', encoding='utf-8') as f:
-        for word in all_words:
-            f.write(f"{word}\n")
-    
     # Save summary
     summary_file = output_dir / f"ocr_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     summary = {
@@ -617,7 +606,6 @@ def save_results(results: List[Dict[str, Any]], config: Dict[str, Any]):
         'successful': len([r for r in results if 'error' not in r]),
         'failed': len([r for r in results if 'error' in r]),
         'total_words': sum(r.get('word_count', 0) for r in results),
-        'unique_words': len(set(all_words)),
         'results': results
     }
     
@@ -626,9 +614,6 @@ def save_results(results: List[Dict[str, Any]], config: Dict[str, Any]):
     
     print(f"\nResults saved to: {output_dir}")
     print(f"Summary: {summary_file}")
-    print(f"All words: {words_file}")
-    print(f"\nTo convert to Anki format:")
-    print(f"  python src/ocr_to_json.py -i {words_file} -o anki_notes.json --pretty")
 
 
 def main():

@@ -24,7 +24,7 @@ def load_config(config_path: str = "config/settings.yaml") -> dict:
 def parse_terms(text: str) -> list[str]:
     """
     Parse text into individual terms (words).
-    Handles hyphenation at line breaks and apostrophes.
+    Handles hyphenation at line breaks, apostrophes, and comma-separated words.
     
     Args:
         text: Input text containing terms
@@ -33,25 +33,26 @@ def parse_terms(text: str) -> list[str]:
         List of individual terms
     """
     # First, handle hyphenated words at line breaks (word- \n word -> word)
-    # Match word ending with hyphen followed by whitespace and continuation
     text = re.sub(r'(\w+)-\s+(\w+)', r'\1\2', text)
     
-    # Also handle apostrophes that might be split
+    # Handle apostrophes that might be split
     text = re.sub(r"(\w+)'\s+(\w+)", r"\1'\2", text)
     
-    # Split on whitespace and punctuation, but keep words intact
-    # This regex splits on spaces, newlines, and most punctuation except hyphens and apostrophes within words
+    # Split on whitespace, newlines, and commas
+    # This regex finds words, preserving internal hyphens and apostrophes
     words = re.findall(r"\b[\w'-]+\b", text)
     
-    # Filter out very short words (single letters/numbers) and clean up
+    # Filter and clean
     terms = []
     for word in words:
-        word = word.strip("'-")  # Remove leading/trailing hyphens and apostrophes
-        # Keep words that are at least 2 characters or are meaningful single characters
+        # Remove leading/trailing hyphens, apostrophes, and quotes
+        word = word.strip("'-\"")
+        
+        # Keep words that are at least 2 characters
         if len(word) >= 2:
             terms.append(word)
     
-    # Remove duplicates while preserving order
+    # Remove duplicates while preserving order (case-insensitive)
     seen = set()
     unique_terms = []
     for term in terms:
