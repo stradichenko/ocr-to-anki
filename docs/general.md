@@ -192,3 +192,76 @@ nvidia-smi  # For NVIDIA GPUs
 ollama pull llava:7b
 # Then update config to use llava:7b
 ```
+
+## llama.cpp Offline Inference
+
+### Why llama.cpp Instead of Ollama?
+
+**Privacy & Offline:**
+- llama.cpp: Fully offline after initial setup, no telemetry
+- Ollama: Requires internet for model downloads, may phone home
+
+**Performance:**
+- llama.cpp: Direct GGUF inference, optimized for CPU/GPU
+- Ollama: Additional abstraction layer
+
+**Control:**
+- llama.cpp: Full control over model parameters and memory
+- Ollama: Managed service with less configurability
+
+### Setup Issues
+
+**Model download fails:**
+```bash
+# Try with curl instead of wget
+curl -L -o ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0.gguf \
+  https://huggingface.co/fernandoruiz/gemma-3-4b-it-Q4_0-GGUF/resolve/main/gemma-3-4b-it-q4_0.gguf
+```
+
+**Server won't start:**
+```bash
+# Check if llama-server is available
+which llama-server
+
+# If not, ensure you're in Nix shell
+nix develop
+
+# Check model exists
+ls -lh ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0.gguf
+```
+
+**Slow generation (CPU only):**
+```yaml
+# In config/settings.yaml, reduce context size
+llama_cpp:
+  context_size: 2048  # Down from 4096
+  max_tokens: 256     # Limit response length
+```
+
+**Out of memory errors:**
+```yaml
+# Reduce GPU layers for lower VRAM usage
+llama_cpp:
+  n_gpu_layers: 20  # Instead of -1 (all layers)
+```
+
+### Performance Tuning
+
+**CPU Optimization:**
+```bash
+# Use BLAS acceleration (if available)
+llama-server --model model.gguf --threads $(nproc)
+```
+
+**GPU Optimization:**
+```yaml
+# Maximize GPU usage
+llama_cpp:
+  n_gpu_layers: -1      # All layers on GPU
+  context_size: 8192    # Larger context
+```
+
+**Memory vs Speed Trade-off:**
+- Q4_0: Balanced (recommended)
+- Q8_0: Higher quality, 2x larger
+- Q2_K: Smaller, faster, lower quality

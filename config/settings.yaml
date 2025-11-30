@@ -18,7 +18,6 @@ logging:
   show_progress: true  # Display progress indicators (options: true, false)
 
 ocr:
-  tesseract_cmd: "tesseract"  # Path to Tesseract executable (default: "tesseract")
   default_language: "eng"  # OCR language code (default: "eng", e.g., jpn, spa, fra)
   psm: 3  # Page segmentation mode (default: 3, range: 0-13)
   oem: 3  # OCR Engine mode (default: 3, range: 0-3)
@@ -61,28 +60,25 @@ image_preprocessing:
   output_format: "png"  # Image format for processed files (options: png, jpg, tiff, default: png)
   output_quality: 2  # Compression quality (default: 2, range: 1-31 for JPEG/PNG, lower = better)
 
-ollama_ocr:
-  model: "qwen3-vl:2b"  # Ollama model to use for OCR (default: "qwen3-vl:2b")
-  url: "http://localhost:11434"  # Ollama server URL (default: http://localhost:11434)
-  timeout: 3600  # Request timeout in seconds (default: 60)
+# AI Backend Selection
+ai_backend:
+  # Options: 'ollama', 'llama_cpp', 'vllm'
+  type: 'llama_cpp'  # Change to 'llama_cpp' for fully offline mode
+
+# llama.cpp Configuration (fully offline, no internet)
+llama_cpp:
+  host: '127.0.0.1'
+  port: 8080
+  context_size: 4096
+  n_gpu_layers: -1  # -1 = use all GPU layers
   
-  # Image processing
-  max_image_width: 600  # Maximum image width in pixels before OCR (default: 600, lower = faster but less detail)
-  
-  # OCR prompt configuration
-  text_type: "detect"  # Text type to look for (options: detect, handwritten, printed, default: detect)
-  analysis_scope: "whole"  # What to analyze (options: whole, highlighted, default: whole)
-  highlight_color: "yellow"  # Color to focus on if analysis_scope is "highlighted" (options: yellow, orange, blue, green, purple, red)
-  language: "detect"  # Language to expect (options: detect, english, japanese, spanish, french, etc., default: detect)
-  
-  # Debug settings
-  verbose_logging: true  # Log detailed model information (options: true, false, default: false)
-  save_raw_request: true  # Save complete API request payload (options: true, false, default: false)
-  save_model_info: true  # Save model metadata from responses (options: true, false, default: false)
-  
-  # Output settings
-  output_dir: "data/ollama_ocr_results"  # Directory for OCR results (default: "data/ollama_ocr_results")
-  save_response: true  # Save full model response to JSON (options: true, false, default: true)
+  # Generation parameters
+  temperature: 0.1
+  max_tokens: 512
+  top_k: 40
+  top_p: 0.9
+  repeat_penalty: 1.1
+  stop_sequences: ["\n\n\n", "</s>", "---"]
 
 gemma_enricher:
   model: "gemma3:1b"  # Ollama model to use for vocabulary enrichment (default: "gemma3:1b")

@@ -357,3 +357,52 @@ python tests/test_gemma_vocabulary_enricher.py
 # 4. Import enriched notes to Anki
 python src/anki_importer.py tests/enriched_vocabulary/enriched_notes_*.json
 ```
+
+### 10. llama.cpp Test (`test_llama_cpp.py`)
+
+**Test fully offline local inference** with llama.cpp and Gemma 3 4B.
+
+```bash
+python tests/test_llama_cpp.py
+```
+
+**What it tests:**
+- Basic text generation
+- OCR-style prompts for vocabulary extraction
+- Definition generation
+- Example sentence creation
+
+**Prerequisites:**
+```bash
+# Download model first
+./scripts/setup-llama-cpp.sh
+
+# Or check if already downloaded
+ls -lh ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0.gguf
+```
+
+**What it does:**
+- Starts llama.cpp server automatically
+- Tests 4 different prompt types
+- Measures response time for each
+- Verifies output quality
+- Shuts down server cleanly
+
+**Output:**
+- Real-time generation feedback
+- Performance metrics (tokens/sec)
+- Response content for manual review
+
+**When to use:**
+- After running setup-llama-cpp.sh
+- Before switching to llama.cpp backend in production
+- To verify offline inference works
+- To test prompt engineering changes
+
+**Expected results:**
+- Test 1 (basic): ~2-5s for simple question
+- Test 2 (OCR): ~5-10s for extraction prompt
+- Test 3 (definition): ~3-7s for vocabulary definition
+- Test 4 (examples): ~5-12s for sentence generation
+
+**Note:** First run may be slower as model loads into memory.

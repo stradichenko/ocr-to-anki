@@ -88,3 +88,8 @@ logs/*
 *.temp
 .cache/
 
+# Nix
+result
+result-*
+.direnv/
+
