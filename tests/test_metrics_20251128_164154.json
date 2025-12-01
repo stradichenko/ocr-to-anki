@@ -1,0 +1,79 @@
+{
+  "timestamp": "2025-11-28T16:41:54.191333",
+  "model": "/home/gespitia/.cache/llama.cpp/models/gemma-3-4b-it-q4_0.gguf",
+  "tests": [
+    {
+      "name": "Basic Text Generation",
+      "elapsed": 62.74543285369873,
+      "tokens": {
+        "prompt": 16,
+        "completion": 41,
+        "total": 57
+      },
+      "response_info": {
+        "type": "text",
+        "length": 160,
+        "word_count": 27,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 30
+    },
+    {
+      "name": "Vocabulary Extraction Prompt",
+      "elapsed": 50.51226472854614,
+      "tokens": {
+        "prompt": 53,
+        "completion": 34,
+        "total": 87
+      },
+      "response_info": {
+        "type": "text",
+        "length": 109,
+        "word_count": 19,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 183
+    },
+    {
+      "name": "Vocabulary Definition",
+      "elapsed": 32.54780888557434,
+      "tokens": {
+        "prompt": 60,
+        "completion": 21,
+        "total": 81
+      },
+      "response_info": {
+        "type": "text",
+        "length": 66,
+        "word_count": 12,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 226
+    },
+    {
+      "name": "Example Sentences",
+      "elapsed": 29.67221474647522,
+      "tokens": {
+        "prompt": 59,
+        "completion": 19,
+        "total": 78
+      },
+      "response_info": {
+        "type": "text",
+        "length": 61,
+        "word_count": 10,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 212
+    }
+  ],
+  "total_time": 175.48818373680115
+}

@@ -270,11 +270,56 @@
           };
         };
         
+        # Build llama-mtmd-cli from source (FIXED VERSION)
+        llama-mtmd-cli = pkgs.stdenv.mkDerivation rec {
+          pname = "llama-mtmd-cli";
+          version = "6981-647b960";
+          
+          src = pkgs.fetchFromGitHub {
+            owner = "ggerganov";
+            repo = "llama.cpp";
+            rev = "647b960cf5ec5497c7d3e2c3d4eb3b7ce5be34d2";
+            sha256 = "sha256-0000000000000000000000000000000000000000000=";
+          };
+          
+          nativeBuildInputs = with pkgs; [ cmake pkg-config ];
+          
+          buildInputs = with pkgs; [ ];
+          
+          cmakeFlags = [
+            "-DCMAKE_BUILD_TYPE=Release"
+            "-DGGML_LLAMAFILE=ON"
+            "-DGGML_OPENMP=ON"
+            "-DGGML_NATIVE=OFF"
+            "-DLLAMA_CURL=OFF"
+            "-DBUILD_SHARED_LIBS=OFF"  # Static linking to avoid library issues
+          ];
+          
+          buildPhase = ''
+            runHook preBuild
+            cmake -B build .
+            cmake --build build --config Release --target llama-mtmd-cli -j$NIX_BUILD_CORES
+            runHook postBuild
+          '';
+          
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/bin
+            cp build/bin/llama-mtmd-cli $out/bin/ || cp build/llama-mtmd-cli $out/bin/
+            chmod +x $out/bin/llama-mtmd-cli
+            runHook postInstall
+          '';
+          
+          meta = with pkgs.lib; {
+            description = "Multi-modal CLI for llama.cpp (Gemma 3 vision support)";
+            homepage = "https://github.com/ggerganov/llama.cpp";
+            license = licenses.mit;
+            platforms = platforms.unix;
+          };
+        };
+        
       in
       {
-        # Export llama-gemma3-cli as a package
-        packages.llama-gemma3-cli = llama-gemma3-cli;
-        
         devShells.default = pkgs.mkShell {
           packages = [
             pythonEnv
@@ -301,7 +346,7 @@
             # llama.cpp (includes llama-server and llama-cli)
             pkgs.llama-cpp
             
-            # Build dependencies for llama-gemma3-cli (user will build manually)
+            # Build dependencies
             pkgs.cmake
             pkgs.pkg-config
             pkgs.git
@@ -412,17 +457,20 @@
             LLAMAMTMD_BIN="$HOME/.local/bin/llama-mtmd-cli"
             
             echo "llama.cpp tools:"
-            echo "  • llama-server: ✅"
-            echo "  • llama-cli: ✅"
+            echo "  • llama-server: ✅ (from nixpkgs)"
+            echo "  • llama-cli: ✅ (from nixpkgs)"
             
-            if [ -f "$LLAMAMTMD_BIN" ]; then
-              echo "  • llama-mtmd-cli: ✅ (Gemma 3 vision)"
-              # On NixOS, ensure it's in PATH
-              export PATH="$HOME/.local/bin:$PATH"
+            if command -v llama-mtmd-cli >/dev/null 2>&1; then
+              # Check if it's actually working
+              if llama-mtmd-cli --version >/dev/null 2>&1; then
+                echo "  • llama-mtmd-cli: ✅ (manually built, working)"
+              else
+                echo "  • llama-mtmd-cli: ⚠️  (found but has library issues)"
+                echo "    Rebuild with: ./scripts/build-llama-gemma3-cli.sh"
+              fi
             else
-              echo "  • llama-mtmd-cli: ⚠️  not built"
+              echo "  • llama-mtmd-cli: ❌ (not found)"
               echo "    Build with: ./scripts/build-llama-gemma3-cli.sh"
-              echo "    (Script will build llama-mtmd-cli, the new multimodal CLI)"
             fi
             echo ""
           '';
@@ -499,8 +547,7 @@ EOF
             Labels = {
               "org.opencontainers.image.title" = "OCR to Anki";
               "org.opencontainers.image.description" = "GTK4 desktop application for extracting vocabulary from images using OCR and AI";
-              "org.opencontainers.image.source" = "https://github.com/stradichenko/anki-ocr-vocab-collector";
-              "org.opencontainers.image.version" = "0.1.0";
+              "org.opencontainers.image.source" = "https://github.com/stradichenko/anki-ocr-vocab-collector";              "org.opencontainers.image.version" = "0.1.0";
             };
           };
           

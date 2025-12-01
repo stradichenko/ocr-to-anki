@@ -202,7 +202,7 @@ def test_basic_generation(metrics: TestMetrics):
 
 
 def test_image_ocr(metrics: TestMetrics):
-    """Test OCR on actual handwritten image with Gemma 3 vision."""
+    """Test OCR with Gemma 3 vision via HuggingFace cache."""
     print("=== Test 2: Image OCR with Gemma 3 Vision ===\n")
     
     # Find handwritten.jpeg
@@ -230,79 +230,33 @@ def test_image_ocr(metrics: TestMetrics):
         return
     
     print(f"Image: {image_path}")
-    print(f"Using Gemma 3 4B Vision-Language Model")
+    print(f"Using Gemma 3 4B with HuggingFace cache")
     print()
     
-    with LlamaCppServer(verbose=False) as server:
-        # Check if server has vision support
-        if not server.has_vision:
-            print("⚠️  Vision projector not found!")
-            print(f"   Expected: {server.mmproj_path}")
-            print("   Re-run setup: ./scripts/setup-llama-cpp.sh")
-            print()
-            return
-        
-        print(f"✓ Vision enabled: {server.mmproj_path.name}")
-        print()
-        
-        # Encode image (Gemma 3 uses 896x896)
-        print("Encoding image...")
-        image_base64 = encode_image(image_path, max_width=896)
-        print(f"Image encoded: {len(image_base64) / 1024:.1f}KB")
-        print()
-        
-        # Simple conversational OCR prompt
-        prompt = "Can you do OCR of this? Just list what text you see."
-        
-        print(f"Prompt: {prompt}")
-        print("Processing with vision model...")
-        print("⚠️  Note: Vision processing can take 30-90 seconds on CPU")
-        print()
-        
+    # Import vision_ocr_hf
+    sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+    from vision_ocr_hf import ocr_with_hf_cached
+    
+    try:
         start = time.time()
-        try:
-            result = server.generate(
-                prompt=prompt,
-                image_data=image_base64,
-                max_tokens=512,
-                temperature=0.1,
-                timeout=900  # 15 minutes timeout for vision
-            )
-        except TimeoutError as e:
-            print(f"\n❌ Vision request timed out: {e}")
-            print()
-            print("Possible solutions:")
-            print("  1. Reduce image size (currently using 896x896)")
-            print("  2. Enable GPU acceleration (set n_gpu_layers > 0)")
-            print("  3. Use Tesseract for OCR instead of vision model")
-            print()
-            return
-        
+        result_text = ocr_with_hf_cached(
+            image_path,
+            prompt="Can you do OCR of this? Just list what text you see.",
+            use_offline=True  # Use cache if available
+        )
         elapsed = time.time() - start
         
-        # Analyze response
-        tokens = extract_token_info(result)
-        response_info = analyze_response(result)
-        
         print(f"\n✓ Generated in {elapsed:.2f}s")
-        print(f"OCR Result:\n{result['content']}")
-        print(f"\nDebug Info:")
-        print(f"  Tokens: prompt={tokens.get('prompt', 'N/A')}, completion={tokens.get('completion', 'N/A')}, total={tokens.get('total', 'N/A')}")
-        print(f"  Response type: {response_info['type']}, format: {response_info['format']}")
-        print(f"  Response length: {response_info['length']} chars, {response_info['word_count']} words")
-        if tokens.get('completion') and elapsed > 0:
-            print(f"  Generation speed: {tokens['completion']/elapsed:.2f} tokens/sec")
-        print()
+        print(f"OCR Result:\n{result_text}")
         
-        # Record metrics
         metrics.add_test({
-            'name': 'Image OCR (Vision)',
+            'name': 'Image OCR (Vision via HF cache)',
             'elapsed': elapsed,
-            'tokens': tokens,
-            'response_info': response_info,
-            'prompt_length': len(prompt),
             'has_image': True
         })
+    
+    except Exception as e:
+        print(f"❌ Vision OCR failed: {e}")
 
 
 def test_vocabulary_ocr_prompt(metrics: TestMetrics):

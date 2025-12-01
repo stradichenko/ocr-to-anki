@@ -70,22 +70,26 @@ data/ollama_ocr_results/*
 data/enriched_vocabulary/*
 data/vocabulary_input.json
 
-# Test outputs
+# Test outputs - KEEP metrics for analysis
 tests/test_result.json
 tests/cropped_test_results.json
 tests/crop_enhanced_results.json
 tests/test_enhanced_results.json
 tests/enhanced_images/*
 tests/enhanced_sections/*
-logs/*
 
+# But KEEP test_metrics_*.json for performance tracking
+!tests/test_metrics_*.json
 
 # Logs
 *.log
+logs/*
 
 # Temporary files
 *.tmp
 *.temp
+/tmp*.jpg
+/tmp*.jpeg
 .cache/
 
 # Nix

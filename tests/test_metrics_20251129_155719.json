@@ -1,0 +1,107 @@
+{
+  "timestamp": "2025-11-29T15:57:19.491846",
+  "model": {
+    "path": "/home/gespitia/.cache/llama.cpp/models/gemma-3-4b-it-q4_0.gguf",
+    "size_gb": 2.2010652124881744,
+    "type": "gemma3-vlm",
+    "has_vision": true
+  },
+  "vision_projector": {
+    "path": "/home/gespitia/.cache/llama.cpp/models/mmproj-model-f16-4B.gguf",
+    "size_gb": 0.7927893698215485
+  },
+  "tests": [
+    {
+      "name": "Basic Text Generation",
+      "elapsed": 65.72576069831848,
+      "tokens": {
+        "prompt": 16,
+        "completion": 41,
+        "total": 57
+      },
+      "response_info": {
+        "type": "text",
+        "length": 160,
+        "word_count": 27,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 30
+    },
+    {
+      "name": "Image OCR (Vision)",
+      "elapsed": 41.41053080558777,
+      "tokens": {
+        "prompt": 45,
+        "completion": 28,
+        "total": 73
+      },
+      "response_info": {
+        "type": "text",
+        "length": 97,
+        "word_count": 20,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 86,
+      "has_image": true
+    },
+    {
+      "name": "Vocabulary Extraction Prompt",
+      "elapsed": 40.843833684921265,
+      "tokens": {
+        "prompt": 53,
+        "completion": 26,
+        "total": 79
+      },
+      "response_info": {
+        "type": "text",
+        "length": 79,
+        "word_count": 12,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 183
+    },
+    {
+      "name": "Vocabulary Definition",
+      "elapsed": 33.1255886554718,
+      "tokens": {
+        "prompt": 60,
+        "completion": 21,
+        "total": 81
+      },
+      "response_info": {
+        "type": "text",
+        "length": 66,
+        "word_count": 12,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 226
+    },
+    {
+      "name": "Example Sentences",
+      "elapsed": 34.91084003448486,
+      "tokens": {
+        "prompt": 59,
+        "completion": 22,
+        "total": 81
+      },
+      "response_info": {
+        "type": "text",
+        "length": 83,
+        "word_count": 13,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 212
+    }
+  ],
+  "total_time": 216.09773588180542
+}

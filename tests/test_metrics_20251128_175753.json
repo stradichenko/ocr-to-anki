@@ -1,0 +1,98 @@
+{
+  "timestamp": "2025-11-28T17:57:53.135404",
+  "model": "/home/gespitia/.cache/llama.cpp/models/gemma-3-4B-it-QAT-Q4_0.gguf",
+  "tests": [
+    {
+      "name": "Basic Text Generation",
+      "elapsed": 36.27913951873779,
+      "tokens": {
+        "prompt": 16,
+        "completion": 21,
+        "total": 37
+      },
+      "response_info": {
+        "type": "text",
+        "length": 73,
+        "word_count": 13,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 30
+    },
+    {
+      "name": "Image OCR",
+      "elapsed": 77.16485118865967,
+      "tokens": {
+        "prompt": 41,
+        "completion": 57,
+        "total": 98
+      },
+      "response_info": {
+        "type": "text",
+        "length": 245,
+        "word_count": 48,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 76,
+      "has_image": true
+    },
+    {
+      "name": "Vocabulary Extraction Prompt",
+      "elapsed": 48.7137234210968,
+      "tokens": {
+        "prompt": 53,
+        "completion": 31,
+        "total": 84
+      },
+      "response_info": {
+        "type": "text",
+        "length": 103,
+        "word_count": 17,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 183
+    },
+    {
+      "name": "Vocabulary Definition",
+      "elapsed": 19.380951404571533,
+      "tokens": {
+        "prompt": 60,
+        "completion": 7,
+        "total": 67
+      },
+      "response_info": {
+        "type": "text",
+        "length": 22,
+        "word_count": 4,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 226
+    },
+    {
+      "name": "Example Sentences",
+      "elapsed": 33.72422933578491,
+      "tokens": {
+        "prompt": 59,
+        "completion": 16,
+        "total": 75
+      },
+      "response_info": {
+        "type": "text",
+        "length": 60,
+        "word_count": 11,
+        "has_thinking": false,
+        "has_reasoning": false,
+        "format": "plain_text"
+      },
+      "prompt_length": 212
+    }
+  ],
+  "total_time": 215.78655338287354
+}
