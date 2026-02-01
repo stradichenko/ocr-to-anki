@@ -311,3 +311,92 @@ llama_cpp:
 ## Recommended Workflow
 
 ### Option A: Vision-based OCR (Gemma 3 with mmproj)
+
+
+
+---
+
+## Project File Organization
+
+Last reviewed: February 2026
+
+### File Relationships & Intended Workflows
+
+#### Workflow A: Ollama Vision OCR → Anki (Primary)
+Files meant to be used in this order:
+1. `src/highlight_cropper.py` — Detects colored highlights in book images, crops them
+2. `src/ollama_ocr.py` — Sends cropped images to Ollama API (`qwen3-vl:2b`) for OCR
+3. `src/ocr_to_json.py` — Parses raw OCR text → extracts words → builds Anki note structure
+4. `src/anki_importer.py` — Imports JSON notes to Anki via AnkiConnect API
+
+#### Workflow B: llama.cpp Local Vision OCR → Anki (Offline)
+1. `src/image_preprocessing.py` — FFmpeg-based preprocessing (grayscale, contrast, resize)
+2. `src/llama_cpp_server.py` — Core server wrapper - manages llama.cpp server lifecycle
+3. `src/vision_ocr.py` — Uses local llama.cpp server with Gemma 3 4B vision model
+4. Then continues with `ocr_to_json.py` → `anki_importer.py`
+
+#### Workflow C: Text-Only Vocabulary Enrichment
+- `src/text_only_workflow.py` — Enriches plain word list with definitions/examples using llama_cpp_server
+
+#### Workflow D: Tesseract Fallback (Traditional OCR)
+- `src/tesseract_ocr_image.py` — Traditional Tesseract OCR (no LLM), batch processing support
+
+---
+
+### Development Sessions by Date
+
+#### Session 1: Nov 22, 2025 (Initial Build)
+Core pipeline construction:
+- `src/anki_importer.py` (18:07)
+- `src/image_preprocessing.py` (19:47)
+- `src/tesseract_ocr_image.py` (20:05)
+- `src/highlight_cropper.py` (21:07)
+- `tests/test_ollama_health.py` (23:21)
+- `tests/test_crop_and_ocr.py`, `tests/test_ollama_ocr.py` (23:53)
+
+#### Session 2: Nov 23, 2025 (Testing & Debugging)
+Enhanced OCR testing and image inspection:
+- `tests/test_ollama_ocr_enhanced.py` (00:22)
+- `tests/test_crop_enhanced_ocr.py` (01:23)
+- `tests/test_image_debug.py` (18:05)
+- `tests/test_image_inspect.py` (20:13)
+
+#### Session 3: Nov 24, 2025
+- `tests/test_image_preprocessing.py` (12:58)
+
+#### Session 4: Nov 26, 2025 (OCR to JSON Pipeline)
+- `src/ocr_to_json.py` (18:29)
+- `src/ollama_ocr.py` (19:03)
+- `src/test_model_ocr.py` (19:03)
+- `tests/test_perfect_ocr.py` (19:11)
+
+#### Session 5: Nov 27, 2025 (Vocabulary Enrichment)
+- `tests/test_gemma_vocabulary_enricher.py` (13:20)
+
+#### Session 6: Nov 30, 2025 (llama.cpp Migration - Major)
+Bulk creation of llama.cpp infrastructure:
+- `src/llama_cpp_server.py`
+- `src/vision_ocr.py`
+- `src/text_only_workflow.py`
+- `src/vision_ocr_direct.py` (deprecated)
+- `src/vision_ocr_gemma3.py` (deprecated)
+- All diagnostic scripts in `scripts/`
+- `tests/test_llama_cpp.py` (18:05)
+
+#### Session 7: Dec 1, 2025 (Final Tweaks)
+- `scripts/build-llama-gemma3-cli.sh` (03:12)
+- `src/vision_ocr_hf.py` (03:19) (deprecated)
+- `scripts/build-llama-mtmd-multibackend.sh` (13:07)
+
+---
+
+### Deprecated/Experimental Files
+
+These files were created during troubleshooting and can be considered for removal:
+
+| File | Status | Reason |
+|------|--------|--------|
+| `src/vision_ocr_direct.py` | Deprecated | Bypasses server using `llama-cli` directly |
+| `src/vision_ocr_gemma3.py` | Deprecated | Uses `llama-mtmd-cli`, warns about 60-min processing times |
+| `src/vision_ocr_hf.py` | Deprecated | Docstring says "~60 minutes per image on CPU" |
+| `src/test_model_ocr.py` | Misplaced | Should be in `tests/`, not `src/` |

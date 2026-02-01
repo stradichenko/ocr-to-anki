@@ -1,0 +1,117 @@
+# Multi-backend CMakeLists.txt for llama.cpp
+# Supports: CUDA, Vulkan, SYCL (Intel), Metal (macOS), NNAPI (Android)
+
+cmake_minimum_required(VERSION 3.18)
+project(llama-mtmd-multibackend VERSION 1.0.0 LANGUAGES C CXX)
+
+# Options for backend selection
+option(GGML_CUDA      "Enable CUDA backend" OFF)
+option(GGML_VULKAN    "Enable Vulkan backend" OFF)
+option(GGML_SYCL      "Enable SYCL backend (Intel)" OFF)
+option(GGML_METAL     "Enable Metal backend (macOS)" OFF)
+option(GGML_OPENCL    "Enable OpenCL backend" OFF)
+option(GGML_NNAPI     "Enable NNAPI backend (Android)" OFF)
+option(GGML_OPENMP    "Enable OpenMP" ON)
+option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Include llama.cpp's CMakeLists
+# This assumes you're building inside llama.cpp source tree
+# Or you can copy this to llama.cpp/examples/multibackend/
+
+# Backend detection and configuration
+if(GGML_CUDA)
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    
+    message(STATUS "CUDA backend enabled")
+    message(STATUS "  CUDA version: ${CUDAToolkit_VERSION}")
+    message(STATUS "  CUDA arch: ${CMAKE_CUDA_ARCHITECTURES}")
+    
+    if(NOT CMAKE_CUDA_ARCHITECTURES)
+        # Auto-detect or use common architectures
+        set(CMAKE_CUDA_ARCHITECTURES "75;80;86;89;90")
+    endif()
+endif()
+
+if(GGML_VULKAN)
+    find_package(Vulkan REQUIRED)
+    message(STATUS "Vulkan backend enabled")
+    message(STATUS "  Vulkan SDK: ${Vulkan_INCLUDE_DIRS}")
+endif()
+
+if(GGML_SYCL)
+    # Intel OneAPI SYCL
+    find_package(IntelSYCL REQUIRED)
+    
+    message(STATUS "SYCL backend enabled (Intel OneAPI)")
+    message(STATUS "  SYCL compiler: ${CMAKE_CXX_COMPILER}")
+    
+    # Use Intel compilers
+    set(CMAKE_C_COMPILER "icx")
+    set(CMAKE_CXX_COMPILER "icpx")
+    
+    # SYCL-specific flags
+    add_compile_options(-fsycl)
+    add_link_options(-fsycl)
+endif()
+
+if(GGML_METAL)
+    if(NOT APPLE)
+        message(FATAL_ERROR "Metal backend only available on macOS")
+    endif()
+    
+    find_library(METAL_FRAMEWORK Metal REQUIRED)
+    find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    
+    message(STATUS "Metal backend enabled")
+endif()
+
+if(GGML_OPENCL)
+    find_package(OpenCL REQUIRED)
+    message(STATUS "OpenCL backend enabled")
+endif()
+
+if(GGML_NNAPI)
+    if(NOT ANDROID)
+        message(WARNING "NNAPI typically used on Android")
+    endif()
+    message(STATUS "NNAPI backend enabled")
+endif()
+
+# Print configuration summary
+message(STATUS "")
+message(STATUS "========================================")
+message(STATUS "llama-mtmd-cli Multi-Backend Build")
+message(STATUS "========================================")
+message(STATUS "Enabled backends:")
+if(GGML_CUDA)
+    message(STATUS "  ✓ CUDA (NVIDIA GPUs)")
+endif()
+if(GGML_VULKAN)
+    message(STATUS "  ✓ Vulkan (Cross-platform GPU)")
+endif()
+if(GGML_SYCL)
+    message(STATUS "  ✓ SYCL (Intel GPUs/CPUs)")
+endif()
+if(GGML_METAL)
+    message(STATUS "  ✓ Metal (Apple Silicon)")
+endif()
+if(GGML_OPENCL)
+    message(STATUS "  ✓ OpenCL (Legacy GPU)")
+endif()
+if(GGML_NNAPI)
+    message(STATUS "  ✓ NNAPI (Android)")
+endif()
+if(NOT (GGML_CUDA OR GGML_VULKAN OR GGML_SYCL OR GGML_METAL OR GGML_OPENCL OR GGML_NNAPI))
+    message(STATUS "  ✓ CPU only (OpenMP)")
+endif()
+message(STATUS "========================================")
+message(STATUS "")
+
+# Now include llama.cpp's actual build
+# This should be run from within llama.cpp source tree
