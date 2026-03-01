@@ -69,21 +69,27 @@ data/cropped_highlights/*
 data/ollama_ocr_results/*
 data/enriched_vocabulary/*
 data/vocabulary_input.json
+data/temp_preprocessed/*
 
-# Test outputs - KEEP metrics for analysis
+# Test outputs
 tests/test_result.json
 tests/cropped_test_results.json
 tests/crop_enhanced_results.json
 tests/test_enhanced_results.json
+tests/image_debug_results.json
+tests/test_metrics_*.json
 tests/enhanced_images/*
 tests/enhanced_sections/*
+tests/enriched_vocabulary/*
+tests/image_analysis/*
 
-# But KEEP test_metrics_*.json for performance tracking
-!tests/test_metrics_*.json
+# Output directory (model test results)
+output/*
 
 # Logs
 *.log
 logs/*
+logs/gemma_enrichment_*/
 
 # Temporary files
 *.tmp

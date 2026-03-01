@@ -4,19 +4,19 @@
 
 ### Basic Tesseract Usage
 
-```python
+```bash
 # Option 1: Pipe directly from OCR
-python src/tesseract_ocr_image.py image.png | python src/ocr_to_json.py --pretty -o data/new_notes.json
+python src/backends/tesseract_ocr_image.py image.png | python src/output/ocr_to_json.py --pretty -o data/new_notes.json
 
 # Option 2: Two-step process
-python src/tesseract_ocr_image.py image.png > ocr_output.txt
-python src/ocr_to_json.py -i ocr_output.txt -o data/new_notes.json --pretty
+python src/backends/tesseract_ocr_image.py image.png > ocr_output.txt
+python src/output/ocr_to_json.py -i ocr_output.txt -o data/new_notes.json --pretty
 
 # Option 3: With additional tags
-python src/tesseract_ocr_image.py image.png | python src/ocr_to_json.py --tag vocabulary --tag chapter1 -o notes.json
+python src/backends/tesseract_ocr_image.py image.png | python src/output/ocr_to_json.py --tag vocabulary --tag chapter1 -o notes.json
 
 # Option 4: Custom separator (for comma-separated terms)
-echo "犬,猫,本" | python src/ocr_to_json.py -s "," --pretty
+echo "犬,猫,本" | python src/output/ocr_to_json.py -s "," --pretty
 ```
 
 Take into account that tesseract better handle text if the language is suggested with the option `-l` and say... `eng`, `jpn` or `eng+jpn`.
@@ -27,7 +27,7 @@ Take into account that tesseract better handle text if the language is suggested
 
 ### Overview
 
-The Ollama OCR script (`src/ollama_ocr.py`) uses a local vision-language model (qwen3-vl:2b) to perform intelligent OCR on images. Unlike traditional Tesseract OCR, this approach uses AI to understand context, handle various text types, and provide more flexible analysis options.
+The Ollama OCR script (`src/backends/ollama_ocr.py`) uses a local vision-language model (qwen3-vl:2b) to perform intelligent OCR on images. Unlike traditional Tesseract OCR, this approach uses AI to understand context, handle various text types, and provide more flexible analysis options.
 
 ### How It Works
 
@@ -85,7 +85,7 @@ ollama_ocr:
 
 Run:
 ```bash
-python src/ollama_ocr.py
+python src/backends/ollama_ocr.py
 ```
 
 This will:
@@ -107,7 +107,7 @@ ollama_ocr:
 
 Run:
 ```bash
-python src/ollama_ocr.py
+python src/backends/ollama_ocr.py
 ```
 
 This prompts the model to focus only on yellow-highlighted English text.
@@ -124,7 +124,7 @@ ollama_ocr:
 
 Run:
 ```bash
-python src/ollama_ocr.py
+python src/backends/ollama_ocr.py
 ```
 
 Optimized for recognizing handwritten Japanese characters.
@@ -170,10 +170,10 @@ After running Ollama OCR, you can pipe the results to create Anki notes:
 
 ```bash
 # Extract words from OCR results
-cat data/ollama_ocr_results/image_ocr.json | jq -r '.words[]' | python src/ocr_to_json.py --pretty -o data/anki_notes.json
+cat data/ollama_ocr_results/image_ocr.json | jq -r '.words[]' | python src/output/ocr_to_json.py --pretty -o data/anki_notes.json
 
 # Or combine multiple results
-jq -r '.results[].words[]' data/ollama_ocr_results/ocr_summary_*.json | python src/ocr_to_json.py -o notes.json
+jq -r '.results[].words[]' data/ollama_ocr_results/ocr_summary_*.json | python src/output/ocr_to_json.py -o notes.json
 ```
 
 ### Tips for Best Results

@@ -185,19 +185,6 @@
           # GTK4 bindings
           pygobject3
           
-          # AI/ML dependencies
-          langchain
-          langchain-community
-          langchain-ollama
-          ollama
-          langsmith
-          
-          # HuggingFace Hub (for model downloads) - ALREADY THERE!
-          huggingface-hub
-          
-          # OCR
-          pytesseract
-          
           # Image processing
           pillow
           opencv4
@@ -222,6 +209,11 @@
           pytest
           pytest-asyncio
           responses
+          
+          # API server
+          fastapi
+          uvicorn
+          python-multipart
           
           # Type stubs
           types-pyyaml
@@ -319,58 +311,6 @@
           };
         };
         
-        # Intel OneAPI for SYCL (manual overlay since not in nixpkgs)
-        intelOneAPIStub = pkgs.stdenv.mkDerivation {
-          name = "intel-oneapi-stub";
-          version = "2025.0";
-          
-          # This is a stub that checks for system OneAPI
-          phases = [ "installPhase" ];
-          
-          installPhase = ''
-            mkdir -p $out/bin
-            
-            # Create wrapper scripts that look for system OneAPI
-            cat > $out/bin/check-oneapi <<'EOF'
-#!/usr/bin/env bash
-ONEAPI_ROOT="${ONEAPI_ROOT:-/opt/intel/oneapi}"
-if [ -d "$ONEAPI_ROOT" ]; then
-  echo "Intel OneAPI found at: $ONEAPI_ROOT"
-  exit 0
-else
-  echo "Intel OneAPI not found at: $ONEAPI_ROOT"
-  echo "Download from: https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html"
-  exit 1
-fi
-EOF
-            chmod +x $out/bin/check-oneapi
-            
-            # Create icx/icpx wrappers that source OneAPI environment
-            for compiler in icx icpx; do
-              cat > $out/bin/$compiler <<EOF
-#!/usr/bin/env bash
-ONEAPI_ROOT="\''${ONEAPI_ROOT:-/opt/intel/oneapi}"
-if [ -f "\$ONEAPI_ROOT/setvars.sh" ]; then
-  source "\$ONEAPI_ROOT/setvars.sh" >/dev/null 2>&1
-  exec "\$ONEAPI_ROOT/compiler/latest/bin/$compiler" "\$@"
-else
-  echo "Error: Intel OneAPI not found at \$ONEAPI_ROOT" >&2
-  echo "Install from: https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html" >&2
-  exit 1
-fi
-EOF
-              chmod +x $out/bin/$compiler
-            done
-          '';
-          
-          meta = {
-            description = "Intel OneAPI stub for SYCL builds";
-            longDescription = ''
-              This package provides wrapper scripts for Intel OneAPI compilers.
-              Requires Intel OneAPI to be installed at /opt/intel/oneapi.
-            '';
-          };
-        };
         
       in
       {
@@ -424,7 +364,7 @@ EOF
           ];
           
           shellHook = ''
-            echo "OCR to Anki"
+            echo "OCR to Anki (fully offline)"
             echo ""
             
             # Set up Python path
@@ -489,12 +429,7 @@ EOF
             fi
             echo ""
             
-            echo "AI Backend Options:"
-            echo "  1. llama.cpp (fully offline, recommended) - ./scripts/setup-llama-cpp.sh"
-            echo "  2. Ollama (requires internet) - olloma pull gemma3:4b"
-            echo ""
-            
-            echo "llama.cpp status:"
+            echo "llama.cpp status (fully offline):"
             if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0.gguf" ]; then
               echo "  ✅ Gemma 3 4B model found"
               MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0.gguf" 2>/dev/null | cut -f1)
@@ -505,20 +440,12 @@ EOF
               echo "  Run: ./scripts/setup-llama-cpp.sh"
             fi
             
-            # Check HuggingFace authentication
-            echo ""
-            echo "HuggingFace Hub:"
-            if command -v huggingface-cli >/dev/null 2>&1; then
-              if huggingface-cli whoami >/dev/null 2>&1; then
-                HF_USER=$(huggingface-cli whoami 2>/dev/null | head -1)
-                echo "  ✅ Logged in as: $HF_USER"
-              else
-                echo "  ⚠️  Not logged in"
-                echo "  To download Gemma models, login with:"
-                echo "    huggingface-cli login"
-              fi
+            if [ -f "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" ]; then
+              MMPROJ_SIZE=$(du -h "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" 2>/dev/null | cut -f1)
+              echo "  ✅ Vision projector found ($MMPROJ_SIZE)"
             else
-              echo "  ⚠️  huggingface-cli not found (included in environment)"
+              echo "  ⚠️  Vision projector not found"
+              echo "  Run: ./scripts/setup-llama-cpp.sh"
             fi
             echo ""
             
@@ -683,12 +610,7 @@ EOF
             fi
             echo ""
             
-            echo "AI Backend Options:"
-            echo "  1. llama.cpp (fully offline, recommended) - ./scripts/setup-llama-cpp.sh"
-            echo "  2. Ollama (requires internet) - olloma pull gemma3:4b"
-            echo ""
-            
-            echo "llama.cpp status:"
+            echo "llama.cpp status (fully offline):"
             if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0.gguf" ]; then
               echo "  ✅ Gemma 3 4B model found"
               MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0.gguf" 2>/dev/null | cut -f1)
@@ -699,20 +621,12 @@ EOF
               echo "  Run: ./scripts/setup-llama-cpp.sh"
             fi
             
-            # Check HuggingFace authentication
-            echo ""
-            echo "HuggingFace Hub:"
-            if command -v huggingface-cli >/dev/null 2>&1; then
-              if huggingface-cli whoami >/dev/null 2>&1; then
-                HF_USER=$(huggingface-cli whoami 2>/dev/null | head -1)
-                echo "  ✅ Logged in as: $HF_USER"
-              else
-                echo "  ⚠️  Not logged in"
-                echo "  To download Gemma models, login with:"
-                echo "    huggingface-cli login"
-              fi
+            if [ -f "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" ]; then
+              MMPROJ_SIZE=$(du -h "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" 2>/dev/null | cut -f1)
+              echo "  ✅ Vision projector found ($MMPROJ_SIZE)"
             else
-              echo "  ⚠️  huggingface-cli not found (included in environment)"
+              echo "  ⚠️  Vision projector not found"
+              echo "  Run: ./scripts/setup-llama-cpp.sh"
             fi
             echo ""
             
@@ -735,20 +649,15 @@ EOF
             fi
             
             if command -v llama-mtmd-cli >/dev/null 2>&1; then
-              # Check if it's actually working
               if llama-mtmd-cli --version >/dev/null 2>&1; then
-                echo "  • llama-mtmd-cli: ✅ (manually built, working)"
+                echo "  • llama-mtmd-cli: ✅ (working)"
               else
                 echo "  • llama-mtmd-cli: ⚠️  (found but has library issues)"
-                echo "    Rebuild with: ./scripts/build-llama-gemma3-cli.sh"
+                echo "    Rebuild with: ./scripts/build-llama-mtmd-vulkan.sh"
               fi
             else
               echo "  • llama-mtmd-cli: ❌ (not found)"
-              echo "    Build with: ./scripts/build-llama-mtmd-multibackend.sh"
-              echo "    Available backends:"
-              echo "      --vulkan  (works in Nix, recommended)"
-              echo "      --cuda    (requires system CUDA, use outside Nix)"
-              echo "      --all     (auto-detect all available)"
+              echo "    Build with: ./scripts/build-llama-mtmd-vulkan.sh"
             fi
             echo ""
           '';
@@ -785,9 +694,6 @@ EOF
             pkgs.vulkan-loader
             pkgs.vulkan-tools
             pkgs.shaderc
-            
-            # Intel OneAPI stub
-            intelOneAPIStub
           ];
           
           shellHook = ''
@@ -881,7 +787,7 @@ EOF
           ];
           
           nativeBuildInputs = [
-            pkgs.wrapGAppsHook
+            pkgs.wrapGAppsHook3
             pkgs.gobject-introspection
           ];
           
@@ -915,7 +821,6 @@ EOF
           contents = [
             self.packages.${system}.default
             pkgs.gtk4
-            pkgs.tesseract
             pkgs.llama-cpp
             pkgs.coreutils
             pkgs.bash

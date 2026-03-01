@@ -19,9 +19,6 @@ logging:
 
 ocr:
   default_language: "eng"  # OCR language code (default: "eng", e.g., jpn, spa, fra)
-  psm: 3  # Page segmentation mode (default: 3, range: 0-13)
-  oem: 3  # OCR Engine mode (default: 3, range: 0-3)
-  config: ""  # Additional Tesseract config options (default: empty string)
   
   # Input directory for images to process
   input_dir: "data/images"  # Source directory for input images (default: "data/images")
@@ -79,24 +76,6 @@ llama_cpp:
   top_p: 0.9
   repeat_penalty: 1.1
   stop_sequences: ["\n\n\n", "</s>", "---"]
-
-gemma_enricher:
-  model: "gemma3:1b"  # Ollama model to use for vocabulary enrichment (default: "gemma3:1b")
-  url: "http://localhost:11434"  # Ollama server URL (default: http://localhost:11434)
-  timeout: 60  # Request timeout in seconds (default: 60)
-  
-  # Language settings
-  definition_language: "italian"  # Language for definitions (options: english, spanish, french, japanese, etc.)
-  examples_language: "italian"  # Language for example phrases (options: english, spanish, french, japanese, etc.)
-  
-  # Processing settings
-  batch_size: 5  # Number of words to process at once (default: 5)
-  add_language_tags: true  # Auto-detect and add language tags (options: true, false, default: true)
-  add_pos_tags: true  # Add part-of-speech tags (options: true, false, default: true)
-  
-  # Input/Output directories
-  input_file: "data/vocabulary_input.json"  # Input JSON file with vocabulary (default: "data/vocabulary_input.json")
-  output_dir: "data/enriched_vocabulary"  # Output directory for enriched vocabulary (default: "data/enriched_vocabulary")
 
 highlight_detection:
   # Input/Output directories

@@ -346,16 +346,16 @@ gemma_enricher:
 **Example workflow:**
 ```bash
 # 1. Extract text from image
-python src/ocr_image.py image.jpg > extracted.txt
+python src/backends/tesseract_ocr_image.py image.jpg > extracted.txt
 
 # 2. Convert to Anki notes
-python src/ocr_to_json.py -i extracted.txt -o notes.json
+python src/output/ocr_to_json.py -i extracted.txt -o notes.json
 
 # 3. Enrich with definitions and examples
-python tests/test_gemma_vocabulary_enricher.py
+python src/workflows/text_only_workflow.py
 
 # 4. Import enriched notes to Anki
-python src/anki_importer.py tests/enriched_vocabulary/enriched_notes_*.json
+python src/output/anki_importer.py enriched_notes.json
 ```
 
 ### 10. llama.cpp Test (`test_llama_cpp.py`)
