@@ -58,6 +58,21 @@ The vision backend requires `llama-mtmd-cli` built with GPU support:
 
 Auto-detection picks the best available backend: CUDA > Metal > Vulkan > CPU.
 
+### Known Issue: Intel iGPU Vulkan + Vision Encoder
+
+On Intel integrated GPUs (e.g. UHD Graphics CML GT2), the Vulkan compute
+backend produces **corrupted output from the CLIP vision encoder**. Text
+generation works fine on Vulkan — only the vision projector (mmproj) is
+affected.
+
+**Workaround (applied automatically):** The wrapper passes
+`--no-mmproj-offload` so the vision encoder runs on CPU while text generation
+uses the GPU. This means image encoding takes ~35 min on CPU, but produces
+correct OCR results. Text generation still runs at ~3.7 tok/s on the iGPU.
+
+If you have a discrete NVIDIA GPU, this issue does not apply — set
+`mmproj_offload: true` in `config/settings.yaml`.
+
 ## Configuration
 
 **config/settings.yaml:**
@@ -70,6 +85,7 @@ llama_cpp:
   port: 8080
   context_size: 4096
   n_gpu_layers: -1
+  mmproj_offload: false  # Keep vision encoder on CPU (Intel iGPU workaround)
 ```
 
 ## Project Structure

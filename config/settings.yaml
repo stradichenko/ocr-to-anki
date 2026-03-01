@@ -69,6 +69,11 @@ llama_cpp:
   context_size: 4096
   n_gpu_layers: -1  # -1 = use all GPU layers
   
+  # Vision encoder settings
+  # Intel iGPU Vulkan corrupts CLIP encoder output, so the vision
+  # projector (mmproj) must run on CPU.  Text generation still uses GPU.
+  mmproj_offload: false  # Keep vision encoder on CPU (default: false)
+  
   # Generation parameters
   temperature: 0.1
   max_tokens: 512

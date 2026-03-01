@@ -42,6 +42,8 @@ class LlamaMtmdCli:
         temp: float = 0.1,
         top_k: int = 40,
         top_p: float = 0.9,
+        max_tokens: int = 512,
+        mmproj_offload: bool = False,
     ):
         models_dir = Path(
             os.getenv("LLAMA_CPP_MODELS", Path.home() / ".cache" / "llama.cpp" / "models")
@@ -76,6 +78,10 @@ class LlamaMtmdCli:
         self.temp = temp
         self.top_k = top_k
         self.top_p = top_p
+        self.max_tokens = max_tokens
+        # Intel iGPU Vulkan produces corrupted vision encoder output;
+        # keep the CLIP/mmproj on CPU and only offload text layers to GPU.
+        self.mmproj_offload = mmproj_offload
 
     def _build_cmd(self, image_path: str, prompt: str) -> list[str]:
         """Build the llama-mtmd-cli command."""
@@ -85,24 +91,31 @@ class LlamaMtmdCli:
             "--mmproj", str(self.mmproj_path),
             "--image", str(image_path),
             "-p", prompt,
+            "--jinja",
             "--ctx-size", str(self.ctx_size),
             "--threads", str(self.threads),
             "--temp", str(self.temp),
             "--top-k", str(self.top_k),
             "--top-p", str(self.top_p),
             "-ngl", str(self.n_gpu_layers),
-            "--no-display-prompt",
+            "-n", str(self.max_tokens),
         ]
+        if not self.mmproj_offload:
+            cmd.append("--no-mmproj-offload")
         return cmd
 
     def run_vision(
         self,
         image_path: str,
         prompt: str = "Extract all visible text from this image. List each word or phrase you can read.",
-        timeout: int = 600,
+        timeout: int = 2700,
     ) -> dict:
         """
         Run vision OCR on an image.
+
+        The default timeout is 2700 s (45 min) because the vision encoder
+        runs on CPU when ``--no-mmproj-offload`` is set (required for
+        Intel iGPU Vulkan which corrupts CLIP outputs).
 
         Returns
         -------
@@ -135,15 +148,34 @@ class LlamaMtmdCli:
                 f"llama-mtmd-cli failed (exit {proc.returncode}): {proc.stderr[-300:]}"
             )
 
-        # The model output is on stdout; stderr has loading/timing info
+        # The model output is on stdout; stderr has loading/timing info.
+        # With --jinja the prompt is NOT echoed, so stdout is clean.
         text = proc.stdout.strip()
         backend = self.detection.recommended_backend.value if self.detection else "unknown"
+
+        # Parse timings from stderr for diagnostics
+        timings = {}
+        if proc.stderr:
+            for line in proc.stderr.splitlines():
+                if "image slice encoded in" in line:
+                    try:
+                        ms = int(line.split("encoded in")[1].split("ms")[0].strip())
+                        timings["image_encode_ms"] = ms
+                    except (ValueError, IndexError):
+                        pass
+                elif "image decoded" in line:
+                    try:
+                        ms = int(line.split("in")[1].split("ms")[0].strip())
+                        timings["image_decode_ms"] = ms
+                    except (ValueError, IndexError):
+                        pass
 
         return {
             "text": text,
             "elapsed_s": round(elapsed, 2),
             "backend": backend,
             "image": image_path,
+            "timings": timings,
         }
 
     def info(self) -> dict:
@@ -160,6 +192,8 @@ class LlamaMtmdCli:
             "threads": self.threads,
             "ctx_size": self.ctx_size,
             "n_gpu_layers": self.n_gpu_layers,
+            "max_tokens": self.max_tokens,
+            "mmproj_offload": self.mmproj_offload,
         }
 
 
