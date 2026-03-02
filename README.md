@@ -22,16 +22,20 @@ PYTHONPATH=src uvicorn api.app:app --host 0.0.0.0 --port 8000
 | **Vision OCR** | `llama-mtmd-cli` | Extract text from images (GPU-accelerated via Vulkan) |
 | **Text tasks** | `llama-server` | Definitions, examples, vocabulary enrichment |
 | **API** | FastAPI | REST endpoints for all operations |
-| **Model** | Gemma 3 4B Q4_0 | Single model for both vision and text |
+| **Model** | Gemma 3 4B QAT Q4_0 | Single model for both vision and text |
 
 ### Model Files
 
-| File | Size | Purpose |
-|------|------|---------|
-| `gemma-3-4b-it-q4_0.gguf` | ~2.3 GB | Main language model |
-| `mmproj-model-f16-4B.gguf` | ~812 MB | Vision projector (CLIP encoder) |
+| File | Size | Source | Purpose |
+|------|------|--------|---------|
+| `gemma-3-4b-it-qat-q4_0_s.gguf` | ~2.4 GB | [stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small](https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small) | Main language model (QAT — better quality than standard Q4_0) |
+| `mmproj-model-f16-4B.gguf` | ~812 MB | [google/gemma-3-4b-it-qat-q4_0-gguf](https://huggingface.co/google/gemma-3-4b-it-qat-q4_0-gguf) | Vision projector (SigLIP encoder) |
 
 Both are downloaded by `./scripts/setup-llama-cpp.sh` via direct URL — no authentication required.
+
+**Why QAT?** Quantization-Aware Training (QAT) produces ~15% better perplexity
+than standard post-training Q4_0 quantization at the same size. The stduhpf
+repack also fixes broken control token metadata (`special_eos_id` warning).
 
 ## API Endpoints
 
@@ -50,27 +54,53 @@ POST /pipeline/image-to-cards # Full pipeline: image → OCR → enrich → Anki
 The vision backend requires `llama-mtmd-cli` built with GPU support:
 
 ```bash
-# Build with Vulkan (recommended for Intel/AMD GPUs)
-./scripts/build-llama-mtmd-vulkan.sh
+# Build with OpenCL (RECOMMENDED for Intel iGPUs — correct vision + fast)
+nix develop .#sycl
+./scripts/build-llama-mtmd-opencl.sh
 
-# The binary is installed to ~/.local/bin/llama-mtmd-cli
+# Build with Vulkan (fallback — vision encoder corrupted on Intel iGPUs)
+./scripts/build-llama-mtmd-vulkan.sh
 ```
 
-Auto-detection picks the best available backend: CUDA > Metal > Vulkan > CPU.
+Auto-detection picks the best available backend: CUDA > Metal > OpenCL > Vulkan > CPU.
 
-### Known Issue: Intel iGPU Vulkan + Vision Encoder
+### Intel iGPU: OpenCL vs Vulkan
+
+| Backend | Vision encoder | Image encode time | Text gen | Binary |
+|---------|---------------|-------------------|----------|--------|
+| **OpenCL** ✅ | Correct | **~2 min** (GPU) | 4.1 tok/s | `llama-mtmd-cli-opencl` |
+| Vulkan ❌ | Corrupted | 0.4s (garbage) | 3.6 tok/s | `llama-mtmd-cli` |
+| CPU fallback | Correct | ~43 min | 0.7 tok/s | any binary + `--no-mmproj-offload` |
+
+The OpenCL backend is **20× faster** than CPU vision and produces correct output.
+It requires a one-line patch for Intel work group sizes (applied automatically
+by the build script): [patches/opencl-intel-workgroup-fix.patch](patches/opencl-intel-workgroup-fix.patch).
+
+<details>
+<summary>Vulkan corruption details</summary>
 
 On Intel integrated GPUs (e.g. UHD Graphics CML GT2), the Vulkan compute
-backend produces **corrupted output from the CLIP vision encoder**. Text
+backend produces **corrupted output from the SigLIP vision encoder**. Text
 generation works fine on Vulkan — only the vision projector (mmproj) is
 affected.
 
-**Workaround (applied automatically):** The wrapper passes
-`--no-mmproj-offload` so the vision encoder runs on CPU while text generation
-uses the GPU. This means image encoding takes ~35 min on CPU, but produces
-correct OCR results. Text generation still runs at ~3.7 tok/s on the iGPU.
+**Root cause:** Intel's Vulkan compute shaders produce f16 underflow/overflow in
+the CLIP/SigLIP transformer. Debug embeddings show 75%+ of values saturate to
+exactly -1.0 (clamped NaN/inf). This is a [known class of bug on integrated
+GPUs](https://github.com/ggml-org/llama.cpp/issues/15034) — a CUDA fix exists
+(PR #16308) but no equivalent Vulkan fix.
 
-If you have a discrete NVIDIA GPU, this issue does not apply — set
+**What was tested (all produced garbage):**
+| Flag | Result |
+|------|--------|
+| Default (mmproj on GPU) | Multilingual gibberish |
+| `--flash-attn off` | Different corruption pattern, early stop |
+| `--no-op-offload` | Same multilingual gibberish |
+| Different model (QAT vs standard Q4_0) | Same corruption |
+
+</details>
+
+If you have a discrete NVIDIA GPU, Vulkan/CUDA both work fine — set
 `mmproj_offload: true` in `config/settings.yaml`.
 
 ## Configuration
@@ -85,7 +115,7 @@ llama_cpp:
   port: 8080
   context_size: 4096
   n_gpu_layers: -1
-  mmproj_offload: false  # Keep vision encoder on CPU (Intel iGPU workaround)
+  mmproj_offload: false  # Set true when using OpenCL backend
 ```
 
 ## Project Structure

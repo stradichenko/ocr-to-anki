@@ -70,9 +70,18 @@ llama_cpp:
   n_gpu_layers: -1  # -1 = use all GPU layers
   
   # Vision encoder settings
-  # Intel iGPU Vulkan corrupts CLIP encoder output, so the vision
-  # projector (mmproj) must run on CPU.  Text generation still uses GPU.
-  mmproj_offload: false  # Keep vision encoder on CPU (default: false)
+  # Intel iGPU Vulkan corrupts SigLIP vision encoder output (f16 saturation).
+  # Tested: --flash-attn off, --no-op-offload, different models — all garbage.
+  # See: https://github.com/ggml-org/llama.cpp/issues/15034
+  #
+  # SOLUTION: Use the OpenCL backend instead of Vulkan!
+  #   ./scripts/build-llama-mtmd-opencl.sh
+  #   → GPU vision works correctly (~2 min vs ~43 min on CPU)
+  #   → Requires one-line patch: patches/opencl-intel-workgroup-fix.patch
+  #
+  # With OpenCL binary: set mmproj_offload: true  (GPU vision, fast)
+  # With Vulkan binary: keep mmproj_offload: false (CPU vision, slow)
+  mmproj_offload: false  # Set true when using OpenCL backend (default: false)
   
   # Generation parameters
   temperature: 0.1

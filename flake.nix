@@ -663,7 +663,7 @@
           '';
         };
         
-        # SYCL-enabled development shell (Intel OneAPI)
+        # SYCL/OpenCL-enabled development shell (Intel GPU backends)
         devShells.sycl = pkgs.mkShell {
           packages = [
             pythonEnv
@@ -689,55 +689,30 @@
             pkgs.pkg-config
             pkgs.git
             
-            # Vulkan (works alongside SYCL)
+            # Vulkan (works alongside SYCL/OpenCL)
             pkgs.vulkan-headers
             pkgs.vulkan-loader
             pkgs.vulkan-tools
             pkgs.shaderc
+            
+            # Intel GPU compute: Level Zero + compute runtime
+            pkgs.level-zero                         # oneAPI Level Zero loader + headers
+            pkgs.intel-compute-runtime-legacy1       # GPU driver for Gen8/Gen9/Gen11 (10th gen and older)
+            
+            # OpenCL (alternative GPU backend, simpler than SYCL)
+            pkgs.opencl-headers                     # Khronos OpenCL headers
+            pkgs.ocl-icd                            # OpenCL ICD loader
+            pkgs.clinfo                             # OpenCL device info tool
+            
+            # Development tools
+            pkgs.ruff
+            pkgs.python311Packages.black
           ];
           
           shellHook = ''
-            echo "OCR to Anki (Intel SYCL environment)"
-            echo ""
-            
-            # Set up Intel OneAPI environment
-            export ONEAPI_ROOT="''${ONEAPI_ROOT:-/opt/intel/oneapi}"
-            
-            # Check for Intel OneAPI
-            if [ -d "$ONEAPI_ROOT" ]; then
-              echo "Intel OneAPI Configuration:"
-              echo "  ✅ Found at: $ONEAPI_ROOT"
-              
-              # Source OneAPI environment
-              if [ -f "$ONEAPI_ROOT/setvars.sh" ]; then
-                source "$ONEAPI_ROOT/setvars.sh" >/dev/null 2>&1
-                
-                # Verify compilers
-                if command -v icx >/dev/null 2>&1; then
-                  echo "  ✅ icx: $(icx --version | head -1)"
-                fi
-                if command -v icpx >/dev/null 2>&1; then
-                  echo "  ✅ icpx: $(icpx --version | head -1)"
-                fi
-                
-                # OneAPI provides its own Level Zero
-                echo "  ✅ Level Zero: Provided by Intel OneAPI"
-              else
-                echo "  ⚠️  setvars.sh not found"
-              fi
-            else
-              echo "Intel OneAPI: ❌ Not installed"
-              echo ""
-              echo "To enable SYCL support:"
-              echo "  1. Download Intel OneAPI Base Toolkit:"
-              echo "     https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html"
-              echo ""
-              echo "  2. Install to /opt/intel/oneapi (or set ONEAPI_ROOT)"
-              echo ""
-              echo "  3. Re-enter this shell:"
-              echo "     exit && nix develop --impure .#sycl"
-              echo ""
-            fi
+            echo "╔══════════════════════════════════════════════════╗"
+            echo "║  OCR to Anki — Intel GPU environment             ║"
+            echo "╚══════════════════════════════════════════════════╝"
             echo ""
             
             # Set up Python path
@@ -746,8 +721,10 @@
             export LLAMA_CPP_MODELS="''${LLAMA_CPP_MODELS:-$HOME/.cache/llama.cpp/models}"
             mkdir -p "$LLAMA_CPP_MODELS"
             
+            # CRITICAL: Clear system library paths to prevent mixing Nix and system libraries
+            unset LD_LIBRARY_PATH
+            
             # Build clean LD_LIBRARY_PATH with Nix libraries
-            # Note: OneAPI's setvars.sh will add its own paths
             export LD_LIBRARY_PATH="${pkgs.libGL}/lib"
             export LD_LIBRARY_PATH="${pkgs.libGLU}/lib:$LD_LIBRARY_PATH"
             export LD_LIBRARY_PATH="${pkgs.mesa}/lib:$LD_LIBRARY_PATH"
@@ -755,21 +732,77 @@
             export LD_LIBRARY_PATH="${pkgs.zlib}/lib:$LD_LIBRARY_PATH"
             export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH"
             
-            echo "Build llama-mtmd-cli with SYCL:"
-            echo "  ./scripts/build-llama-mtmd-multibackend.sh --sycl"
-            echo ""
-            echo "Or build with multiple backends:"
-            echo "  ./scripts/build-llama-mtmd-multibackend.sh --sycl --vulkan"
+            # Intel GPU driver: make sure Level Zero can find the compute runtime
+            export LD_LIBRARY_PATH="${pkgs.level-zero}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.intel-compute-runtime-legacy1}/lib:$LD_LIBRARY_PATH"
+            
+            # OpenCL ICD loader needs to find Intel's ICD file
+            export OCL_ICD_VENDORS="${pkgs.intel-compute-runtime-legacy1}/etc/OpenCL/vendors"
+            export LD_LIBRARY_PATH="${pkgs.ocl-icd}/lib:$LD_LIBRARY_PATH"
+            
+            # Intel OneAPI environment (for SYCL backend)
+            export ONEAPI_ROOT="''${ONEAPI_ROOT:-/opt/intel/oneapi}"
+            
+            # ── Hardware Detection ──────────────────────────────
+            echo "Hardware:"
+            if [ -f /sys/class/drm/card1/device/uevent ]; then
+              PCI_ID=$(grep PCI_ID /sys/class/drm/card1/device/uevent 2>/dev/null | cut -d= -f2)
+              DRIVER=$(grep DRIVER /sys/class/drm/card1/device/uevent 2>/dev/null | cut -d= -f2)
+              echo "  Intel GPU: $PCI_ID (driver: $DRIVER)"
+            elif [ -f /sys/class/drm/card0/device/uevent ]; then
+              PCI_ID=$(grep PCI_ID /sys/class/drm/card0/device/uevent 2>/dev/null | cut -d= -f2)
+              DRIVER=$(grep DRIVER /sys/class/drm/card0/device/uevent 2>/dev/null | cut -d= -f2)
+              echo "  Intel GPU: $PCI_ID (driver: $DRIVER)"
+            fi
             echo ""
             
-            echo "Hardware Detection:"
-            # Check for Intel GPU
-            if lspci 2>/dev/null | grep -i "vga\|3d" | grep -i intel >/dev/null; then
-              echo "  ✅ Intel GPU detected"
-              lspci | grep -i "vga\|3d" | grep -i intel
+            # ── OpenCL Status ───────────────────────────────────
+            echo "OpenCL backend (recommended for Gen9/Gen11):"
+            if command -v clinfo >/dev/null 2>&1; then
+              CL_DEVS=$(clinfo -l 2>/dev/null | grep -c "Device" || echo "0")
+              if [ "$CL_DEVS" -gt 0 ]; then
+                echo "  ✅ $CL_DEVS OpenCL device(s) found"
+                clinfo -l 2>/dev/null | grep "Device" | sed 's/^/     /'
+              else
+                echo "  ⚠️  No OpenCL devices (intel-compute-runtime may need NixOS hardware.opengl)"
+              fi
             else
-              echo "  ⚠️  No Intel GPU detected"
-              echo "     SYCL also works on Intel CPUs with AVX-512"
+              echo "  ⚠️  clinfo not available"
+            fi
+            echo "  Build: ./scripts/build-llama-mtmd-opencl.sh"
+            echo ""
+            
+            # ── SYCL Status ────────────────────────────────────
+            echo "SYCL backend (Gen11+, requires Intel oneAPI):"
+            if [ -d "$ONEAPI_ROOT" ] && [ -f "$ONEAPI_ROOT/setvars.sh" ]; then
+              echo "  ✅ oneAPI found at: $ONEAPI_ROOT"
+              echo "  Sourcing setvars.sh..."
+              source "$ONEAPI_ROOT/setvars.sh" --force >/dev/null 2>&1 || true
+              
+              if command -v icpx >/dev/null 2>&1; then
+                echo "  ✅ icpx: $(icpx --version 2>&1 | head -1)"
+              fi
+              if command -v sycl-ls >/dev/null 2>&1; then
+                echo "  SYCL devices:"
+                sycl-ls 2>/dev/null | grep -i "Intel" | head -3 | sed 's/^/     /'
+              fi
+              echo "  Build: ./scripts/build-llama-mtmd-sycl.sh"
+            else
+              echo "  ❌ oneAPI not installed at $ONEAPI_ROOT"
+              echo "  Install: https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html"
+              echo "  On NixOS: steam-run bash -c 'sudo bash ./l_BaseKit_p_*.sh -a --silent --eula accept'"
+            fi
+            echo ""
+            
+            # ── Model Status ───────────────────────────────────
+            echo "Models:"
+            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" ]; then
+              echo "  ✅ $(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" | cut -f1) gemma-3-4b-it-qat-q4_0_s.gguf"
+            else
+              echo "  ⚠️  Model not found — run: ./scripts/setup-llama-cpp.sh"
+            fi
+            if [ -f "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" ]; then
+              echo "  ✅ $(du -h "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" | cut -f1) mmproj-model-f16-4B.gguf"
             fi
             echo ""
           '';

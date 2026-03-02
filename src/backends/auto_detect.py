@@ -6,6 +6,7 @@ and selects the best llama-mtmd-cli binary accordingly.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import platform
@@ -25,6 +26,7 @@ class Backend(str, Enum):
     CUDA   = "cuda"
     METAL  = "metal"
     VULKAN = "vulkan"
+    OPENCL = "opencl"
     SYCL   = "sycl"
     CPU    = "cpu"
 
@@ -66,6 +68,7 @@ _BINARY_NAMES: dict[Backend, list[str]] = {
     Backend.CUDA:   ["llama-mtmd-cli-cuda", "llama-mtmd-cli"],
     Backend.METAL:  ["llama-mtmd-cli-metal", "llama-mtmd-cli"],
     Backend.VULKAN: ["llama-mtmd-cli-vulkan", "llama-mtmd-cli"],
+    Backend.OPENCL: ["llama-mtmd-cli-opencl"],
     Backend.SYCL:   ["llama-mtmd-cli-sycl", "llama-mtmd-cli"],
     Backend.CPU:    ["llama-mtmd-cli-cpu", "llama-mtmd-cli"],
 }
@@ -97,6 +100,26 @@ def _binary_supports_vulkan(binary: Path) -> bool:
         return "vulkan" in combined.lower() or "ggml_vulkan" in combined
     except Exception:
         return False
+
+
+def _opencl_env() -> dict[str, str]:
+    """Return environment dict with OCL_ICD_VENDORS set for Intel NEO runtime."""
+    env = dict(os.environ)
+    if env.get("OCL_ICD_VENDORS"):
+        return env  # already set by user
+
+    # Search Nix store for intel-compute-runtime ICD files
+    nix_store = Path("/nix/store")
+    if nix_store.exists():
+        for d in sorted(nix_store.iterdir(), reverse=True):
+            if "intel-compute-runtime" in d.name:
+                icd_dir = d / "etc" / "OpenCL" / "vendors"
+                if icd_dir.exists() and list(icd_dir.glob("*.icd")):
+                    env["OCL_ICD_VENDORS"] = str(icd_dir)
+                    log.debug("OpenCL ICD: %s", icd_dir)
+                    return env
+
+    return env
 
 
 # -------------------------------------------------------------------
@@ -209,6 +232,53 @@ def _probe_metal() -> list[GPUDevice]:
     return devices
 
 
+def _probe_opencl() -> list[GPUDevice]:
+    """Detect OpenCL-capable GPUs."""
+    devices = []
+
+    # Try the OpenCL binary's --list-devices
+    binary = _find_binary(Backend.OPENCL)
+    if binary:
+        try:
+            env = _opencl_env()
+            out = subprocess.run(
+                [str(binary), "--list-devices"],
+                capture_output=True, text=True, timeout=10, env=env,
+            )
+            combined = out.stdout + out.stderr
+            for line in combined.splitlines():
+                if "GPUOpenCL:" in line:
+                    # e.g. "  GPUOpenCL: Intel(R) UHD Graphics (0 MiB, 0 MiB free)"
+                    raw = line.split("GPUOpenCL:")[1].strip()
+                    # Remove trailing "(0 MiB, ...)" but keep "(R)" etc.
+                    name = re.sub(r"\(\d+\s*MiB.*$", "", raw).strip()
+                    devices.append(GPUDevice(name=name, backend=Backend.OPENCL))
+        except Exception as e:
+            log.debug("OpenCL binary probe failed: %s", e)
+
+    if devices:
+        return devices
+
+    # Fallback: clinfo
+    clinfo = shutil.which("clinfo")
+    if clinfo:
+        try:
+            env = _opencl_env()
+            out = subprocess.run(
+                [clinfo, "-l"],
+                capture_output=True, text=True, timeout=10, env=env,
+            )
+            for line in out.stdout.splitlines():
+                line_stripped = line.strip()
+                if line_stripped.startswith("`--"):
+                    name = line_stripped.lstrip("`-").strip()
+                    devices.append(GPUDevice(name=name, backend=Backend.OPENCL))
+        except Exception as e:
+            log.debug("clinfo probe failed: %s", e)
+
+    return devices
+
+
 def _probe_sycl() -> list[GPUDevice]:
     """Detect Intel SYCL devices."""
     devices = []
@@ -247,6 +317,7 @@ def _probe_sycl() -> list[GPUDevice]:
 _BACKEND_PRIORITY = {
     Backend.CUDA:   100,
     Backend.METAL:  90,
+    Backend.OPENCL: 75,   # Preferred over Vulkan on Intel iGPUs (correct vision encoder)
     Backend.VULKAN: 70,
     Backend.SYCL:   60,
     Backend.CPU:    0,
@@ -271,6 +342,7 @@ def detect(*, prefer: Optional[Backend] = None) -> DetectionResult:
     probes = {
         Backend.CUDA:   _probe_cuda,
         Backend.METAL:  _probe_metal,
+        Backend.OPENCL: _probe_opencl,
         Backend.VULKAN: _probe_vulkan,
         Backend.SYCL:   _probe_sycl,
     }

@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from backends.auto_detect import detect, Backend, DetectionResult
+from backends.auto_detect import detect, Backend, DetectionResult, _opencl_env
 
 log = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class LlamaMtmdCli:
         )
 
         # Model files
-        self.model_path = Path(model_path) if model_path else models_dir / "gemma-3-4b-it-q4_0.gguf"
+        self.model_path = Path(model_path) if model_path else models_dir / "gemma-3-4b-it-qat-q4_0_s.gguf"
         self.mmproj_path = Path(mmproj_path) if mmproj_path else models_dir / "mmproj-model-f16-4B.gguf"
 
         if not self.model_path.exists():
@@ -67,7 +67,8 @@ class LlamaMtmdCli:
             if not self.detection.binary_path:
                 raise FileNotFoundError(
                     "llama-mtmd-cli not found. Build with:\n"
-                    "  ./scripts/build-llama-mtmd-vulkan.sh"
+                    "  ./scripts/build-llama-mtmd-vulkan.sh\n"
+                    "  ./scripts/build-llama-mtmd-opencl.sh  (recommended for Intel iGPUs)"
                 )
             self.binary_path = Path(self.detection.binary_path)
 
@@ -81,7 +82,14 @@ class LlamaMtmdCli:
         self.max_tokens = max_tokens
         # Intel iGPU Vulkan produces corrupted vision encoder output;
         # keep the CLIP/mmproj on CPU and only offload text layers to GPU.
+        # The OpenCL backend does NOT have this issue — GPU vision works.
         self.mmproj_offload = mmproj_offload
+
+        # Detect if we're using the OpenCL backend
+        self._is_opencl = (
+            self.binary_path.name == "llama-mtmd-cli-opencl"
+            or (self.detection and self.detection.recommended_backend == Backend.OPENCL)
+        )
 
     def _build_cmd(self, image_path: str, prompt: str) -> list[str]:
         """Build the llama-mtmd-cli command."""
@@ -129,6 +137,9 @@ class LlamaMtmdCli:
         cmd = self._build_cmd(image_path, prompt)
         log.info("Running: %s", " ".join(cmd[:6]) + " ...")
 
+        # Set up environment (OpenCL needs OCL_ICD_VENDORS)
+        env = _opencl_env() if self._is_opencl else None
+
         t0 = time.monotonic()
         try:
             proc = subprocess.run(
@@ -136,6 +147,7 @@ class LlamaMtmdCli:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
+                env=env,
             )
         except subprocess.TimeoutExpired:
             raise TimeoutError(f"Vision OCR timed out after {timeout}s")
@@ -185,6 +197,7 @@ class LlamaMtmdCli:
             "model": str(self.model_path),
             "mmproj": str(self.mmproj_path),
             "backend": self.detection.recommended_backend.value if self.detection else "manual",
+            "is_opencl": self._is_opencl,
             "devices": [
                 {"name": d.name, "backend": d.backend.value}
                 for d in (self.detection.devices if self.detection else [])

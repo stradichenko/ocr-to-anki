@@ -1,0 +1,22 @@
+From: OCR-to-Anki project
+Subject: Fix CL_INVALID_WORK_GROUP_SIZE on Intel iGPUs (max 256)
+
+The kernel_geglu dispatch hardcodes local_work_size to 512, which exceeds
+the max work group size (256) on Intel UHD Graphics (CML GT2 / Gen9).
+This causes CL_INVALID_WORK_GROUP_SIZE (-54) during warmup.
+
+Fix: clamp nth to backend_ctx->max_workgroup_size.
+
+Upstream bug: should be filed at https://github.com/ggml-org/llama.cpp
+
+--- a/ggml/src/ggml-opencl/ggml-opencl.cpp
++++ b/ggml/src/ggml-opencl/ggml-opencl.cpp
+@@ -11230,6 +11230,9 @@
+ 
+     const size_t nrows = ggml_nrows(src0);
+     size_t nth = 512;
++    if (nth > backend_ctx->max_workgroup_size) {
++        nth = backend_ctx->max_workgroup_size;
++    }
+     size_t global_work_size[] = {nrows*nth, 1, 1};
+     size_t local_work_size[] = {nth, 1, 1};
