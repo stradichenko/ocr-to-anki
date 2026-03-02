@@ -103,3 +103,6 @@ result
 result-*
 .direnv/
 
+
+# Build artifacts
+.build/
