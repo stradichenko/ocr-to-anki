@@ -145,7 +145,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
                         children: [
                           Padding(
                             padding:
-                                const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                                const EdgeInsets.fromLTRB(12, 10, 4, 0),
                             child: Row(
                               children: [
                                 Icon(Icons.terminal,
@@ -153,14 +153,44 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
                                     color:
                                         theme.colorScheme.onSurfaceVariant),
                                 const SizedBox(width: 6),
-                                Text(
-                                  'Activity',
-                                  style:
-                                      theme.textTheme.labelSmall?.copyWith(
-                                    color:
-                                        theme.colorScheme.onSurfaceVariant,
+                                Expanded(
+                                  child: Text(
+                                    'Activity',
+                                    style:
+                                        theme.textTheme.labelSmall?.copyWith(
+                                      color:
+                                          theme.colorScheme.onSurfaceVariant,
+                                    ),
                                   ),
                                 ),
+                                if (state.activityLog.isNotEmpty)
+                                  IconButton(
+                                    icon: Icon(Icons.copy,
+                                        size: 14,
+                                        color: theme
+                                            .colorScheme.onSurfaceVariant),
+                                    tooltip: 'Copy log',
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 28,
+                                      minHeight: 28,
+                                    ),
+                                    onPressed: () {
+                                      Clipboard.setData(ClipboardData(
+                                        text:
+                                            state.activityLog.join('\n'),
+                                      ));
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                              'Log copied to clipboard'),
+                                          duration: Duration(seconds: 2),
+                                        ),
+                                      );
+                                    },
+                                  ),
                               ],
                             ),
                           ),
@@ -215,7 +245,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
                                           ),
                                         ),
                                       Expanded(
-                                        child: Text(
+                                        child: SelectableText(
                                           line,
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
