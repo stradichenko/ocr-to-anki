@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../database/database.dart';
@@ -15,6 +17,15 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   final db = AppDatabase();
   ref.onDispose(() => db.close());
   return db;
+});
+
+// ---------------------------------------------------------------------------
+// Theme
+// ---------------------------------------------------------------------------
+
+/// Derived provider so MaterialApp only rebuilds on theme changes.
+final themeModeProvider = Provider<ThemeMode>((ref) {
+  return ref.watch(settingsProvider).themeMode;
 });
 
 // ---------------------------------------------------------------------------
@@ -245,26 +256,56 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
         );
 
         final ocrStopwatch = Stopwatch()..start();
-        final result = await inference.visionOcr(
-          imageBytes: imagesToProcess[i],
+
+        // Heartbeat: log progress every 15s so the user isn't staring
+        // at a frozen log during the 2-4 min vision encode.
+        final heartbeat = Timer.periodic(
+          const Duration(seconds: 15),
+          (timer) {
+            final secs = ocrStopwatch.elapsed.inSeconds;
+            String hint;
+            if (secs < 30) {
+              hint = 'preparing image for vision encoder...';
+            } else if (secs < 120) {
+              hint = 'vision encoder running on GPU (~100s on iGPU)...';
+            } else if (secs < 210) {
+              hint = 'generating text from visual features...';
+            } else {
+              hint = 'still working (this image may be complex)...';
+            }
+            _log(
+              'OCR in progress... ${secs}s elapsed — $hint',
+              progress: 0.20 + 0.30 * (secs / 300).clamp(0.0, 1.0),
+            );
+          },
         );
-        ocrStopwatch.stop();
 
-        ocrTexts.add(result.text);
+        try {
+          final result = await inference.visionOcr(
+            imageBytes: imagesToProcess[i],
+          );
+          ocrStopwatch.stop();
+          heartbeat.cancel();
 
-        final words = result.text
-            .split(RegExp(r'[\n,]+'))
-            .map((w) => w.trim().replaceAll(RegExp(r'^[-\u2022\u00b7]+'), '').trim())
-            .where((w) => w.length > 1)
-            .toList();
-        allWords.addAll(words);
+          ocrTexts.add(result.text);
 
-        final elapsed = (ocrStopwatch.elapsedMilliseconds / 1000).toStringAsFixed(1);
-        _log(
-          'OCR on $label complete: ${words.length} word(s) found in ${elapsed}s'
-          '${result.backend.isNotEmpty ? " [${result.backend}]" : ""}',
-          progress: 0.20 + 0.35 * (i + 1) / imagesToProcess.length,
-        );
+          final words = result.text
+              .split(RegExp(r'[\n,]+'))
+              .map((w) => w.trim().replaceAll(RegExp(r'^[-\u2022\u00b7]+'), '').trim())
+              .where((w) => w.length > 1)
+              .toList();
+          allWords.addAll(words);
+
+          final elapsed = (ocrStopwatch.elapsedMilliseconds / 1000).toStringAsFixed(1);
+          _log(
+            'OCR on $label complete: ${words.length} word(s) found in ${elapsed}s'
+            '${result.backend.isNotEmpty ? " [${result.backend}]" : ""}',
+            progress: 0.20 + 0.35 * (i + 1) / imagesToProcess.length,
+          );
+        } catch (e) {
+          heartbeat.cancel();
+          rethrow;
+        }
       }
 
       // Deduplicate (case-insensitive).

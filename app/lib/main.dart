@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'providers/providers.dart';
 import 'screens/screens.dart';
 
 void main() {
@@ -8,15 +9,17 @@ void main() {
   runApp(const ProviderScope(child: OcrToAnkiApp()));
 }
 
-class OcrToAnkiApp extends StatelessWidget {
+class OcrToAnkiApp extends ConsumerWidget {
   const OcrToAnkiApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+
     return MaterialApp(
       title: 'OCR to Anki',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.dark,
+      themeMode: themeMode,
       theme: ThemeData(
         colorSchemeSeed: Colors.deepOrange,
         useMaterial3: true,

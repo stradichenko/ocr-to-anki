@@ -1,8 +1,11 @@
+import 'package:flutter/material.dart';
+
 import 'highlight_color.dart';
 
 /// Application-wide settings, persisted in the local database.
 class AppSettings {
   AppSettings({
+    this.themeMode = ThemeMode.dark,
     this.ankiConnectUrl = 'http://localhost:8765',
     this.ankiConnectVersion = 6,
     this.ankiConnectTimeout = 10,
@@ -28,6 +31,9 @@ class AppSettings {
     this.maxTokens = 512,
     this.contextSize = 4096,
   });
+
+  // -- Appearance --
+  ThemeMode themeMode;
 
   // -- AnkiConnect settings --
   String ankiConnectUrl;
@@ -69,6 +75,7 @@ class AppSettings {
   int contextSize;
 
   Map<String, dynamic> toJson() => {
+        'themeMode': themeMode.name,
         'ankiConnectUrl': ankiConnectUrl,
         'ankiConnectVersion': ankiConnectVersion,
         'ankiConnectTimeout': ankiConnectTimeout,
@@ -98,6 +105,8 @@ class AppSettings {
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
+      themeMode: ThemeMode.values.byName(
+          json['themeMode'] as String? ?? 'dark'),
       ankiConnectUrl:
           json['ankiConnectUrl'] as String? ?? 'http://localhost:8765',
       ankiConnectVersion: json['ankiConnectVersion'] as int? ?? 6,

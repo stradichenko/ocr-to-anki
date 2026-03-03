@@ -18,6 +18,37 @@ class SettingsScreen extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
           // ---------------------------------------------------------------
+          // Appearance
+          // ---------------------------------------------------------------
+          _SectionHeader('Appearance'),
+          ListTile(
+            title: const Text('Theme'),
+            trailing: SegmentedButton<ThemeMode>(
+              segments: const [
+                ButtonSegment(
+                  value: ThemeMode.light,
+                  icon: Icon(Icons.light_mode, size: 18),
+                  label: Text('Light'),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.dark,
+                  icon: Icon(Icons.dark_mode, size: 18),
+                  label: Text('Dark'),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.system,
+                  icon: Icon(Icons.settings_brightness, size: 18),
+                  label: Text('System'),
+                ),
+              ],
+              selected: {settings.themeMode},
+              onSelectionChanged: (v) => notifier.update(
+                (s) => s..themeMode = v.first,
+              ),
+            ),
+          ),
+
+          // ---------------------------------------------------------------
           // Inference
           // ---------------------------------------------------------------
           _SectionHeader('Inference'),
