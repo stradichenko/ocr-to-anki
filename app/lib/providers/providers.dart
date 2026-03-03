@@ -51,6 +51,14 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
         state = AppSettings.fromJson(
           jsonDecode(json) as Map<String, dynamic>,
         );
+        // Migrate: on some systems "localhost" resolves to IPv6 ::1 while
+        // the server only listens on IPv4, causing connection failures.
+        if (state.serverUrl.contains('://localhost:')) {
+          state = state
+            ..serverUrl =
+                state.serverUrl.replaceFirst('://localhost:', '://127.0.0.1:');
+          await _db.setSetting('app_settings', jsonEncode(state.toJson()));
+        }
       } catch (_) {
         // Corrupted settings -- keep defaults.
       }
@@ -202,8 +210,9 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
       _log('Checking server connection...', progress: 0.07);
       final serverOk = await inference.isAvailable();
       if (!serverOk) {
+        final detail = inference.debugMessage ?? 'no details';
         throw Exception(
-          'Cannot reach inference server at ${settings.serverUrl}. '
+          'Cannot reach inference server at ${settings.serverUrl} ($detail). '
           'Make sure the FastAPI backend is running.',
         );
       }

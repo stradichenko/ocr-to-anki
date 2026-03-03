@@ -25,7 +25,7 @@ class AppSettings {
     this.mergeNearby = true,
     this.mergeDistance = 25,
     this.inferenceMode = InferenceMode.remote,
-    this.serverUrl = 'http://localhost:8000',
+    this.serverUrl = 'http://127.0.0.1:8000',
     this.modelPath = '',
     this.temperature = 0.1,
     this.maxTokens = 512,
@@ -135,7 +135,7 @@ class AppSettings {
       inferenceMode: InferenceMode.values.byName(
           json['inferenceMode'] as String? ?? 'remote'),
       serverUrl:
-          json['serverUrl'] as String? ?? 'http://localhost:8000',
+          json['serverUrl'] as String? ?? 'http://127.0.0.1:8000',
       modelPath: json['modelPath'] as String? ?? '',
       temperature: (json['temperature'] as num?)?.toDouble() ?? 0.1,
       maxTokens: json['maxTokens'] as int? ?? 512,

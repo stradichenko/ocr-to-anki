@@ -74,10 +74,14 @@ class InferenceService {
         return body['status'] == 'ok' || body['status'] == 'degraded';
       }
       return false;
-    } catch (_) {
+    } catch (e) {
+      debugMessage = 'Health check failed: $e';
       return false;
     }
   }
+
+  /// Diagnostic message from the last failed health check (if any).
+  String? debugMessage;
 
   // ---------------------------------------------------------------------------
   // Vision OCR
