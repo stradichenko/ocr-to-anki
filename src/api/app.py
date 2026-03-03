@@ -9,6 +9,7 @@ Run:
   uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import asyncio
 import base64
 import hashlib
 import logging
@@ -184,7 +185,8 @@ async def ocr_vision(req: VisionOCRRequest):
         tmp.flush()
 
         try:
-            result = _vision.run_vision(
+            result = await asyncio.to_thread(
+                _vision.run_vision,
                 image_path=tmp.name,
                 prompt=req.prompt,
                 timeout=req.timeout,
@@ -229,7 +231,8 @@ async def ocr_vision_upload(
         tmp.flush()
 
         try:
-            result = _vision.run_vision(
+            result = await asyncio.to_thread(
+                _vision.run_vision,
                 image_path=tmp.name,
                 prompt=prompt,
                 timeout=timeout,
@@ -267,7 +270,8 @@ async def generate(req: GenerateRequest):
     _ensure_text_server()
 
     try:
-        result = _text.generate(
+        result = await asyncio.to_thread(
+            _text.generate,
             prompt=req.prompt,
             system=req.system,
             max_tokens=req.max_tokens,
@@ -300,14 +304,16 @@ async def enrich(req: EnrichRequest):
 
     for word in req.words:
         # Definition
-        def_result = _text.generate(
-            prompt=f'Define the word "{word}" in {req.definition_language}. Be concise (1–2 sentences).',
+        def_result = await asyncio.to_thread(
+            _text.generate,
+            prompt=f'Define the word "{word}" in {req.definition_language}. Be concise (1\u20132 sentences).',
             max_tokens=req.max_tokens,
             temperature=req.temperature,
         )
 
         # Examples
-        ex_result = _text.generate(
+        ex_result = await asyncio.to_thread(
+            _text.generate,
             prompt=f'Write 2 short example sentences using "{word}" in {req.examples_language}.',
             max_tokens=req.max_tokens,
             temperature=max(0.5, req.temperature),
@@ -356,7 +362,9 @@ async def pipeline_image_to_cards(
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
         tmp.write(raw)
         tmp.flush()
-        ocr_result = _vision.run_vision(tmp.name, prompt=ocr_prompt, timeout=600)
+        ocr_result = await asyncio.to_thread(
+            _vision.run_vision, tmp.name, prompt=ocr_prompt, timeout=600,
+        )
 
     ocr_text = ocr_result["text"]
 
@@ -378,12 +386,14 @@ async def pipeline_image_to_cards(
         _ensure_text_server()
         for word in words[:20]:  # cap at 20 words
             try:
-                defn = _text.generate(
+                defn = await asyncio.to_thread(
+                    _text.generate,
                     prompt=f'Define "{word}" in {definition_language}. 1-2 sentences.',
                     max_tokens=128,
                     temperature=0.1,
                 )
-                exs = _text.generate(
+                exs = await asyncio.to_thread(
+                    _text.generate,
                     prompt=f'Write 2 example sentences using "{word}" in {examples_language}.',
                     max_tokens=150,
                     temperature=0.5,
