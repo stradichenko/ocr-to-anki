@@ -56,7 +56,7 @@ class InferenceService {
   Future<bool> isAvailable() async {
     switch (_settings.inferenceMode) {
       case InferenceMode.embedded:
-        // TODO: implement when llamadart FFI is integrated
+        debugMessage = 'Embedded mode not yet implemented';
         return false;
       case InferenceMode.remote:
         return _remoteHealthCheck();
@@ -64,20 +64,36 @@ class InferenceService {
   }
 
   Future<bool> _remoteHealthCheck() async {
-    try {
-      final uri = Uri.parse('${_settings.serverUrl}/health');
-      final response = await http.get(uri).timeout(
-            Duration(seconds: _settings.ankiConnectTimeout),
-          );
-      if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-        return body['status'] == 'ok' || body['status'] == 'degraded';
+    debugMessage = null;
+    final url = '${_settings.serverUrl}/health';
+    // Retry up to 3 times with a short delay to handle transient failures
+    // (e.g. server still starting up after GPU coordination pause).
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final uri = Uri.parse(url);
+        final response = await http.get(uri).timeout(
+              Duration(seconds: _settings.ankiConnectTimeout),
+            );
+        if (response.statusCode == 200) {
+          final body = jsonDecode(response.body) as Map<String, dynamic>;
+          final ok = body['status'] == 'ok' || body['status'] == 'degraded';
+          if (!ok) {
+            debugMessage = 'Server returned status: ${body['status']}';
+          } else {
+            debugMessage = null; // clear any prior attempt error
+          }
+          return ok;
+        }
+        debugMessage =
+            'GET $url returned HTTP ${response.statusCode} (attempt $attempt)';
+      } catch (e) {
+        debugMessage = 'GET $url -- $e (attempt $attempt)';
       }
-      return false;
-    } catch (e) {
-      debugMessage = 'Health check failed: $e';
-      return false;
+      if (attempt < 3) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
     }
+    return false;
   }
 
   /// Diagnostic message from the last failed health check (if any).
