@@ -24,7 +24,7 @@ FROM nixos/nix:latest
 
 # Install runtime dependencies via Nix
 RUN echo "experimental-features = nix-command flakes" >> /etc/nix/nix.conf && \
-    nix profile install nixpkgs#gtk4 nixpkgs#tesseract nixpkgs#ollama
+    nix profile install nixpkgs#gtk4
 
 # Copy built application from builder
 COPY --from=builder /build/result /app

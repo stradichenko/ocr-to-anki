@@ -18,161 +18,11 @@
           };
         };
         
-        # Build LangChain packages from source using buildPythonPackage
+        # Python package overrides
         pythonPackagesExtensions = final: prev: {
           tenacity = prev.tenacity.overridePythonAttrs (old: {
             doCheck = false;
           });
-          
-          langchain = final.buildPythonPackage rec {
-            pname = "langchain";
-            version = "0.3.14";
-            pyproject = true;
-            
-            src = pkgs.fetchPypi {
-              inherit pname version;
-              hash = "sha256-SlroF7WDL6Dh/K3FNT+/dL69L45VApTU3AOfZR3c09E=";
-            };
-            
-            build-system = [ final.poetry-core ];
-            dependencies = with final; [ 
-              pydantic requests pyyaml sqlalchemy tenacity aiohttp numpy
-              langsmith langchain-core langchain-text-splitters
-            ];
-            
-            pythonImportsCheck = [ "langchain" ];
-            doCheck = false;
-            dontCheckRuntimeDeps = true;
-          };
-          
-          langchain-core = final.buildPythonPackage rec {
-            pname = "langchain-core";
-            version = "0.3.29";
-            pyproject = true;
-            
-            src = pkgs.fetchPypi {
-              pname = "langchain_core";
-              inherit version;
-              hash = "sha256-dz1q7rYS5849mWwL5ANDPYxqked7u3p0YcE+Fc++WwY=";
-            };
-            
-            build-system = [ final.poetry-core ];
-            dependencies = with final; [ 
-              pydantic requests pyyaml tenacity jsonpatch langsmith packaging
-            ];
-            
-            pythonImportsCheck = [ "langchain_core" ];
-            doCheck = false;
-            dontCheckRuntimeDeps = true;
-          };
-          
-          langchain-text-splitters = final.buildPythonPackage rec {
-            pname = "langchain-text-splitters";
-            version = "0.3.4";
-            pyproject = true;
-            
-            src = pkgs.fetchPypi {
-              pname = "langchain_text_splitters";
-              inherit version;
-              hash = "sha256-887epGloRIO0SS2fEdwvpmOI2rAcXVxTB5JVFauITCQ=";
-            };
-            
-            build-system = [ final.poetry-core ];
-            dependencies = with final; [ final.langchain-core ];
-            
-            pythonImportsCheck = [ "langchain_text_splitters" ];
-            doCheck = false;
-          };
-          
-          langchain-community = final.buildPythonPackage rec {
-            pname = "langchain-community";
-            version = "0.3.14";
-            pyproject = true;
-            
-            src = pkgs.fetchPypi {
-              pname = "langchain_community";
-              inherit version;
-              hash = "sha256-2LoP4tu1eVv/cHaEtxK6pe43kicZRhCvQVzN/e/aBHk=";
-            };
-            
-            build-system = [ final.poetry-core ];
-            dependencies = with final; [ 
-              langchain langchain-core dataclasses-json httpx-sse pydantic-settings numpy
-            ];
-            
-            pythonImportsCheck = [ "langchain_community" ];
-            doCheck = false;
-            dontCheckRuntimeDeps = true;
-          };
-          
-          langchain-ollama = final.buildPythonPackage rec {
-            pname = "langchain-ollama";
-            version = "0.2.2";
-            pyproject = true;
-            
-            src = pkgs.fetchPypi {
-              pname = "langchain_ollama";
-              inherit version;
-              hash = "sha256-LZvLBv/b5Dx8aQbEbnENNtM7a5nNSXXL9UBg8T5RyHU=";
-            };
-            
-            build-system = [ final.poetry-core ];
-            dependencies = with final; [ final.langchain-core final.ollama ];
-            
-            pythonImportsCheck = [ "langchain_ollama" ];
-            doCheck = false;
-          };
-          
-          ollama = final.buildPythonPackage rec {
-            pname = "ollama";
-            version = "0.4.7";
-            pyproject = true;
-            
-            src = pkgs.fetchPypi {
-              inherit pname version;
-              hash = "sha256-iR3L5U9VOX2C0onEWd4OqJfhA7hqPx+tD9sYlZIqdf8=";
-            };
-            
-            build-system = [ final.poetry-core ];
-            dependencies = with final; [ requests httpx pydantic ];
-            
-            pythonImportsCheck = [ "ollama" ];
-            doCheck = false;
-          };
-          
-          langsmith = final.buildPythonPackage rec {
-            pname = "langsmith";
-            version = "0.2.4";
-            pyproject = true;
-            
-            src = pkgs.fetchPypi {
-              inherit pname version;
-              hash = "sha256-OG/tyBW0X5T6F1cYYOVhwNefrMCil5pTLri4k6TZj6k=";
-            };
-            
-            build-system = [ final.poetry-core ];
-            dependencies = with final; [ requests pydantic orjson httpx requests-toolbelt ];
-            
-            pythonImportsCheck = [ "langsmith" ];
-            doCheck = false;
-          };
-          
-          pytesseract = final.buildPythonPackage rec {
-            pname = "pytesseract";
-            version = "0.3.13";
-            pyproject = true;
-            
-            src = pkgs.fetchPypi {
-              inherit pname version;
-              hash = "sha256-S/X4gMmUBvUqPPwmM+QtncZ2FeadilCddIZ9O63bXbk=";
-            };
-            
-            build-system = [ final.setuptools ];
-            dependencies = with final; [ pillow packaging ];
-            
-            pythonImportsCheck = [ "pytesseract" ];
-            doCheck = false;
-          };
         };
         
         # Python 3.11+ with packages from Nix
@@ -186,24 +36,13 @@
           pygobject3
           
           # Image processing
-          pillow
           opencv4
+          numpy
           
           # Data handling
           pyyaml
           pydantic
           requests
-          levenshtein
-          
-          # Additional dependencies
-          jsonpatch
-          dataclasses-json
-          orjson
-          httpx
-          tenacity
-          aiohttp
-          sqlalchemy
-          packaging
           
           # Testing
           pytest
@@ -430,9 +269,9 @@
             echo ""
             
             echo "llama.cpp status (fully offline):"
-            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0.gguf" ]; then
+            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" ]; then
               echo "  ✅ Gemma 3 4B model found"
-              MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0.gguf" 2>/dev/null | cut -f1)
+              MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" 2>/dev/null | cut -f1)
               echo "  📦 Model size: $MODEL_SIZE"
               echo "  📍 Location: $LLAMA_CPP_MODELS"
             else
@@ -611,9 +450,9 @@
             echo ""
             
             echo "llama.cpp status (fully offline):"
-            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0.gguf" ]; then
+            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" ]; then
               echo "  ✅ Gemma 3 4B model found"
-              MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0.gguf" 2>/dev/null | cut -f1)
+              MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" 2>/dev/null | cut -f1)
               echo "  📦 Model size: $MODEL_SIZE"
               echo "  📍 Location: $LLAMA_CPP_MODELS"
             else

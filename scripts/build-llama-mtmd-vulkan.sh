@@ -164,7 +164,7 @@ echo "╚═══════════════════════�
 echo ""
 echo "Test with:"
 echo "  llama-mtmd-cli \\"
-echo "    -m ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0.gguf \\"
+echo "    -m ~/.cache/llama.cpp/models/gemma-3-4b-it-qat-q4_0_s.gguf \\"
 echo "    --mmproj ~/.cache/llama.cpp/models/mmproj-model-f16-4B.gguf \\"
 echo "    --image data/images/test.jpg \\"
 echo "    -p 'What text do you see in this image?'"

@@ -18,7 +18,6 @@ services:
     environment:
       - DISPLAY=${DISPLAY}
       - XDG_RUNTIME_DIR=/tmp
-      - OLLAMA_HOST=ollama:11434
     
     # Network for X11 forwarding (if needed for GTK)
     network_mode: "host"
@@ -37,37 +36,10 @@ services:
           cpus: '1'
           memory: 2G
     
-    depends_on:
-      - ollama
-    
-    restart: unless-stopped
-
-  # Ollama LLM service
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    
-    volumes:
-      - ollama-data:/root/.ollama
-    
-    ports:
-      - "11434:11434"
-    
-    # GPU support (uncomment if using NVIDIA GPU)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-    
     restart: unless-stopped
 
 volumes:
   config-data:
     driver: local
   app-data:
-    driver: local
-  ollama-data:
     driver: local

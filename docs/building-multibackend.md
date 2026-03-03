@@ -276,7 +276,7 @@ nix develop
 
 # Test
 llama-mtmd-cli-vulkan \
-  -m ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0.gguf \
+  -m ~/.cache/llama.cpp/models/gemma-3-4b-it-qat-q4_0_s.gguf \
   --mmproj ~/.cache/llama.cpp/models/mmproj-model-f16-4B.gguf \
   --image test.jpg \
   -p "What text?" \

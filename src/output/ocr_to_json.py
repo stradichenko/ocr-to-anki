@@ -112,8 +112,8 @@ Examples:
   # From OCR output file
   python src/output/ocr_to_json.py -i ocr_output.txt -o notes.json
   
-  # From stdin (pipe from tesseract_ocr_image.py)
-  python src/backends/tesseract_ocr_image.py image.png | python src/output/ocr_to_json.py -o notes.json
+  # From stdin (pipe from OCR backend)
+  python src/backends/llama_cpp_server.py image.png | python src/output/ocr_to_json.py -o notes.json
   
   # Direct text input
   echo -e "犬\\n猫\\n本" | python src/output/ocr_to_json.py

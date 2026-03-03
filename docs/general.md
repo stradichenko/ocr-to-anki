@@ -120,102 +120,15 @@ You don't replace one with the other; nix-direnv enhances direnv for Nix project
 
 ---
 
-## Ollama OCR Timeout Troubleshooting
-
-If you're experiencing timeout errors with Ollama OCR:
-
-### Common Causes
-
-1. **Large Images**: Images over 2MB or with dimensions > 2000px take longer to process
-2. **Model Loading**: First request after starting Ollama loads the model into memory (can take 30-60s)
-3. **System Resources**: Insufficient RAM or CPU can slow down inference
-4. **Model Size**: Larger models (7B, 13B) take significantly longer than 2B models
-
-### Solutions
-
-**Resize Images**: The test script automatically resizes images to 800px width max. For production:
-```python
-# Resize before encoding
-from PIL import Image
-img = Image.open('large.jpg')
-img.thumbnail((1024, 1024))
-img.save('resized.jpg')
-```
-
-**Increase Timeout**: In `config/settings.yaml`:
-```yaml
-ollama_ocr:
-  timeout: 300  # 5 minutes instead of 60 seconds
-```
-
-**Warm Up the Model**: Run a test request first:
-```bash
-curl http://localhost:11434/api/generate -d '{
-  "model": "qwen3-vl:2b",
-  "prompt": "Hello",
-  "stream": false
-}'
-```
-
-**Check Ollama Status**:
-```bash
-# View running models
-ollama ps
-
-# Check available models
-ollama list
-
-# Monitor logs
-ollama serve
-```
-
-**Reduce Response Length**: Add to request payload:
-```python
-payload = {
-    "model": "qwen3-vl:2b",
-    "prompt": prompt,
-    "images": [image_base64],
-    "options": {
-        "num_predict": 500,    # Limit tokens
-        "temperature": 0.1     # More focused output
-    }
-}
-```
-
-**Use GPU if Available**: Ollama automatically uses GPU when available. Check with:
-```bash
-nvidia-smi  # For NVIDIA GPUs
-```
-
-**Try Smaller Model**: If timeouts persist, test with a smaller model first:
-```bash
-ollama pull llava:7b
-# Then update config to use llava:7b
-```
-
 ## llama.cpp Offline Inference
-
-### Why llama.cpp Instead of Ollama?
-
-**Privacy & Offline:**
-- llama.cpp: Fully offline after initial setup, no telemetry
-- Ollama: Requires internet for model downloads, may phone home
-
-**Performance:**
-- llama.cpp: Direct GGUF inference, optimized for CPU/GPU
-- Ollama: Additional abstraction layer
-
-**Control:**
-- llama.cpp: Full control over model parameters and memory
-- Ollama: Managed service with less configurability
 
 ### Setup Issues
 
 **Model download fails:**
 ```bash
 # Try with curl instead of wget
-curl -L -o ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0.gguf \
-  https://huggingface.co/fernandoruiz/gemma-3-4b-it-Q4_0-GGUF/resolve/main/gemma-3-4b-it-q4_0.gguf
+curl -L -o ~/.cache/llama.cpp/models/gemma-3-4b-it-qat-q4_0_s.gguf \
+  "https://huggingface.co/google/gemma-3-4b-it-qat-q4_0-gguf/resolve/main/gemma-3-4b-it-qat-q4_0_s.gguf"
 ```
 
 **Server won't start:**
@@ -227,7 +140,7 @@ which llama-server
 nix develop
 
 # Check model exists
-ls -lh ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0.gguf
+ls -lh ~/.cache/llama.cpp/models/gemma-3-4b-it-qat-q4_0_s.gguf
 ```
 
 **Slow generation (CPU only):**

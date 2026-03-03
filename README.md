@@ -112,7 +112,7 @@ ai_backend:
 
 llama_cpp:
   host: '127.0.0.1'
-  port: 8080
+  port: 8090
   context_size: 4096
   n_gpu_layers: -1
   mmproj_offload: false  # Set true when using OpenCL backend
@@ -127,8 +127,8 @@ src/
 │   └── models.py           # Pydantic request/response models
 ├── backends/               # AI inference backends
 │   ├── auto_detect.py      # GPU/backend auto-detection
-│   ├── mtmd_cli.py         # llama-mtmd-cli wrapper (vision)
-│   └── llama_cpp_server.py # llama-server wrapper (text)
+│   ├── mtmd_cli.py         # llama-mtmd-cli wrapper (vision, subprocess)
+│   └── llama_cpp_server.py # llama-server wrapper (vision + text, ~28x faster)
 ├── preprocessing/          # Image preprocessing
 ├── workflows/              # End-to-end pipelines
 └── output/                 # Anki export

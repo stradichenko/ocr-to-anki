@@ -1,5 +1,5 @@
 # OCR-to-Anki Python dependencies
-# Fully offline — no HuggingFace Hub, no Tesseract, no Ollama
+# Fully offline — llama.cpp server mode via Nix
 
 # API server
 fastapi>=0.104.0
@@ -7,14 +7,13 @@ uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 
 # Image processing
-Pillow>=10.0.0
 opencv-python-headless>=4.8.0
+numpy>=1.24.0
 
 # Data handling
 pyyaml>=6.0
 pydantic>=2.0.0
 requests>=2.31.0
-python-Levenshtein>=0.21.0
 
 # Testing
 pytest>=7.0.0

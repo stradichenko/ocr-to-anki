@@ -59,13 +59,12 @@ image_preprocessing:
 
 # AI Backend Selection
 ai_backend:
-  # Options: 'ollama', 'llama_cpp', 'vllm'
-  type: 'llama_cpp'  # Change to 'llama_cpp' for fully offline mode
+  type: 'llama_cpp'
 
 # llama.cpp Configuration (fully offline, no internet)
 llama_cpp:
   host: '127.0.0.1'
-  port: 8080
+  port: 8090
   context_size: 4096
   n_gpu_layers: -1  # -1 = use all GPU layers
   
