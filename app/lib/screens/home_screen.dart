@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,30 +26,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('OCR to Anki'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: 'History',
-            onPressed: () => Navigator.of(context).pushNamed('/history'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: 'Settings',
-            onPressed: () => Navigator.of(context).pushNamed('/settings'),
-          ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // -- Context selector -----------------------------------------
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // -- Header row with actions --------------------------------
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text('OCR to Anki',
+                            style: theme.textTheme.headlineSmall),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.history),
+                        tooltip: 'History',
+                        onPressed: () =>
+                            Navigator.of(context).pushNamed('/history'),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.settings),
+                        tooltip: 'Settings',
+                        onPressed: () =>
+                            Navigator.of(context).pushNamed('/settings'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
                 Text('OCR Context', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 SegmentedButton<OcrContext>(
@@ -112,6 +120,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -147,44 +156,88 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// Image drop zone widget
+// Image drop zone widget (supports click + drag-and-drop)
 // ---------------------------------------------------------------------------
 
-class _ImageDropZone extends StatelessWidget {
+class _ImageDropZone extends StatefulWidget {
   const _ImageDropZone({required this.onImageSelected});
 
   final void Function(Uint8List bytes, String name) onImageSelected;
 
   @override
+  State<_ImageDropZone> createState() => _ImageDropZoneState();
+}
+
+class _ImageDropZoneState extends State<_ImageDropZone> {
+  bool _isDragging = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () => _pickImage(context),
-        child: Container(
-          height: 200,
-          alignment: Alignment.center,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.add_photo_alternate_outlined,
-                  size: 48, color: theme.colorScheme.primary),
-              const SizedBox(height: 12),
-              Text('Tap to select an image',
-                  style: theme.textTheme.bodyLarge),
-              const SizedBox(height: 4),
-              Text(
-                'Supports JPG, PNG, BMP, TIFF',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+    return DropTarget(
+      onDragEntered: (_) => setState(() => _isDragging = true),
+      onDragExited: (_) => setState(() => _isDragging = false),
+      onDragDone: (details) async {
+        setState(() => _isDragging = false);
+        if (details.files.isEmpty) return;
+        final xfile = details.files.first;
+        final bytes = await xfile.readAsBytes();
+        widget.onImageSelected(Uint8List.fromList(bytes), xfile.name);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _isDragging
+                ? theme.colorScheme.primary
+                : theme.colorScheme.outline.withValues(alpha: 0.3),
+            width: _isDragging ? 2.0 : 1.0,
+          ),
+          color: _isDragging
+              ? theme.colorScheme.primary.withValues(alpha: 0.08)
+              : theme.colorScheme.surfaceContainerLow,
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _pickImage(context),
+          child: SizedBox(
+            height: 200,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _isDragging
+                        ? Icons.file_download
+                        : Icons.add_photo_alternate_outlined,
+                    size: 48,
+                    color: _isDragging
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _isDragging
+                        ? 'Drop image here'
+                        : 'Tap or drag an image here',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: _isDragging
+                          ? theme.colorScheme.primary
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Supports JPG, PNG, BMP, TIFF',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -199,7 +252,7 @@ class _ImageDropZone extends StatelessWidget {
         withData: true,
       );
       if (result != null && result.files.single.bytes != null) {
-        onImageSelected(
+        widget.onImageSelected(
           result.files.single.bytes!,
           result.files.single.name,
         );
@@ -209,7 +262,7 @@ class _ImageDropZone extends StatelessWidget {
       if (result != null && result.files.single.path != null) {
         final file = File(result.files.single.path!);
         final bytes = await file.readAsBytes();
-        onImageSelected(bytes, result.files.single.name);
+        widget.onImageSelected(bytes, result.files.single.name);
         return;
       }
     } catch (_) {
@@ -220,7 +273,7 @@ class _ImageDropZone extends StatelessWidget {
     final xfile = await picker.pickImage(source: ImageSource.gallery);
     if (xfile != null) {
       final bytes = await xfile.readAsBytes();
-      onImageSelected(bytes, xfile.name);
+      widget.onImageSelected(bytes, xfile.name);
     }
   }
 }

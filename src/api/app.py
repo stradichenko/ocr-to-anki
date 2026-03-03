@@ -158,6 +158,23 @@ async def backends():
 
 
 # -------------------------------------------------------------------
+# GPU coordination helpers
+# -------------------------------------------------------------------
+
+def _pause_text_server():
+    """Stop the text server to free iGPU memory for vision OCR.
+
+    On devices with a single GPU (e.g. Intel iGPU) the text server
+    (llama-server) holds VRAM that prevents llama-mtmd-cli from running
+    the vision encoder.  We stop it here and let _ensure_text_server()
+    lazily restart it when text generation is needed again.
+    """
+    if _text is not None and _text.is_running():
+        log.info("Pausing text server to free GPU for vision OCR...")
+        _text.stop()
+
+
+# -------------------------------------------------------------------
 # Vision OCR
 # -------------------------------------------------------------------
 
@@ -179,6 +196,9 @@ async def ocr_vision(req: VisionOCRRequest):
         raise HTTPException(400, "Invalid base64 image data")
 
     img_hash = hashlib.md5(raw).hexdigest()[:12]
+
+    # Free the GPU — stop text server if it's occupying the iGPU.
+    await asyncio.to_thread(_pause_text_server)
 
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
         tmp.write(raw)
@@ -225,6 +245,9 @@ async def ocr_vision_upload(
 
     img_hash = hashlib.md5(raw).hexdigest()[:12]
     suffix = Path(file.filename).suffix if file.filename else ".jpg"
+
+    # Free the GPU — stop text server if it's occupying the iGPU.
+    await asyncio.to_thread(_pause_text_server)
 
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
         tmp.write(raw)
@@ -358,6 +381,9 @@ async def pipeline_image_to_cards(
         raise HTTPException(400, "Empty file")
 
     suffix = Path(file.filename).suffix if file.filename else ".jpg"
+
+    # Free the GPU -- stop text server if it's occupying the iGPU.
+    await asyncio.to_thread(_pause_text_server)
 
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
         tmp.write(raw)
