@@ -399,10 +399,10 @@ class AdaptiveHighlightCropper:
             if contours:
                 all_contours[color_name] = contours
                 self.crop_regions(image, contours, color_name, image_path.name)
-                logger.info(f"✓ Found {len(contours)} {color_name} regions")
+                logger.info(f"[OK] Found {len(contours)} {color_name} regions")
                 total_regions += len(contours)
             else:
-                logger.info(f"✗ No {color_name} regions found")
+                logger.info(f"[FAIL] No {color_name} regions found")
         
         if total_regions == 0:
             logger.warning(f"No highlighted regions found in {image_path.name}")

@@ -87,7 +87,7 @@ docker run -it --rm \
   ocr-to-anki:latest --cli --input /images
 ```
 
-### With Ollama integration
+### With Docker Compose
 
 ```bash
 docker-compose -f docker/compose.yml up -d
@@ -103,7 +103,7 @@ docker-compose -f docker/compose.yml up -d
 
 ## Benefits for Your Codebase
 
-- **OCR Dependencies**: Tesseract and all image processing libs are version-locked
+- **OCR Dependencies**: All image processing libs are version-locked
 - **GTK4 Runtime**: Exact same GTK version in Docker as development
-- **AI/ML Stack**: LangChain, Ollama, and all Python packages perfectly matched
+- **AI/ML Stack**: llama.cpp, FastAPI, and all Python packages perfectly matched
 - **CI/CD Ready**: GitHub Actions can build the Nix Docker image without Docker installed

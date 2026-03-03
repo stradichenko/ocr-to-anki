@@ -44,7 +44,7 @@ echo ""
 ONEAPI_ROOT="${ONEAPI_ROOT:-/opt/intel/oneapi}"
 
 if [[ ! -d "$ONEAPI_ROOT" ]]; then
-    echo "❌ Intel oneAPI not found at: $ONEAPI_ROOT"
+    echo "[ERR] Intel oneAPI not found at: $ONEAPI_ROOT"
     echo ""
     echo "Install oneAPI Base Toolkit:"
     echo "  1. Download from:"
@@ -58,12 +58,12 @@ if [[ ! -d "$ONEAPI_ROOT" ]]; then
     exit 1
 fi
 
-echo "📦 Sourcing Intel oneAPI from: $ONEAPI_ROOT"
+echo ":: Sourcing Intel oneAPI from: $ONEAPI_ROOT"
 if [[ -f "$ONEAPI_ROOT/setvars.sh" ]]; then
     # shellcheck disable=SC1091
     source "$ONEAPI_ROOT/setvars.sh" --force 2>/dev/null || true
 else
-    echo "❌ setvars.sh not found in $ONEAPI_ROOT"
+    echo "[ERR] setvars.sh not found in $ONEAPI_ROOT"
     exit 1
 fi
 
@@ -72,7 +72,7 @@ fi
 # ------------------------------------------------------------------
 check_tool() {
     if ! command -v "$1" &>/dev/null; then
-        echo "❌ Missing: $1 ($2)"
+        echo "[ERR] Missing: $1 ($2)"
         exit 1
     fi
 }
@@ -89,10 +89,10 @@ if command -v icpx &>/dev/null; then
     CXX_COMPILER=icpx
     C_COMPILER=icx
     SYCL_TYPE="oneAPI DPC++"
-    echo "  ✅ icpx:  $(icpx --version 2>&1 | head -1)"
-    echo "  ✅ icx:   $(icx --version 2>&1 | head -1)"
+    echo "  [OK] icpx:  $(icpx --version 2>&1 | head -1)"
+    echo "  [OK] icx:   $(icx --version 2>&1 | head -1)"
 else
-    echo "❌ Intel DPC++ compiler (icpx) not found."
+    echo "[ERR] Intel DPC++ compiler (icpx) not found."
     echo "   Make sure oneAPI was sourced: source $ONEAPI_ROOT/setvars.sh"
     echo ""
     echo "   Alternatively, install only the compiler component:"
@@ -102,20 +102,20 @@ fi
 
 # Level Zero
 if pkg-config --exists level-zero 2>/dev/null; then
-    echo "  ✅ Level Zero: $(pkg-config --modversion level-zero)"
+    echo "  [OK] Level Zero: $(pkg-config --modversion level-zero)"
 elif [[ -f "$ONEAPI_ROOT/compiler/latest/lib/libze_loader.so" ]]; then
-    echo "  ✅ Level Zero: provided by oneAPI"
+    echo "  [OK] Level Zero: provided by oneAPI"
 else
-    echo "  ⚠️  Level Zero not found via pkg-config (may be provided by oneAPI)"
+    echo "  [WARN] Level Zero not found via pkg-config (may be provided by oneAPI)"
 fi
 
 # MKL
 if pkg-config --exists mkl-sycl-blas 2>/dev/null; then
-    echo "  ✅ MKL:   $(pkg-config --modversion mkl-sycl-blas 2>/dev/null || echo 'found')"
+    echo "  [OK] MKL:   $(pkg-config --modversion mkl-sycl-blas 2>/dev/null || echo 'found')"
 elif [[ -d "$ONEAPI_ROOT/mkl" ]] || [[ -d "$MKLROOT" ]]; then
-    echo "  ✅ MKL:   provided by oneAPI (MKLROOT=${MKLROOT:-$ONEAPI_ROOT/mkl/latest})"
+    echo "  [OK] MKL:   provided by oneAPI (MKLROOT=${MKLROOT:-$ONEAPI_ROOT/mkl/latest})"
 else
-    echo "  ⚠️  MKL not detected (required by SYCL backend)"
+    echo "  [WARN] MKL not detected (required by SYCL backend)"
 fi
 
 # Intel GPU driver
@@ -124,16 +124,16 @@ echo "GPU Detection:"
 if command -v sycl-ls &>/dev/null; then
     SYCL_DEVICES=$(sycl-ls 2>/dev/null | grep -i "Intel" | head -5)
     if [[ -n "$SYCL_DEVICES" ]]; then
-        echo "  ✅ SYCL devices:"
+        echo "  [OK] SYCL devices:"
         echo "$SYCL_DEVICES" | sed 's/^/     /'
     else
-        echo "  ⚠️  No Intel SYCL devices found by sycl-ls"
+        echo "  [WARN] No Intel SYCL devices found by sycl-ls"
     fi
 elif command -v ze_info &>/dev/null; then
     echo "  (Using ze_info for device detection)"
     ze_info 2>/dev/null | grep -i "name\|driver\|vendor" | head -5 | sed 's/^/     /'
 else
-    echo "  ℹ️  No sycl-ls or ze_info — will detect at runtime"
+    echo "  [INFO] No sycl-ls or ze_info — will detect at runtime"
 fi
 echo ""
 
@@ -143,19 +143,19 @@ echo ""
 SRC_DIR="$BUILD_DIR/llama.cpp"
 
 if [[ "$CLEAN" == true ]] && [[ -d "$BUILD_DIR" ]]; then
-    echo "🧹 Cleaning previous SYCL build..."
+    echo ":: Cleaning previous SYCL build..."
     rm -rf "$BUILD_DIR"
 fi
 
 mkdir -p "$BUILD_DIR"
 
 if [[ -d "$SRC_DIR/.git" ]]; then
-    echo "📦 Updating llama.cpp..."
+    echo ":: Updating llama.cpp..."
     cd "$SRC_DIR"
     git fetch --depth 1 origin "$LLAMA_CPP_REF"
     git checkout FETCH_HEAD
 else
-    echo "📦 Cloning llama.cpp ($LLAMA_CPP_REF)..."
+    echo ":: Cloning llama.cpp ($LLAMA_CPP_REF)..."
     git clone --depth 1 --branch "$LLAMA_CPP_REF" "$LLAMA_CPP_REPO" "$SRC_DIR" 2>/dev/null \
         || git clone --depth 1 "$LLAMA_CPP_REPO" "$SRC_DIR"
 fi
@@ -171,7 +171,7 @@ echo ""
 CMAKE_BUILD="$BUILD_DIR/build"
 mkdir -p "$CMAKE_BUILD"
 
-echo "⚙️  Configuring CMake with SYCL backend..."
+echo ":: Configuring CMake with SYCL backend..."
 
 # SYCL build flags
 # - GGML_SYCL=ON           → Enable SYCL backend
@@ -197,9 +197,9 @@ echo ""
 
 # Verify SYCL was found
 if grep -q "SYCL found" "$BUILD_DIR/cmake-configure.log" 2>/dev/null; then
-    echo "   ✅ SYCL detected by CMake"
+    echo "   [OK] SYCL detected by CMake"
 else
-    echo "   ⚠️  Check cmake output above for SYCL detection"
+    echo "   [WARN] Check cmake output above for SYCL detection"
 fi
 echo ""
 
@@ -207,7 +207,7 @@ echo ""
 # 5. Build
 # ------------------------------------------------------------------
 NPROC=$(nproc 2>/dev/null || echo 4)
-echo "🔨 Building llama-mtmd-cli with SYCL (using $NPROC cores)..."
+echo ":: Building llama-mtmd-cli with SYCL (using $NPROC cores)..."
 echo "   This may take several minutes..."
 echo ""
 
@@ -223,12 +223,12 @@ echo ""
 BINARY=$(find "$CMAKE_BUILD" -name "llama-mtmd-cli" -type f -executable 2>/dev/null | head -1)
 
 if [[ -z "$BINARY" ]]; then
-    echo "❌ Build failed — binary not found"
+    echo "[ERR] Build failed — binary not found"
     echo "   Check logs: $BUILD_DIR/build.log"
     exit 1
 fi
 
-echo "✅ Binary built: $BINARY"
+echo "[OK] Binary built: $BINARY"
 echo "   Size: $(du -h "$BINARY" | cut -f1)"
 
 # Install as separate binary name to coexist with Vulkan build
@@ -242,7 +242,7 @@ chmod +x "$INSTALL_DIR/llama-mtmd-cli"
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  ✅ SYCL binaries installed:                     ║"
+echo "║  [OK] SYCL binaries installed:                     ║"
 echo "║     $INSTALL_DIR/$BINARY_NAME"
 echo "║     $INSTALL_DIR/llama-mtmd-cli"
 echo "╚══════════════════════════════════════════════════╝"

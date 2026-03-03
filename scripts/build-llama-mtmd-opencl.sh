@@ -35,7 +35,7 @@ echo ""
 # ------------------------------------------------------------------
 check_tool() {
     if ! command -v "$1" &>/dev/null; then
-        echo "❌ Missing: $1"
+        echo "[ERR] Missing: $1"
         echo "   Install via: $2"
         exit 1
     fi
@@ -51,14 +51,14 @@ check_tool python3  "nix develop .#sycl"
 HAVE_OPENCL=false
 if pkg-config --exists OpenCL 2>/dev/null; then
     HAVE_OPENCL=true
-    echo "✅ OpenCL: $(pkg-config --modversion OpenCL)"
+    echo "[OK] OpenCL: $(pkg-config --modversion OpenCL)"
 elif [[ -f /etc/OpenCL/vendors/*.icd ]] 2>/dev/null; then
-    echo "✅ OpenCL: ICD files found"
+    echo "[OK] OpenCL: ICD files found"
     HAVE_OPENCL=true
 fi
 
 if [[ "$HAVE_OPENCL" != true ]]; then
-    echo "❌ OpenCL not found"
+    echo "[ERR] OpenCL not found"
     echo "   Make sure you're in the sycl dev shell: nix develop --impure .#sycl"
     echo "   And that intel-compute-runtime is available"
     exit 1
@@ -70,18 +70,18 @@ echo "GPU Detection:"
 if command -v clinfo &>/dev/null; then
     PLATFORMS=$(clinfo -l 2>/dev/null | head -10)
     if [[ -n "$PLATFORMS" ]]; then
-        echo "  ✅ OpenCL platforms/devices:"
+        echo "  [OK] OpenCL platforms/devices:"
         echo "$PLATFORMS" | sed 's/^/     /'
     else
-        echo "  ⚠️  No OpenCL platforms detected by clinfo"
+        echo "  [WARN] No OpenCL platforms detected by clinfo"
         echo "     Intel compute-runtime may need to be installed system-wide"
     fi
 else
-    echo "  ℹ️  clinfo not available — will detect at runtime"
+    echo "  [INFO] clinfo not available — will detect at runtime"
 fi
 
 echo ""
-echo "✅ All build dependencies found"
+echo "[OK] All build dependencies found"
 echo "   cmake:   $(cmake --version | head -1)"
 echo "   gcc:     $(gcc --version | head -1)"
 echo "   python3: $(python3 --version)"
@@ -93,19 +93,19 @@ echo ""
 SRC_DIR="$BUILD_DIR/llama.cpp"
 
 if [[ "$CLEAN" == true ]] && [[ -d "$BUILD_DIR" ]]; then
-    echo "🧹 Cleaning previous OpenCL build..."
+    echo ":: Cleaning previous OpenCL build..."
     rm -rf "$BUILD_DIR"
 fi
 
 mkdir -p "$BUILD_DIR"
 
 if [[ -d "$SRC_DIR/.git" ]]; then
-    echo "📦 Updating llama.cpp..."
+    echo ":: Updating llama.cpp..."
     cd "$SRC_DIR"
     git fetch --depth 1 origin "$LLAMA_CPP_REF"
     git checkout FETCH_HEAD
 else
-    echo "📦 Cloning llama.cpp ($LLAMA_CPP_REF)..."
+    echo ":: Cloning llama.cpp ($LLAMA_CPP_REF)..."
     git clone --depth 1 --branch "$LLAMA_CPP_REF" "$LLAMA_CPP_REPO" "$SRC_DIR" 2>/dev/null \
         || git clone --depth 1 "$LLAMA_CPP_REPO" "$SRC_DIR"
 fi
@@ -120,7 +120,7 @@ echo ""
 # ------------------------------------------------------------------
 PATCH_DIR="$PROJECT_DIR/patches"
 if [[ -f "$PATCH_DIR/opencl-intel-workgroup-fix.patch" ]]; then
-    echo "🩹 Applying Intel work group size fix..."
+    echo ":: Applying Intel work group size fix..."
     # Check if patch is already applied
     if grep -q "max_workgroup_size" "$SRC_DIR/ggml/src/ggml-opencl/ggml-opencl.cpp" 2>/dev/null \
        && grep -A2 "nth = 512" "$SRC_DIR/ggml/src/ggml-opencl/ggml-opencl.cpp" | grep -q "max_workgroup_size"; then
@@ -130,7 +130,7 @@ if [[ -f "$PATCH_DIR/opencl-intel-workgroup-fix.patch" ]]; then
         git apply "$PATCH_DIR/opencl-intel-workgroup-fix.patch" 2>/dev/null \
             || patch -p1 < "$PATCH_DIR/opencl-intel-workgroup-fix.patch" 2>/dev/null \
             || {
-                echo "   ⚠️  Patch failed to apply cleanly — applying manually..."
+                echo "   [WARN] Patch failed to apply cleanly — applying manually..."
                 # Manual fix: clamp GLU kernel work group size to device max
                 sed -i '/const size_t nrows = ggml_nrows(src0);/{
                     N
@@ -148,7 +148,7 @@ fi
 CMAKE_BUILD="$BUILD_DIR/build"
 mkdir -p "$CMAKE_BUILD"
 
-echo "⚙️  Configuring CMake with OpenCL backend..."
+echo ":: Configuring CMake with OpenCL backend..."
 
 cmake -B "$CMAKE_BUILD" -S "$SRC_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -170,7 +170,7 @@ echo ""
 # 4. Build
 # ------------------------------------------------------------------
 NPROC=$(nproc 2>/dev/null || echo 4)
-echo "🔨 Building llama-mtmd-cli with OpenCL (using $NPROC cores)..."
+echo ":: Building llama-mtmd-cli with OpenCL (using $NPROC cores)..."
 echo "   This may take a few minutes..."
 echo ""
 
@@ -186,12 +186,12 @@ echo ""
 BINARY=$(find "$CMAKE_BUILD" -name "llama-mtmd-cli" -type f -executable 2>/dev/null | head -1)
 
 if [[ -z "$BINARY" ]]; then
-    echo "❌ Build failed — binary not found"
+    echo "[ERR] Build failed — binary not found"
     echo "   Check logs: $BUILD_DIR/build.log"
     exit 1
 fi
 
-echo "✅ Binary built: $BINARY"
+echo "[OK] Binary built: $BINARY"
 echo "   Size: $(du -h "$BINARY" | cut -f1)"
 
 # Install
@@ -201,7 +201,7 @@ chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  ✅ OpenCL binary installed:                      ║"
+echo "║  [OK] OpenCL binary installed:                      ║"
 echo "║     $INSTALL_DIR/$BINARY_NAME"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""

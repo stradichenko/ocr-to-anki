@@ -46,10 +46,10 @@ class AnkiImporter:
                 return yaml.safe_load(f) or {}
         except FileNotFoundError:
             if self.verbose:
-                print(f"⚠ Config file not found: {config_path}, using defaults")
+                print(f"[WARN] Config file not found: {config_path}, using defaults")
             return {}
         except yaml.YAMLError as e:
-            print(f"⚠ Error parsing config file: {e}, using defaults")
+            print(f"[WARN] Error parsing config file: {e}, using defaults")
             return {}
     
     def invoke(self, action: str, params: Dict[str, Any]) -> Any:
@@ -81,17 +81,17 @@ class AnkiImporter:
         """Check if AnkiConnect is available."""
         try:
             version = self.invoke("version", {})
-            print(f"✓ Connected to AnkiConnect (version {version})")
+            print(f"[OK] Connected to AnkiConnect (version {version})")
             return True
         except AnkiConnectError as e:
-            print(f"✗ Connection failed: {e}")
+            print(f"[FAIL] Connection failed: {e}")
             return False
     
     def create_deck(self, deck_name: str) -> None:
         """Create a deck if it doesn't exist."""
         try:
             self.invoke("createDeck", {"deck": deck_name})
-            print(f"✓ Deck '{deck_name}' ready")
+            print(f"[OK] Deck '{deck_name}' ready")
         except AnkiConnectError:
             pass  # Deck might already exist
     
@@ -101,7 +101,7 @@ class AnkiImporter:
             note_id = self.invoke("addNote", {"note": note})
             return note_id
         except AnkiConnectError as e:
-            print(f"✗ Failed to add note: {e}")
+            print(f"[FAIL] Failed to add note: {e}")
             return None
     
     def add_notes(self, notes: List[Dict[str, Any]]) -> List[Optional[int]]:
@@ -110,7 +110,7 @@ class AnkiImporter:
             note_ids = self.invoke("addNotes", {"notes": notes})
             return note_ids
         except AnkiConnectError as e:
-            print(f"✗ Failed to add notes: {e}")
+            print(f"[FAIL] Failed to add notes: {e}")
             return [None] * len(notes)
     
     def import_from_json(self, json_path: Path) -> Dict[str, int]:
@@ -179,13 +179,13 @@ class AnkiImporter:
                     if self.show_progress:
                         fields = batch[j]["fields"]
                         front = list(fields.values())[0][:50]
-                        print(f"  ✓ Added: {front}... (ID: {note_id})")
+                        print(f"  [OK] Added: {front}... (ID: {note_id})")
                 else:
                     failed_count += 1
                     if self.show_progress:
                         fields = batch[j]["fields"]
                         front = list(fields.values())[0][:50]
-                        print(f"  ✗ Failed: {front}...")
+                        print(f"  [FAIL] Failed: {front}...")
         
         return {
             "total": len(notes),

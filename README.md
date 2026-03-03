@@ -1,6 +1,6 @@
 # OCR to Anki — Fully Offline with llama.cpp
 
-Everything runs locally. No HuggingFace login. No Tesseract. No Ollama. No cloud.
+Everything runs locally. No HuggingFace login. No cloud dependencies.
 
 ## Quick Start
 
@@ -68,8 +68,8 @@ Auto-detection picks the best available backend: CUDA > Metal > OpenCL > Vulkan 
 
 | Backend | Vision encoder | Image encode time | Text gen | Binary |
 |---------|---------------|-------------------|----------|--------|
-| **OpenCL** ✅ | Correct | **~2 min** (GPU) | 4.1 tok/s | `llama-mtmd-cli-opencl` |
-| Vulkan ❌ | Corrupted | 0.4s (garbage) | 3.6 tok/s | `llama-mtmd-cli` |
+| **OpenCL** [OK] | Correct | **~2 min** (GPU) | 4.1 tok/s | `llama-mtmd-cli-opencl` |
+| Vulkan [ERR] | Corrupted | 0.4s (garbage) | 3.6 tok/s | `llama-mtmd-cli` |
 | CPU fallback | Correct | ~43 min | 0.7 tok/s | any binary + `--no-mmproj-offload` |
 
 The OpenCL backend is **20× faster** than CPU vision and produces correct output.

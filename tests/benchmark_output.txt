@@ -111,10 +111,10 @@ nohup: ignoring input
   ┌─────┬────────────────────────────────────────────┬──────────┐
   │  #  │ Optimization                               │ Est Gain │
   ├─────┼────────────────────────────────────────────┼──────────┤
-  │  1  │ ✅ GPU vision (OpenCL) — already done      │ ~20×     │
-  │  2  │ 🔲 Server mode (keep model loaded)         │ ~30-50%  │
-  │  3  │ 🔲 Downscale large images before OCR       │ ~20-40%  │
-  │  4  │ 🔲 Shorter/tuned prompt                    │ ~5-15%   │
-  │  5  │ 🔲 Reduce max_tokens for simple extracts   │ ~10-30%  │
-  │  6  │ 🔲 Parallel crop processing (if multi-GPU) │ N/A      │
+  │  1  │ [OK] GPU vision (OpenCL) — already done      │ ~20×     │
+  │  2  │ [ ] Server mode (keep model loaded)         │ ~30-50%  │
+  │  3  │ [ ] Downscale large images before OCR       │ ~20-40%  │
+  │  4  │ [ ] Shorter/tuned prompt                    │ ~5-15%   │
+  │  5  │ [ ] Reduce max_tokens for simple extracts   │ ~10-30%  │
+  │  6  │ [ ] Parallel crop processing (if multi-GPU) │ N/A      │
   └─────┴────────────────────────────────────────────┴──────────┘

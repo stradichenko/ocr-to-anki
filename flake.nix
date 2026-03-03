@@ -247,7 +247,7 @@
             # Detect hardware and provide guidance
             echo "Hardware Detection:"
             if command -v nvidia-smi >/dev/null 2>&1; then
-              echo "  ✅ NVIDIA GPU detected"
+              echo "  [OK] NVIDIA GPU detected"
               nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1 || echo "     (GPU info unavailable)"
               echo "  → llama.cpp will use GPU acceleration"
               
@@ -256,34 +256,34 @@
                 CUDA_VERSION=$(nvcc --version | grep "release" | awk '{print $5}' | cut -d',' -f1)
                 echo "  → CUDA compiler: $CUDA_VERSION"
               else
-                echo "  ⚠️  CUDA compiler not in Nix environment"
+                echo "  [WARN] CUDA compiler not in Nix environment"
                 echo "     For CUDA builds, use: nix develop --impure .#cuda"
               fi
             elif [[ "$OSTYPE" == "darwin"* ]]; then
-              echo "  🍎 Apple Silicon detected"
+              echo "  [macOS] Apple Silicon detected"
               echo "  → llama.cpp has Metal support"
             else
-              echo "  💻 CPU-only mode"
+              echo "  [CPU] CPU-only mode"
               echo "  → llama.cpp will run on CPU (slower but works)"
             fi
             echo ""
             
             echo "llama.cpp status (fully offline):"
             if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" ]; then
-              echo "  ✅ Gemma 3 4B model found"
+              echo "  [OK] Gemma 3 4B model found"
               MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" 2>/dev/null | cut -f1)
-              echo "  📦 Model size: $MODEL_SIZE"
-              echo "  📍 Location: $LLAMA_CPP_MODELS"
+              echo "  :: Model size: $MODEL_SIZE"
+              echo "     Location: $LLAMA_CPP_MODELS"
             else
-              echo "  ⚠️  Gemma 3 4B model not found"
+              echo "  [WARN] Gemma 3 4B model not found"
               echo "  Run: ./scripts/setup-llama-cpp.sh"
             fi
             
             if [ -f "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" ]; then
               MMPROJ_SIZE=$(du -h "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" 2>/dev/null | cut -f1)
-              echo "  ✅ Vision projector found ($MMPROJ_SIZE)"
+              echo "  [OK] Vision projector found ($MMPROJ_SIZE)"
             else
-              echo "  ⚠️  Vision projector not found"
+              echo "  [WARN] Vision projector not found"
               echo "  Run: ./scripts/setup-llama-cpp.sh"
             fi
             echo ""
@@ -292,30 +292,30 @@
             LLAMAMTMD_BIN="$HOME/.local/bin/llama-mtmd-cli"
             
             echo "llama.cpp tools:"
-            echo "  • llama-server: ✅ (from nixpkgs)"
-            echo "  • llama-cli: ✅ (from nixpkgs)"
+            echo "  • llama-server: [OK] (from nixpkgs)"
+            echo "  • llama-cli: [OK] (from nixpkgs)"
             
             # Check for Vulkan support
             if command -v vulkaninfo >/dev/null 2>&1; then
-              echo "  • Vulkan: ✅ (GPU backend available)"
+              echo "  • Vulkan: [OK] (GPU backend available)"
               VULKAN_DEVICES=$(vulkaninfo --summary 2>/dev/null | grep "GPU" | wc -l)
               if [ "$VULKAN_DEVICES" -gt 0 ]; then
                 echo "    Devices: $VULKAN_DEVICES GPU(s) detected"
               fi
             else
-              echo "  • Vulkan: ⚠️  (not available)"
+              echo "  • Vulkan: [WARN] (not available)"
             fi
             
             if command -v llama-mtmd-cli >/dev/null 2>&1; then
               # Check if it's actually working
               if llama-mtmd-cli --version >/dev/null 2>&1; then
-                echo "  • llama-mtmd-cli: ✅ (manually built, working)"
+                echo "  • llama-mtmd-cli: [OK] (manually built, working)"
               else
-                echo "  • llama-mtmd-cli: ⚠️  (found but has library issues)"
+                echo "  • llama-mtmd-cli: [WARN] (found but has library issues)"
                 echo "    Rebuild with: ./scripts/build-llama-gemma3-cli.sh"
               fi
             else
-              echo "  • llama-mtmd-cli: ❌ (not found)"
+              echo "  • llama-mtmd-cli: [ERR] (not found)"
               echo "    Build with: ./scripts/build-llama-mtmd-multibackend.sh"
               echo "    Available backends:"
               echo "      --vulkan  (works in Nix, recommended)"
@@ -381,9 +381,9 @@
             echo "CUDA Environment:"
             echo "  CUDA_PATH: $CUDA_PATH"
             if command -v nvcc >/dev/null 2>&1; then
-              echo "  ✅ nvcc: $(nvcc --version | grep release | awk '{print $5}' | cut -d',' -f1)"
+              echo "  [OK] nvcc: $(nvcc --version | grep release | awk '{print $5}' | cut -d',' -f1)"
             else
-              echo "  ❌ nvcc: not found"
+              echo "  [ERR] nvcc: not found"
             fi
             echo ""
             
@@ -428,7 +428,7 @@
             # Detect hardware and provide guidance
             echo "Hardware Detection:"
             if command -v nvidia-smi >/dev/null 2>&1; then
-              echo "  ✅ NVIDIA GPU detected"
+              echo "  [OK] NVIDIA GPU detected"
               nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null | head -1 || echo "     (GPU info unavailable)"
               echo "  → llama.cpp will use GPU acceleration"
               
@@ -437,34 +437,34 @@
                 CUDA_VERSION=$(nvcc --version | grep "release" | awk '{print $5}' | cut -d',' -f1)
                 echo "  → CUDA compiler: $CUDA_VERSION"
               else
-                echo "  ⚠️  CUDA compiler not in Nix environment"
+                echo "  [WARN] CUDA compiler not in Nix environment"
                 echo "     For CUDA builds, use: nix develop --impure .#cuda"
               fi
             elif [[ "$OSTYPE" == "darwin"* ]]; then
-              echo "  🍎 Apple Silicon detected"
+              echo "  [macOS] Apple Silicon detected"
               echo "  → llama.cpp has Metal support"
             else
-              echo "  💻 CPU-only mode"
+              echo "  [CPU] CPU-only mode"
               echo "  → llama.cpp will run on CPU (slower but works)"
             fi
             echo ""
             
             echo "llama.cpp status (fully offline):"
             if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" ]; then
-              echo "  ✅ Gemma 3 4B model found"
+              echo "  [OK] Gemma 3 4B model found"
               MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" 2>/dev/null | cut -f1)
-              echo "  📦 Model size: $MODEL_SIZE"
-              echo "  📍 Location: $LLAMA_CPP_MODELS"
+              echo "  :: Model size: $MODEL_SIZE"
+              echo "     Location: $LLAMA_CPP_MODELS"
             else
-              echo "  ⚠️  Gemma 3 4B model not found"
+              echo "  [WARN] Gemma 3 4B model not found"
               echo "  Run: ./scripts/setup-llama-cpp.sh"
             fi
             
             if [ -f "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" ]; then
               MMPROJ_SIZE=$(du -h "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" 2>/dev/null | cut -f1)
-              echo "  ✅ Vision projector found ($MMPROJ_SIZE)"
+              echo "  [OK] Vision projector found ($MMPROJ_SIZE)"
             else
-              echo "  ⚠️  Vision projector not found"
+              echo "  [WARN] Vision projector not found"
               echo "  Run: ./scripts/setup-llama-cpp.sh"
             fi
             echo ""
@@ -473,29 +473,29 @@
             LLAMAMTMD_BIN="$HOME/.local/bin/llama-mtmd-cli"
             
             echo "llama.cpp tools:"
-            echo "  • llama-server: ✅ (from nixpkgs)"
-            echo "  • llama-cli: ✅ (from nixpkgs)"
+            echo "  • llama-server: [OK] (from nixpkgs)"
+            echo "  • llama-cli: [OK] (from nixpkgs)"
             
             # Check for Vulkan support
             if command -v vulkaninfo >/dev/null 2>&1; then
-              echo "  • Vulkan: ✅ (GPU backend available)"
+              echo "  • Vulkan: [OK] (GPU backend available)"
               VULKAN_DEVICES=$(vulkaninfo --summary 2>/dev/null | grep "GPU" | wc -l)
               if [ "$VULKAN_DEVICES" -gt 0 ]; then
                 echo "    Devices: $VULKAN_DEVICES GPU(s) detected"
               fi
             else
-              echo "  • Vulkan: ⚠️  (not available)"
+              echo "  • Vulkan: [WARN] (not available)"
             fi
             
             if command -v llama-mtmd-cli >/dev/null 2>&1; then
               if llama-mtmd-cli --version >/dev/null 2>&1; then
-                echo "  • llama-mtmd-cli: ✅ (working)"
+                echo "  • llama-mtmd-cli: [OK] (working)"
               else
-                echo "  • llama-mtmd-cli: ⚠️  (found but has library issues)"
+                echo "  • llama-mtmd-cli: [WARN] (found but has library issues)"
                 echo "    Rebuild with: ./scripts/build-llama-mtmd-vulkan.sh"
               fi
             else
-              echo "  • llama-mtmd-cli: ❌ (not found)"
+              echo "  • llama-mtmd-cli: [ERR] (not found)"
               echo "    Build with: ./scripts/build-llama-mtmd-vulkan.sh"
             fi
             echo ""
@@ -600,13 +600,13 @@
             if command -v clinfo >/dev/null 2>&1; then
               CL_DEVS=$(clinfo -l 2>/dev/null | grep -c "Device" || echo "0")
               if [ "$CL_DEVS" -gt 0 ]; then
-                echo "  ✅ $CL_DEVS OpenCL device(s) found"
+                echo "  [OK] $CL_DEVS OpenCL device(s) found"
                 clinfo -l 2>/dev/null | grep "Device" | sed 's/^/     /'
               else
-                echo "  ⚠️  No OpenCL devices (intel-compute-runtime may need NixOS hardware.opengl)"
+                echo "  [WARN] No OpenCL devices (intel-compute-runtime may need NixOS hardware.opengl)"
               fi
             else
-              echo "  ⚠️  clinfo not available"
+              echo "  [WARN] clinfo not available"
             fi
             echo "  Build: ./scripts/build-llama-mtmd-opencl.sh"
             echo ""
@@ -614,12 +614,12 @@
             # ── SYCL Status ────────────────────────────────────
             echo "SYCL backend (Gen11+, requires Intel oneAPI):"
             if [ -d "$ONEAPI_ROOT" ] && [ -f "$ONEAPI_ROOT/setvars.sh" ]; then
-              echo "  ✅ oneAPI found at: $ONEAPI_ROOT"
+              echo "  [OK] oneAPI found at: $ONEAPI_ROOT"
               echo "  Sourcing setvars.sh..."
               source "$ONEAPI_ROOT/setvars.sh" --force >/dev/null 2>&1 || true
               
               if command -v icpx >/dev/null 2>&1; then
-                echo "  ✅ icpx: $(icpx --version 2>&1 | head -1)"
+                echo "  [OK] icpx: $(icpx --version 2>&1 | head -1)"
               fi
               if command -v sycl-ls >/dev/null 2>&1; then
                 echo "  SYCL devices:"
@@ -627,7 +627,7 @@
               fi
               echo "  Build: ./scripts/build-llama-mtmd-sycl.sh"
             else
-              echo "  ❌ oneAPI not installed at $ONEAPI_ROOT"
+              echo "  [ERR] oneAPI not installed at $ONEAPI_ROOT"
               echo "  Install: https://www.intel.com/content/www/us/en/developer/tools/oneapi/base-toolkit-download.html"
               echo "  On NixOS: steam-run bash -c 'sudo bash ./l_BaseKit_p_*.sh -a --silent --eula accept'"
             fi
@@ -636,12 +636,12 @@
             # ── Model Status ───────────────────────────────────
             echo "Models:"
             if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" ]; then
-              echo "  ✅ $(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" | cut -f1) gemma-3-4b-it-qat-q4_0_s.gguf"
+              echo "  [OK] $(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" | cut -f1) gemma-3-4b-it-qat-q4_0_s.gguf"
             else
-              echo "  ⚠️  Model not found — run: ./scripts/setup-llama-cpp.sh"
+              echo "  [WARN] Model not found — run: ./scripts/setup-llama-cpp.sh"
             fi
             if [ -f "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" ]; then
-              echo "  ✅ $(du -h "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" | cut -f1) mmproj-model-f16-4B.gguf"
+              echo "  [OK] $(du -h "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" | cut -f1) mmproj-model-f16-4B.gguf"
             fi
             echo ""
           '';

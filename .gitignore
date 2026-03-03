@@ -106,4 +106,4 @@ result-*
 
 # Build artifacts
 .build/
-data/ollama_ocr_results/*
+data/ollama_ocr_results/

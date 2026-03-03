@@ -22,7 +22,7 @@
         <mxCell id="tRkxH7GEWGr5kBQ7z2ze-11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="tRkxH7GEWGr5kBQ7z2ze-10" target="tRkxH7GEWGr5kBQ7z2ze-1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-10" value="tesseract_ocr_image,py" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+        <mxCell id="tRkxH7GEWGr5kBQ7z2ze-10" value="llama_cpp_server.py" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
           <mxGeometry x="110" y="280" width="120" height="60" as="geometry" />
         </mxCell>
         <mxCell id="tRkxH7GEWGr5kBQ7z2ze-17" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="tRkxH7GEWGr5kBQ7z2ze-13" target="tRkxH7GEWGr5kBQ7z2ze-16">

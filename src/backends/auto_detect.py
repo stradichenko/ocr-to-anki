@@ -429,14 +429,14 @@ def print_report(result: DetectionResult) -> None:
 
     print()
     print(f"  Recommended backend:  {result.recommended_backend.value}")
-    print(f"  Binary:               {result.binary_path or '❌ not found'}")
+    print(f"  Binary:               {result.binary_path or '[ERR] not found'}")
 
     # Show all available binaries
     print()
     print("  Binary availability:")
     for backend in Backend:
         binary = _find_binary(backend)
-        status = f"✅ {binary}" if binary else "—"
+        status = f"[OK] {binary}" if binary else "—"
         print(f"    {backend.value:>6}: {status}")
     print()
 

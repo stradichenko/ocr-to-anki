@@ -104,7 +104,7 @@ def main():
     ocl = _find_binary(Backend.OPENCL)
     env = _opencl_env()
     if not ocl:
-        print("  ❌ No OpenCL binary"); return
+        print("  [ERR] No OpenCL binary"); return
 
     full  = IMAGES_DIR / "handwritten.jpeg"      # 1133×1348, 145 KB
     small = CROPPED_DIR / "handwritten_orange_000.png"  # ~12 KB
@@ -202,12 +202,12 @@ def main():
     print("  ┌─────┬────────────────────────────────────────────┬──────────┐")
     print("  │  #  │ Optimization                               │ Est Gain │")
     print("  ├─────┼────────────────────────────────────────────┼──────────┤")
-    print("  │  1  │ ✅ GPU vision (OpenCL) — already done      │ ~20×     │")
-    print("  │  2  │ 🔲 Server mode (keep model loaded)         │ ~30-50%  │")
-    print("  │  3  │ 🔲 Downscale large images before OCR       │ ~20-40%  │")
-    print("  │  4  │ 🔲 Shorter/tuned prompt                    │ ~5-15%   │")
-    print("  │  5  │ 🔲 Reduce max_tokens for simple extracts   │ ~10-30%  │")
-    print("  │  6  │ 🔲 Parallel crop processing (if multi-GPU) │ N/A      │")
+    print("  │  1  │ [OK] GPU vision (OpenCL) — already done      │ ~20×     │")
+    print("  │  2  │ [ ] Server mode (keep model loaded)         │ ~30-50%  │")
+    print("  │  3  │ [ ] Downscale large images before OCR       │ ~20-40%  │")
+    print("  │  4  │ [ ] Shorter/tuned prompt                    │ ~5-15%   │")
+    print("  │  5  │ [ ] Reduce max_tokens for simple extracts   │ ~10-30%  │")
+    print("  │  6  │ [ ] Parallel crop processing (if multi-GPU) │ N/A      │")
     print("  └─────┴────────────────────────────────────────────┴──────────┘")
 
 if __name__ == "__main__":

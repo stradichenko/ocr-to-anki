@@ -30,7 +30,7 @@ echo ""
 # ------------------------------------------------------------------
 check_tool() {
     if ! command -v "$1" &>/dev/null; then
-        echo "❌ Missing: $1"
+        echo "[ERR] Missing: $1"
         echo "   Install via: nix-shell -p $2"
         exit 1
     fi
@@ -43,7 +43,7 @@ check_tool pkg-config pkg-config
 
 # Check Vulkan
 if ! pkg-config --exists vulkan 2>/dev/null; then
-    echo "❌ Vulkan not found via pkg-config"
+    echo "[ERR] Vulkan not found via pkg-config"
     echo "   Make sure vulkan-headers and vulkan-loader are available"
     echo "   Try: nix-shell -p vulkan-headers vulkan-loader vulkan-tools shaderc"
     exit 1
@@ -52,7 +52,7 @@ fi
 # Check glslc (shader compiler, from shaderc)
 check_tool glslc shaderc
 
-echo "✅ All build dependencies found"
+echo "[OK] All build dependencies found"
 echo "   cmake:   $(cmake --version | head -1)"
 echo "   gcc:     $(gcc --version | head -1)"
 echo "   vulkan:  $(pkg-config --modversion vulkan)"
@@ -65,19 +65,19 @@ echo ""
 SRC_DIR="$BUILD_DIR/llama.cpp"
 
 if [[ "$CLEAN" == true ]] && [[ -d "$BUILD_DIR" ]]; then
-    echo "🧹 Cleaning previous build..."
+    echo ":: Cleaning previous build..."
     rm -rf "$BUILD_DIR"
 fi
 
 mkdir -p "$BUILD_DIR"
 
 if [[ -d "$SRC_DIR/.git" ]]; then
-    echo "📦 Updating llama.cpp..."
+    echo ":: Updating llama.cpp..."
     cd "$SRC_DIR"
     git fetch --depth 1 origin "$LLAMA_CPP_REF"
     git checkout FETCH_HEAD
 else
-    echo "📦 Cloning llama.cpp ($LLAMA_CPP_REF)..."
+    echo ":: Cloning llama.cpp ($LLAMA_CPP_REF)..."
     git clone --depth 1 --branch "$LLAMA_CPP_REF" "$LLAMA_CPP_REPO" "$SRC_DIR" 2>/dev/null \
         || git clone --depth 1 "$LLAMA_CPP_REPO" "$SRC_DIR"
 fi
@@ -93,7 +93,7 @@ echo ""
 CMAKE_BUILD="$BUILD_DIR/build"
 mkdir -p "$CMAKE_BUILD"
 
-echo "⚙️  Configuring CMake with Vulkan backend..."
+echo ":: Configuring CMake with Vulkan backend..."
 
 cmake -B "$CMAKE_BUILD" -S "$SRC_DIR" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -120,7 +120,7 @@ echo ""
 # 4. Build
 # ------------------------------------------------------------------
 NPROC=$(nproc 2>/dev/null || echo 4)
-echo "🔨 Building llama-mtmd-cli (using $NPROC cores)..."
+echo ":: Building llama-mtmd-cli (using $NPROC cores)..."
 echo "   This may take a few minutes..."
 echo ""
 
@@ -136,19 +136,19 @@ echo ""
 BINARY=$(find "$CMAKE_BUILD" -name "llama-mtmd-cli" -type f -executable 2>/dev/null | head -1)
 
 if [[ -z "$BINARY" ]]; then
-    echo "❌ Build failed - binary not found"
+    echo "[ERR] Build failed - binary not found"
     echo "   Check logs: $BUILD_DIR/build.log"
     exit 1
 fi
 
-echo "✅ Binary built: $BINARY"
+echo "[OK] Binary built: $BINARY"
 echo "   Size: $(du -h "$BINARY" | cut -f1)"
 
 # Verify it works
 if "$BINARY" --version 2>&1 | head -1; then
-    echo "   ✅ Binary executes correctly"
+    echo "   [OK] Binary executes correctly"
 else
-    echo "   ⚠️  Binary may have runtime issues"
+    echo "   [WARN] Binary may have runtime issues"
 fi
 
 # Install
@@ -158,7 +158,7 @@ chmod +x "$INSTALL_DIR/llama-mtmd-cli"
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  ✅ llama-mtmd-cli installed to:                 ║"
+echo "║  [OK] llama-mtmd-cli installed to:                 ║"
 echo "║     $INSTALL_DIR/llama-mtmd-cli"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""

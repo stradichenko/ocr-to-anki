@@ -69,11 +69,11 @@ check-oneapi
 ```
 
 **What the Nix SYCL shell provides:**
-- ✅ Build tools (cmake, pkg-config, git)
-- ✅ Level Zero runtime (Intel GPU interface)
-- ✅ Vulkan support (can use both SYCL + Vulkan)
-- ✅ Wrapper scripts for Intel compilers
-- ❌ Intel OneAPI itself (must install system-wide)
+- [OK] Build tools (cmake, pkg-config, git)
+- [OK] Level Zero runtime (Intel GPU interface)
+- [OK] Vulkan support (can use both SYCL + Vulkan)
+- [OK] Wrapper scripts for Intel compilers
+- [ERR] Intel OneAPI itself (must install system-wide)
 
 ### Metal (macOS only)
 ```bash
@@ -194,16 +194,16 @@ cmake --build build --target llama-mtmd-cli -j8
 
 | Backend | Hardware | Build in Nix? | Speed (t/s) |
 |---------|----------|---------------|-------------|
-| **CPU** | Any | ✅ Yes | ~15 t/s |
-| **Vulkan** | NVIDIA/AMD/Intel GPU | ✅ Yes | ~70 t/s |
-| **SYCL** | Intel Arc/iGPU | ⚠️ Hybrid | ~50 t/s |
-| **CUDA** | NVIDIA GPU | ❌ No (system) | ~150 t/s |
-| **Metal** | Apple Silicon | ✅ Yes (macOS) | ~120 t/s |
+| **CPU** | Any | [OK] Yes | ~15 t/s |
+| **Vulkan** | NVIDIA/AMD/Intel GPU | [OK] Yes | ~70 t/s |
+| **SYCL** | Intel Arc/iGPU | [WARN] Hybrid | ~50 t/s |
+| **CUDA** | NVIDIA GPU | [ERR] No (system) | ~150 t/s |
+| **Metal** | Apple Silicon | [OK] Yes (macOS) | ~120 t/s |
 
 **Nix Support Legend:**
-- ✅ **Yes**: Fully supported in Nix environment
-- ⚠️ **Hybrid**: Nix provides tools, but requires system component (OneAPI)
-- ❌ **No**: Best built outside Nix with system tools
+- [OK] **Yes**: Fully supported in Nix environment
+- [WARN] **Hybrid**: Nix provides tools, but requires system component (OneAPI)
+- [ERR] **No**: Best built outside Nix with system tools
 
 ## Usage
 
@@ -328,9 +328,9 @@ vulkaninfo --summary
 
 | Backend | Nix Command | Status |
 |---------|-------------|--------|
-| **Vulkan** | `nix develop` | ✅ Fully supported |
-| **CUDA** | `nix develop .#cuda` | ⚠️ Works but slow, better outside Nix |
-| **SYCL** | `nix develop --impure .#sycl` | ⚠️ Hybrid (needs system OneAPI) |
+| **Vulkan** | `nix develop` | [OK] Fully supported |
+| **CUDA** | `nix develop .#cuda` | [WARN] Works but slow, better outside Nix |
+| **SYCL** | `nix develop --impure .#sycl` | [WARN] Hybrid (needs system OneAPI) |
 
 ### Why `--impure` for SYCL?
 
@@ -338,8 +338,8 @@ The `--impure` flag allows Nix to access system files like `/opt/intel/oneapi`:
 
 ```bash
 # Pure mode (default) - isolated from system
-nix develop           # ✅ Works for Vulkan
+nix develop           # [OK] Works for Vulkan
 
 # Impure mode - can access system files
-nix develop --impure .#sycl  # ✅ Needed for SYCL with system OneAPI
+nix develop --impure .#sycl  # [OK] Needed for SYCL with system OneAPI
 ```

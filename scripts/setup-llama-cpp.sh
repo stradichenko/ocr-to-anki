@@ -44,7 +44,7 @@ download() {
     elif command -v curl >/dev/null 2>&1; then
         curl -L -C - --progress-bar -o "$tmp" "$url" && mv "$tmp" "$dest"
     else
-        echo "❌ Neither wget nor curl found. Install one and retry."
+        echo "[ERR] Neither wget nor curl found. Install one and retry."
         exit 1
     fi
 }
@@ -59,21 +59,21 @@ mkdir -p "$MODELS_DIR"
 # ------------------------------------------------------------------
 if [ -f "$MODEL_PATH" ]; then
     MODEL_SIZE=$(du -h "$MODEL_PATH" | cut -f1)
-    echo "✅ Model already exists ($MODEL_SIZE)"
+    echo "[OK] Model already exists ($MODEL_SIZE)"
 else
     echo "Downloading model: ${MODEL_FILE}..."
     echo "  From: ${MODEL_URL}"
     echo ""
     download "$MODEL_URL" "$MODEL_PATH" || {
         echo ""
-        echo "❌ Download failed."
+        echo "[ERR] Download failed."
         echo "   If the URL is gated, download the file manually and place it at:"
         echo "   ${MODEL_PATH}"
         rm -f "${MODEL_PATH}.part"
         exit 1
     }
     MODEL_SIZE=$(du -h "$MODEL_PATH" | cut -f1)
-    echo "✅ Model downloaded ($MODEL_SIZE)"
+    echo "[OK] Model downloaded ($MODEL_SIZE)"
 fi
 
 # ------------------------------------------------------------------
@@ -82,14 +82,14 @@ fi
 echo ""
 if [ -f "$MMPROJ_PATH" ]; then
     MMPROJ_SIZE=$(du -h "$MMPROJ_PATH" | cut -f1)
-    echo "✅ Vision projector already exists ($MMPROJ_SIZE)"
+    echo "[OK] Vision projector already exists ($MMPROJ_SIZE)"
 else
     echo "Downloading vision projector: ${MMPROJ_FILE}..."
     echo "  From: ${MMPROJ_URL}"
     echo ""
     download "$MMPROJ_URL" "$MMPROJ_PATH" || {
         echo ""
-        echo "⚠️  Vision projector download failed"
+        echo "[WARN] Vision projector download failed"
         echo "   Vision OCR will not be available."
         echo "   Text-only mode will still work."
         echo "   You can download manually and place at:"
@@ -108,18 +108,18 @@ echo "════════════════════════�
 
 if [ -f "$MODEL_PATH" ]; then
     MODEL_SIZE=$(du -h "$MODEL_PATH" | cut -f1)
-    echo "  ✅ Model:   $MODEL_PATH ($MODEL_SIZE)"
+    echo "  [OK] Model:   $MODEL_PATH ($MODEL_SIZE)"
 else
-    echo "  ❌ Model:   NOT FOUND"
+    echo "  [ERR] Model:   NOT FOUND"
 fi
 
 if [ -f "$MMPROJ_PATH" ]; then
     MMPROJ_SIZE=$(du -h "$MMPROJ_PATH" | cut -f1)
-    echo "  ✅ Vision:  $MMPROJ_PATH ($MMPROJ_SIZE)"
+    echo "  [OK] Vision:  $MMPROJ_PATH ($MMPROJ_SIZE)"
     echo ""
     echo "  Vision OCR:  ENABLED"
 else
-    echo "  ⚠️  Vision:  NOT FOUND"
+    echo "  [WARN] Vision:  NOT FOUND"
     echo ""
     echo "  Vision OCR:  DISABLED (text-only mode)"
 fi
