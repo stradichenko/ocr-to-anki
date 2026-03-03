@@ -1,28 +1,52 @@
 # OCR to Anki — Fully Offline with llama.cpp
 
-Everything runs locally. No HuggingFace login. No cloud dependencies.
+Cross-platform app to extract vocabulary from images and create Anki flashcards.
+Everything runs locally. No cloud dependencies.
+
+## Components
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **Flutter GUI** | Dart / Material 3 | Cross-platform UI (Linux, macOS, Windows, Android) |
+| **Python API** | FastAPI + llama.cpp | Vision OCR and text enrichment backend |
+| **Vision OCR** | `llama-mtmd-cli` | Extract text from images (GPU-accelerated) |
+| **Text tasks** | `llama-server` | Definitions, examples, vocabulary enrichment |
+| **Model** | Gemma 3 4B QAT Q4_0 | Single model for both vision and text |
 
 ## Quick Start
 
+### 1. Backend (Python + llama.cpp)
+
 ```bash
-# 1. Enter dev environment
+# Enter dev environment
 nix develop
 
-# 2. Download model + vision projector (~3 GB total, one-time)
+# Download model + vision projector (~3 GB total, one-time)
 ./scripts/setup-llama-cpp.sh
 
-# 3. Start the API server
+# Start the API server
 PYTHONPATH=src uvicorn api.app:app --host 0.0.0.0 --port 8000
 ```
 
-## Architecture
+### 2. Flutter App
 
-| Component | Tool | Purpose |
-|-----------|------|---------|
-| **Vision OCR** | `llama-mtmd-cli` | Extract text from images (GPU-accelerated via Vulkan) |
-| **Text tasks** | `llama-server` | Definitions, examples, vocabulary enrichment |
-| **API** | FastAPI | REST endpoints for all operations |
-| **Model** | Gemma 3 4B QAT Q4_0 | Single model for both vision and text |
+```bash
+cd app
+flutter pub get
+flutter run -d linux    # or: -d macos, -d windows, -d android
+```
+
+The Flutter app connects to the FastAPI backend (default `http://localhost:8000`).
+Configure the server URL in **Settings > Inference > Server URL**.
+
+## Workflow
+
+1. **Select context** — handwritten/printed text or highlighted words (pick colour)
+2. **Add image** — file picker or camera (mobile)
+3. **Vision OCR** — Gemma 3 4B extracts words from the image
+4. **Enrich** — LLM generates definitions and example sentences
+5. **Review** — edit cards before export
+6. **Export** — send to Anki via AnkiConnect, or save as JSON
 
 ### Model Files
 
@@ -121,7 +145,18 @@ llama_cpp:
 ## Project Structure
 
 ```
-src/
+app/                        # Flutter GUI application
+├── lib/
+│   ├── main.dart           # Entry point + routing
+│   ├── models/             # Data models (AnkiNote, AppSettings, HighlightColor, etc.)
+│   ├── services/           # Business logic
+│   │   ├── inference_service.dart     # LLM inference (remote FastAPI / embedded)
+│   │   ├── highlight_detector.dart    # HSV highlight colour detection
+│   │   └── anki_export_service.dart   # AnkiConnect + JSON export
+│   ├── database/           # Drift (SQLite) local storage
+│   ├── providers/          # Riverpod state management
+│   └── screens/            # UI screens (Home, Processing, Review, Settings, History)
+src/                        # Python backend
 ├── api/                    # FastAPI application
 │   ├── app.py              # Endpoints and lifespan
 │   └── models.py           # Pydantic request/response models
@@ -130,8 +165,12 @@ src/
 │   ├── mtmd_cli.py         # llama-mtmd-cli wrapper (vision, subprocess)
 │   └── llama_cpp_server.py # llama-server wrapper (vision + text, ~28x faster)
 ├── preprocessing/          # Image preprocessing
+│   └── highlight_cropper.py # HSV-based highlight detection (Python reference)
 ├── workflows/              # End-to-end pipelines
 └── output/                 # Anki export
+config/
+└── settings.yaml           # All configuration
+scripts/                    # Build and setup scripts
 ```
 
 ## Development Shells

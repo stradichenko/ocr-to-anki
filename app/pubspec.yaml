@@ -1,0 +1,61 @@
+name: ocr_to_anki
+description: "Cross-platform OCR to Anki flashcard generator powered by local LLM inference."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.10.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Routing
+  go_router: ^14.8.1
+
+  # Local database
+  drift: ^2.25.0
+  sqlite3_flutter_libs: ^0.5.30
+  path_provider: ^2.1.5
+  path: ^1.9.1
+
+  # Image handling
+  image_picker: ^1.1.2
+  image: ^4.5.3
+
+  # Networking (for AnkiConnect + optional FastAPI)
+  http: ^1.4.0
+
+  # Serialization
+  json_annotation: ^4.9.0
+  freezed_annotation: ^2.4.4
+
+  # UI utilities
+  file_picker: ^8.3.7
+  flutter_colorpicker: ^1.1.0
+  share_plus: ^10.1.4
+
+  # Platform utilities
+  url_launcher: ^6.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.14
+  json_serializable: ^6.9.4
+  freezed: ^2.5.8
+  riverpod_generator: ^2.6.3
+  drift_dev: ^2.25.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/
