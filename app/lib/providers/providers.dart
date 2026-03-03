@@ -51,12 +51,22 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
         state = AppSettings.fromJson(
           jsonDecode(json) as Map<String, dynamic>,
         );
-        // Migrate: on some systems "localhost" resolves to IPv6 ::1 while
-        // the server only listens on IPv4, causing connection failures.
+        // Migrations:
+        var dirty = false;
+        // 1) "localhost" resolves to IPv6 ::1 on some systems while the
+        //    server only listens on IPv4, causing connection failures.
         if (state.serverUrl.contains('://localhost:')) {
-          state = state
-            ..serverUrl =
-                state.serverUrl.replaceFirst('://localhost:', '://127.0.0.1:');
+          state.serverUrl =
+              state.serverUrl.replaceFirst('://localhost:', '://127.0.0.1:');
+          dirty = true;
+        }
+        // 2) Embedded mode is not yet implemented -- force remote.
+        if (state.inferenceMode == InferenceMode.embedded) {
+          state.inferenceMode = InferenceMode.remote;
+          dirty = true;
+        }
+        if (dirty) {
+          state = state; // notify listeners
           await _db.setSetting('app_settings', jsonEncode(state.toJson()));
         }
       } catch (_) {
