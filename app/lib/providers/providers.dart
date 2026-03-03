@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image/image.dart' as img;
 
 import '../database/database.dart';
 import '../models/models.dart';
@@ -158,6 +159,41 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
     );
   }
 
+  /// Max dimension (width or height) before we downscale.
+  /// Gemma 3's SigLIP vision encoder works at 896x896 — anything larger
+  /// just wastes encode time on the iGPU for no quality gain.
+  static const int _maxImageDimension = 1536;
+
+  /// Downscale [bytes] if either dimension exceeds [_maxImageDimension].
+  /// Returns the (possibly resized) JPEG bytes and whether it was resized.
+  Future<(Uint8List, bool, int, int)> _resizeIfNeeded(Uint8List bytes) async {
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return (bytes, false, 0, 0);
+
+    final origW = decoded.width;
+    final origH = decoded.height;
+
+    if (origW <= _maxImageDimension && origH <= _maxImageDimension) {
+      return (bytes, false, origW, origH);
+    }
+
+    // Scale down keeping aspect ratio.
+    final scale = _maxImageDimension / (origW > origH ? origW : origH);
+    final newW = (origW * scale).round();
+    final newH = (origH * scale).round();
+
+    final resized = img.copyResize(decoded, width: newW, height: newH,
+        interpolation: img.Interpolation.linear);
+    final jpegBytes = Uint8List.fromList(img.encodeJpg(resized, quality: 90));
+    return (jpegBytes, true, newW, newH);
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+  }
+
   /// Run the full pipeline: optionally crop highlights -> vision OCR -> enrich.
   Future<void> processImage({
     required Uint8List imageBytes,
@@ -165,6 +201,8 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
     required OcrContext context,
     HighlightColor? highlightColor,
   }) async {
+    // Local mutable copy so we can replace with resized version.
+    var imgBytes = imageBytes;
     final stopwatch = Stopwatch()..start();
     try {
       state = const ProcessingState().copyWith(
@@ -178,11 +216,25 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
       final inference = _ref.read(inferenceServiceProvider);
       final settings = _ref.read(settingsProvider);
 
-      final sizeMb = (imageBytes.length / 1024 / 1024).toStringAsFixed(1);
-      _log('Image loaded ($sizeMb MB)', progress: 0.02);
+      _log('Image loaded (${_formatBytes(imgBytes.length)})', progress: 0.02);
+
+      // Step 0.5: Downscale large images to prevent vision encoder timeout.
+      _log('Checking image dimensions...', progress: 0.04);
+      final (resizedBytes, wasResized, finalW, finalH) =
+          await _resizeIfNeeded(imgBytes);
+      if (wasResized) {
+        _log(
+          'Image resized to ${finalW}x$finalH '
+          '(${_formatBytes(resizedBytes.length)}) to speed up OCR',
+          progress: 0.06,
+        );
+        imgBytes = resizedBytes;
+      } else if (finalW > 0) {
+        _log('Image is ${finalW}x$finalH, no resize needed', progress: 0.06);
+      }
 
       // Step 1: Verify server connectivity.
-      _log('Checking server connection...', progress: 0.05);
+      _log('Checking server connection...', progress: 0.07);
       final serverOk = await inference.isAvailable();
       if (!serverOk) {
         throw Exception(
@@ -193,7 +245,7 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
       _log('Server is online (${settings.serverUrl})', progress: 0.08);
 
       // Step 2: If highlighted context, crop first.
-      List<Uint8List> imagesToProcess = [imageBytes];
+      List<Uint8List> imagesToProcess = [imgBytes];
       if (context == OcrContext.highlighted && highlightColor != null) {
         _log(
           'Scanning for ${highlightColor.label} highlights...',
@@ -202,7 +254,7 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
         );
         final detector = _ref.read(highlightDetectorProvider);
         final crops = detector.detectAndCrop(
-          imageBytes: imageBytes,
+          imageBytes: imgBytes,
           color: highlightColor,
         );
         if (crops.isNotEmpty) {
