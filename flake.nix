@@ -326,6 +326,87 @@
           '';
         };
         
+        # Flutter development shell (for building the GUI app)
+        devShells.flutter = pkgs.mkShell {
+          packages = [
+            pkgs.flutter
+            
+            # Flutter Linux desktop build dependencies
+            pkgs.cmake
+            pkgs.ninja
+            pkgs.pkg-config
+            pkgs.clang
+            
+            # GTK3 and its dependencies (Flutter Linux uses GTK3)
+            pkgs.gtk3
+            pkgs.glib
+            pkgs.pcre2
+            pkgs.libepoxy
+            pkgs.harfbuzz
+            pkgs.pango
+            pkgs.cairo
+            pkgs.gdk-pixbuf
+            pkgs.atk
+            
+            # X11 / Wayland
+            pkgs.xorg.libX11
+            pkgs.xorg.libXcursor
+            pkgs.xorg.libXrandr
+            pkgs.xorg.libXi
+            pkgs.xorg.libXext
+            pkgs.xorg.libXfixes
+            pkgs.xorg.libXinerama
+            pkgs.xorg.libXdamage
+            pkgs.xorg.libXcomposite
+            pkgs.wayland
+            pkgs.libxkbcommon
+            
+            # GL
+            pkgs.libGL
+            pkgs.mesa
+            
+            # Other
+            pkgs.sqlite
+            pkgs.zlib
+          ];
+          
+          shellHook = ''
+            # Clear system paths to prevent NixOS library mixing
+            unset LD_LIBRARY_PATH
+            
+            export LD_LIBRARY_PATH="${pkgs.libGL}/lib"
+            export LD_LIBRARY_PATH="${pkgs.mesa}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.libepoxy}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.gtk3}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.glib.out}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.pcre2}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.xorg.libX11}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.sqlite.out}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.harfbuzz}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.pango.out}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.cairo}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.gdk-pixbuf}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.atk}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.wayland}/lib:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.libxkbcommon}/lib:$LD_LIBRARY_PATH"
+            
+            # Prevent Nix cmake wrapper from interfering with Flutter's cmake
+            unset cmakeFlags
+            unset CMAKE_INSTALL_PREFIX
+            
+            # Use clang as the C/C++ compiler (Flutter expects it)
+            export CC=clang
+            export CXX=clang++
+            
+            echo "Flutter Dev Shell"
+            echo "  Flutter: $(flutter --version | head -1)"
+            echo ""
+            echo "  cd app && flutter run -d linux"
+            echo ""
+          '';
+        };
+        
         # CUDA-enabled development shell (separate)
         devShells.cuda = pkgs.mkShell {
           packages = [
