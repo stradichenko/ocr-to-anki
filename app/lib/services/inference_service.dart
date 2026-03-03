@@ -35,8 +35,8 @@ class EnrichWordResult {
 
 /// Unified inference service that can run in two modes:
 ///
-///  * **remote** — forward requests to the existing Python FastAPI backend
-///  * **embedded** — (future) on-device inference via llama.cpp FFI
+///  * **remote** -- forward requests to the existing Python FastAPI backend
+///  * **embedded** -- (future) on-device inference via llama.cpp FFI
 ///
 /// The remote mode is fully functional and talks to the API defined in
 /// `src/api/app.py`.
@@ -85,8 +85,8 @@ class InferenceService {
 
   /// Extract text from an image.
   ///
-  /// [imageBytes] — raw JPEG / PNG bytes.
-  /// [prompt] — vision prompt for the model.
+  /// [imageBytes] -- raw JPEG / PNG bytes.
+  /// [prompt] -- vision prompt for the model.
   Future<VisionOcrResult> visionOcr({
     required Uint8List imageBytes,
     String prompt =
@@ -96,7 +96,7 @@ class InferenceService {
     switch (_settings.inferenceMode) {
       case InferenceMode.embedded:
         throw UnimplementedError(
-          'Embedded inference not yet available — use remote mode.',
+          'Embedded inference not yet available -- use remote mode.',
         );
       case InferenceMode.remote:
         return _remoteVisionOcr(
@@ -156,7 +156,7 @@ class InferenceService {
     switch (_settings.inferenceMode) {
       case InferenceMode.embedded:
         throw UnimplementedError(
-          'Embedded inference not yet available — use remote mode.',
+          'Embedded inference not yet available -- use remote mode.',
         );
       case InferenceMode.remote:
         return _remoteGenerate(
@@ -216,7 +216,7 @@ class InferenceService {
     switch (_settings.inferenceMode) {
       case InferenceMode.embedded:
         throw UnimplementedError(
-          'Embedded inference not yet available — use remote mode.',
+          'Embedded inference not yet available -- use remote mode.',
         );
       case InferenceMode.remote:
         return _remoteEnrich(

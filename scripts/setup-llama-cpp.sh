@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Setup llama.cpp with Google Gemma 3 4B — fully offline, no HuggingFace CLI needed.
+# Setup llama.cpp with Google Gemma 3 4B -- fully offline, no HuggingFace CLI needed.
 # Downloads model + vision projector via direct GGUF URLs (wget/curl).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # ------------------------------------------------------------------
-# Model configuration — direct download URLs (public, no auth)
+# Model configuration -- direct download URLs (public, no auth)
 # ------------------------------------------------------------------
 # stduhpf's QAT-small repack: same quality as Google's official QAT Q4_0,
 # but ~25% smaller (requantized fp16 embeddings → Q4_0 with imatrix)
@@ -20,7 +20,7 @@ MODELS_DIR="${LLAMA_CPP_MODELS:-$HOME/.cache/llama.cpp/models}"
 MODEL_PATH="${MODELS_DIR}/${MODEL_FILE}"
 MMPROJ_PATH="${MODELS_DIR}/${MMPROJ_FILE}"
 
-# Public direct-download URLs — no authentication required.
+# Public direct-download URLs -- no authentication required.
 MODEL_URL="https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small/resolve/main/${MODEL_FILE}"
 MMPROJ_URL="https://huggingface.co/google/gemma-3-4b-it-qat-q4_0-gguf/resolve/main/${MMPROJ_FILE}"
 

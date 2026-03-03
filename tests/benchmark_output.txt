@@ -111,7 +111,7 @@ nohup: ignoring input
   ┌─────┬────────────────────────────────────────────┬──────────┐
   │  #  │ Optimization                               │ Est Gain │
   ├─────┼────────────────────────────────────────────┼──────────┤
-  │  1  │ [OK] GPU vision (OpenCL) — already done      │ ~20×     │
+  │  1  │ [OK] GPU vision (OpenCL) -- already done      │ ~20×     │
   │  2  │ [ ] Server mode (keep model loaded)         │ ~30-50%  │
   │  3  │ [ ] Downscale large images before OCR       │ ~20-40%  │
   │  4  │ [ ] Shorter/tuned prompt                    │ ~5-15%   │

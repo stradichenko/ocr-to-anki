@@ -631,7 +631,7 @@
           
           shellHook = ''
             echo "╔══════════════════════════════════════════════════╗"
-            echo "║  OCR to Anki — Intel GPU environment             ║"
+            echo "║  OCR to Anki -- Intel GPU environment             ║"
             echo "╚══════════════════════════════════════════════════╝"
             echo ""
             
@@ -719,7 +719,7 @@
             if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" ]; then
               echo "  [OK] $(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" | cut -f1) gemma-3-4b-it-qat-q4_0_s.gguf"
             else
-              echo "  [WARN] Model not found — run: ./scripts/setup-llama-cpp.sh"
+              echo "  [WARN] Model not found -- run: ./scripts/setup-llama-cpp.sh"
             fi
             if [ -f "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" ]; then
               echo "  [OK] $(du -h "$LLAMA_CPP_MODELS/mmproj-model-f16-4B.gguf" | cut -f1) mmproj-model-f16-4B.gguf"

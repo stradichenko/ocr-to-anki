@@ -1,4 +1,4 @@
-# OCR to Anki — Flutter App
+# OCR to Anki -- Flutter App
 
 Cross-platform GUI for the OCR to Anki pipeline.
 

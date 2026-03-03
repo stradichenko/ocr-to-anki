@@ -1,4 +1,4 @@
-# OCR to Anki — Fully Offline with llama.cpp
+# OCR to Anki -- Fully Offline with llama.cpp
 
 Cross-platform app to extract vocabulary from images and create Anki flashcards.
 Everything runs locally. No cloud dependencies.
@@ -41,21 +41,21 @@ Configure the server URL in **Settings > Inference > Server URL**.
 
 ## Workflow
 
-1. **Select context** — handwritten/printed text or highlighted words (pick colour)
-2. **Add image** — file picker or camera (mobile)
-3. **Vision OCR** — Gemma 3 4B extracts words from the image
-4. **Enrich** — LLM generates definitions and example sentences
-5. **Review** — edit cards before export
-6. **Export** — send to Anki via AnkiConnect, or save as JSON
+1. **Select context** -- handwritten/printed text or highlighted words (pick colour)
+2. **Add image** -- file picker or camera (mobile)
+3. **Vision OCR** -- Gemma 3 4B extracts words from the image
+4. **Enrich** -- LLM generates definitions and example sentences
+5. **Review** -- edit cards before export
+6. **Export** -- send to Anki via AnkiConnect, or save as JSON
 
 ### Model Files
 
 | File | Size | Source | Purpose |
 |------|------|--------|---------|
-| `gemma-3-4b-it-qat-q4_0_s.gguf` | ~2.4 GB | [stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small](https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small) | Main language model (QAT — better quality than standard Q4_0) |
+| `gemma-3-4b-it-qat-q4_0_s.gguf` | ~2.4 GB | [stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small](https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small) | Main language model (QAT -- better quality than standard Q4_0) |
 | `mmproj-model-f16-4B.gguf` | ~812 MB | [google/gemma-3-4b-it-qat-q4_0-gguf](https://huggingface.co/google/gemma-3-4b-it-qat-q4_0-gguf) | Vision projector (SigLIP encoder) |
 
-Both are downloaded by `./scripts/setup-llama-cpp.sh` via direct URL — no authentication required.
+Both are downloaded by `./scripts/setup-llama-cpp.sh` via direct URL -- no authentication required.
 
 **Why QAT?** Quantization-Aware Training (QAT) produces ~15% better perplexity
 than standard post-training Q4_0 quantization at the same size. The stduhpf
@@ -78,11 +78,11 @@ POST /pipeline/image-to-cards # Full pipeline: image → OCR → enrich → Anki
 The vision backend requires `llama-mtmd-cli` built with GPU support:
 
 ```bash
-# Build with OpenCL (RECOMMENDED for Intel iGPUs — correct vision + fast)
+# Build with OpenCL (RECOMMENDED for Intel iGPUs -- correct vision + fast)
 nix develop .#sycl
 ./scripts/build-llama-mtmd-opencl.sh
 
-# Build with Vulkan (fallback — vision encoder corrupted on Intel iGPUs)
+# Build with Vulkan (fallback -- vision encoder corrupted on Intel iGPUs)
 ./scripts/build-llama-mtmd-vulkan.sh
 ```
 
@@ -105,13 +105,13 @@ by the build script): [patches/opencl-intel-workgroup-fix.patch](patches/opencl-
 
 On Intel integrated GPUs (e.g. UHD Graphics CML GT2), the Vulkan compute
 backend produces **corrupted output from the SigLIP vision encoder**. Text
-generation works fine on Vulkan — only the vision projector (mmproj) is
+generation works fine on Vulkan -- only the vision projector (mmproj) is
 affected.
 
 **Root cause:** Intel's Vulkan compute shaders produce f16 underflow/overflow in
 the CLIP/SigLIP transformer. Debug embeddings show 75%+ of values saturate to
 exactly -1.0 (clamped NaN/inf). This is a [known class of bug on integrated
-GPUs](https://github.com/ggml-org/llama.cpp/issues/15034) — a CUDA fix exists
+GPUs](https://github.com/ggml-org/llama.cpp/issues/15034) -- a CUDA fix exists
 (PR #16308) but no equivalent Vulkan fix.
 
 **What was tested (all produced garbage):**
@@ -124,7 +124,7 @@ GPUs](https://github.com/ggml-org/llama.cpp/issues/15034) — a CUDA fix exists
 
 </details>
 
-If you have a discrete NVIDIA GPU, Vulkan/CUDA both work fine — set
+If you have a discrete NVIDIA GPU, Vulkan/CUDA both work fine -- set
 `mmproj_offload: true` in `config/settings.yaml`.
 
 ## Configuration

@@ -138,7 +138,7 @@ class _SessionTile extends ConsumerWidget {
         subtitle: Text(
           '${session.context}'
           '${session.highlightColor != null ? ' (${session.highlightColor})' : ''}'
-          ' — ${_formatDate(session.createdAt)}',
+          ' - ${_formatDate(session.createdAt)}',
           style: theme.textTheme.bodySmall,
         ),
         children: [

@@ -109,7 +109,7 @@ def _opencl_env() -> dict[str, str]:
         return env  # already set by user
 
     # Search Nix store for intel-compute-runtime ICD files.
-    # Prefer "legacy1" builds — Gen9 / Gen9.5 iGPUs (e.g. UHD 620/630)
+    # Prefer "legacy1" builds -- Gen9 / Gen9.5 iGPUs (e.g. UHD 620/630)
     # are NOT supported by the newer intel-compute-runtime (≥25.x).
     nix_store = Path("/nix/store")
     if nix_store.exists():
@@ -425,7 +425,7 @@ def print_report(result: DetectionResult) -> None:
             vram = f"  ({d.vram_mb} MB)" if d.vram_mb else ""
             print(f"    [{d.backend.value:>6}] {d.name}{vram}")
     else:
-        print("  No GPUs detected — CPU-only mode")
+        print("  No GPUs detected -- CPU-only mode")
 
     print()
     print(f"  Recommended backend:  {result.recommended_backend.value}")
@@ -436,7 +436,7 @@ def print_report(result: DetectionResult) -> None:
     print("  Binary availability:")
     for backend in Backend:
         binary = _find_binary(backend)
-        status = f"[OK] {binary}" if binary else "—"
+        status = f"[OK] {binary}" if binary else "-"
         print(f"    {backend.value:>6}: {status}")
     print()
 

@@ -8,8 +8,8 @@ import '../models/app_settings.dart';
 /// Service for exporting flashcards to Anki.
 ///
 /// Supports:
-///  * **AnkiConnect** (desktop) — HTTP JSON-RPC to localhost:8765
-///  * **JSON file export** — write an Anki-importable JSON file
+///  * **AnkiConnect** (desktop) -- HTTP JSON-RPC to localhost:8765
+///  * **JSON file export** -- write an Anki-importable JSON file
 ///
 /// Future:
 ///  * AnkiDroid Instant-Add API (Android)

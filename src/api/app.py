@@ -133,7 +133,7 @@ async def health():
         vision_available=vision_ok,
         text_available=text_ok,
         backend=_detection.recommended_backend.value if _detection else "unknown",
-        model=_text.model_path.name if _text else "—",
+        model=_text.model_path.name if _text else "-",
         devices=[
             {"name": d.name, "backend": d.backend.value}
             for d in (_detection.devices if _detection else [])
@@ -197,7 +197,7 @@ async def ocr_vision(req: VisionOCRRequest):
 
     img_hash = hashlib.md5(raw).hexdigest()[:12]
 
-    # Free the GPU — stop text server if it's occupying the iGPU.
+    # Free the GPU -- stop text server if it's occupying the iGPU.
     await asyncio.to_thread(_pause_text_server)
 
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
@@ -246,7 +246,7 @@ async def ocr_vision_upload(
     img_hash = hashlib.md5(raw).hexdigest()[:12]
     suffix = Path(file.filename).suffix if file.filename else ".jpg"
 
-    # Free the GPU — stop text server if it's occupying the iGPU.
+    # Free the GPU -- stop text server if it's occupying the iGPU.
     await asyncio.to_thread(_pause_text_server)
 
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:

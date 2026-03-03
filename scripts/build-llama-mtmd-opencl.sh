@@ -8,7 +8,7 @@ set -euo pipefail
 #   nix develop --impure .#sycl   (provides OpenCL headers, ICD loader, Level Zero)
 #
 # This is the RECOMMENDED backend for Intel GPUs older than 11th gen (Gen9, Gen11).
-# Uses standard gcc — no Intel oneAPI compiler needed.
+# Uses standard gcc -- no Intel oneAPI compiler needed.
 #
 # Produces a binary at ~/.local/bin/llama-mtmd-cli-opencl
 
@@ -77,7 +77,7 @@ if command -v clinfo &>/dev/null; then
         echo "     Intel compute-runtime may need to be installed system-wide"
     fi
 else
-    echo "  [INFO] clinfo not available — will detect at runtime"
+    echo "  [INFO] clinfo not available -- will detect at runtime"
 fi
 
 echo ""
@@ -130,7 +130,7 @@ if [[ -f "$PATCH_DIR/opencl-intel-workgroup-fix.patch" ]]; then
         git apply "$PATCH_DIR/opencl-intel-workgroup-fix.patch" 2>/dev/null \
             || patch -p1 < "$PATCH_DIR/opencl-intel-workgroup-fix.patch" 2>/dev/null \
             || {
-                echo "   [WARN] Patch failed to apply cleanly — applying manually..."
+                echo "   [WARN] Patch failed to apply cleanly -- applying manually..."
                 # Manual fix: clamp GLU kernel work group size to device max
                 sed -i '/const size_t nrows = ggml_nrows(src0);/{
                     N
@@ -186,7 +186,7 @@ echo ""
 BINARY=$(find "$CMAKE_BUILD" -name "llama-mtmd-cli" -type f -executable 2>/dev/null | head -1)
 
 if [[ -z "$BINARY" ]]; then
-    echo "[ERR] Build failed — binary not found"
+    echo "[ERR] Build failed -- binary not found"
     echo "   Check logs: $BUILD_DIR/build.log"
     exit 1
 fi

@@ -1,5 +1,5 @@
 # OCR-to-Anki Python dependencies
-# Fully offline — llama.cpp server mode via Nix
+# Fully offline -- llama.cpp server mode via Nix
 
 # API server
 fastapi>=0.104.0

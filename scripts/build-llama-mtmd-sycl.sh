@@ -16,7 +16,7 @@ set -euo pipefail
 # Produces a dynamically-linked binary at ~/.local/bin/llama-mtmd-cli-sycl
 #
 # Intel GPU compatibility:
-#   - Gen9 / Gen9.5 (CML GT2, 10th gen): borderline — uses intel-compute-runtime-legacy1
+#   - Gen9 / Gen9.5 (CML GT2, 10th gen): borderline -- uses intel-compute-runtime-legacy1
 #   - Gen11+ (11th gen+): fully supported
 #   - Set GGML_SYCL_DISABLE_OPT=1 at runtime for pre-Gen12 devices
 
@@ -133,7 +133,7 @@ elif command -v ze_info &>/dev/null; then
     echo "  (Using ze_info for device detection)"
     ze_info 2>/dev/null | grep -i "name\|driver\|vendor" | head -5 | sed 's/^/     /'
 else
-    echo "  [INFO] No sycl-ls or ze_info — will detect at runtime"
+    echo "  [INFO] No sycl-ls or ze_info -- will detect at runtime"
 fi
 echo ""
 
@@ -223,7 +223,7 @@ echo ""
 BINARY=$(find "$CMAKE_BUILD" -name "llama-mtmd-cli" -type f -executable 2>/dev/null | head -1)
 
 if [[ -z "$BINARY" ]]; then
-    echo "[ERR] Build failed — binary not found"
+    echo "[ERR] Build failed -- binary not found"
     echo "   Check logs: $BUILD_DIR/build.log"
     exit 1
 fi

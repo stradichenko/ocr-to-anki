@@ -10,7 +10,7 @@ import '../models/models.dart';
 import '../services/services.dart';
 
 // ---------------------------------------------------------------------------
-// Database — singleton
+// Database -- singleton
 // ---------------------------------------------------------------------------
 
 final databaseProvider = Provider<AppDatabase>((ref) {
@@ -52,7 +52,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
           jsonDecode(json) as Map<String, dynamic>,
         );
       } catch (_) {
-        // Corrupted settings — keep defaults.
+        // Corrupted settings -- keep defaults.
       }
     }
   }
@@ -274,7 +274,7 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
               hint = 'still working (this image may be complex)...';
             }
             _log(
-              'OCR in progress... ${secs}s elapsed — $hint',
+              'OCR in progress... ${secs}s elapsed - $hint',
               progress: 0.20 + 0.30 * (secs / 300).clamp(0.0, 1.0),
             );
           },

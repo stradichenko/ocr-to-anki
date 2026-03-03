@@ -175,7 +175,7 @@ class LlamaCppServer:
             "-ngl", str(self.n_gpu_layers),
             "--parallel", "1",
             "--jinja",
-            # Disable the new prompt cache — it causes LCP slot reuse that
+            # Disable the new prompt cache -- it causes LCP slot reuse that
             # corrupts multimodal image embeddings on consecutive requests.
             "--cache-ram", "0",
         ]
@@ -257,7 +257,7 @@ class LlamaCppServer:
         # A unique request-id tag is prepended to every prompt.  This
         # prevents the llama.cpp slot LCP (Longest Common Prefix) cache
         # from matching two consecutive requests that share the same text
-        # prefix — a scenario that silently corrupts multimodal image
+        # prefix -- a scenario that silently corrupts multimodal image
         # embeddings and produces empty output.
         rid = uuid.uuid4().hex[:8]
 

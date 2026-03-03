@@ -70,7 +70,7 @@ llama_cpp:
   
   # Vision encoder settings
   # Intel iGPU Vulkan corrupts SigLIP vision encoder output (f16 saturation).
-  # Tested: --flash-attn off, --no-op-offload, different models — all garbage.
+  # Tested: --flash-attn off, --no-op-offload, different models -- all garbage.
   # See: https://github.com/ggml-org/llama.cpp/issues/15034
   #
   # SOLUTION: Use the OpenCL backend instead of Vulkan!

@@ -163,8 +163,8 @@ def main():
     print(f"  {'#':>2} {'Label':<48s} {'Total':>7s} {'Encode':>8s} {'Gen':>7s} {'Toks':>5s}")
     print(f"  {'─'*2} {'─'*48} {'─'*7} {'─'*8} {'─'*7} {'─'*5}")
     for i,r in enumerate(results):
-        enc = f"{r.get('encode_s','')}s" if r.get('encode_s') else "—"
-        gen = f"{r['eval_tok_s']:.1f}" if r.get('eval_tok_s') else "—"
+        enc = f"{r.get('encode_s','')}s" if r.get('encode_s') else "-"
+        gen = f"{r['eval_tok_s']:.1f}" if r.get('eval_tok_s') else "-"
         tot = f"{r['elapsed_s']:.1f}s" if r['status']=='OK' else r['status']
         print(f"  {i+1:>2} {r['label']:<48s} {tot:>7s} {enc:>8s} {gen:>7s} {str(r.get('eval_tokens','')):>5s}")
 
@@ -202,7 +202,7 @@ def main():
     print("  ┌─────┬────────────────────────────────────────────┬──────────┐")
     print("  │  #  │ Optimization                               │ Est Gain │")
     print("  ├─────┼────────────────────────────────────────────┼──────────┤")
-    print("  │  1  │ [OK] GPU vision (OpenCL) — already done      │ ~20×     │")
+    print("  │  1  │ [OK] GPU vision (OpenCL) -- already done      │ ~20×     │")
     print("  │  2  │ [ ] Server mode (keep model loaded)         │ ~30-50%  │")
     print("  │  3  │ [ ] Downscale large images before OCR       │ ~20-40%  │")
     print("  │  4  │ [ ] Shorter/tuned prompt                    │ ~5-15%   │")

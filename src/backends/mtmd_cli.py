@@ -82,7 +82,7 @@ class LlamaMtmdCli:
         self.max_tokens = max_tokens
         # Intel iGPU Vulkan produces corrupted vision encoder output;
         # keep the CLIP/mmproj on CPU and only offload text layers to GPU.
-        # The OpenCL backend does NOT have this issue — GPU vision works.
+        # The OpenCL backend does NOT have this issue -- GPU vision works.
         self.mmproj_offload = mmproj_offload
 
         # Detect if we're using the OpenCL backend

@@ -11,7 +11,7 @@ part 'database.g.dart';
 // Tables
 // ---------------------------------------------------------------------------
 
-/// A processing session — one image processed through the pipeline.
+/// A processing session -- one image processed through the pipeline.
 class ProcessingSessions extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get imagePath => text()();
