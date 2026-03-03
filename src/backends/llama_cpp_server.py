@@ -1,203 +1,232 @@
 """
 llama.cpp server wrapper for fully offline local inference.
-Uses llama-server with Gemma 3 4B for text and vision tasks.
+
+Uses llama-server (or llama-server-opencl) with Gemma 3 4B for text and
+vision tasks.  Manages the server lifecycle (start / health / stop) and
+provides a ``generate()`` helper that works around the LCP prompt-cache
+bug that silently drops image embeddings on consecutive identical prompts.
+
+Dependencies: Python stdlib only (urllib, json, subprocess, …).
 """
 
+import json
+import logging
 import os
-import sys
-import subprocess
-import time
-import requests
-from pathlib import Path
-from typing import Optional, List
 import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
+from pathlib import Path
+from typing import Optional
+
+from backends.auto_detect import Backend, _opencl_env, detect  # noqa: F401
+
+log = logging.getLogger(__name__)
+
+
+# ── Binary resolution ────────────────────────────────────────────────
+
+_SERVER_BINARY_NAMES: dict[Backend, list[str]] = {
+    Backend.CUDA:   ["llama-server-cuda",   "llama-server"],
+    Backend.METAL:  ["llama-server-metal",  "llama-server"],
+    Backend.VULKAN: ["llama-server-vulkan", "llama-server"],
+    Backend.OPENCL: ["llama-server-opencl"],
+    Backend.SYCL:   ["llama-server-sycl",   "llama-server"],
+    Backend.CPU:    ["llama-server-cpu",     "llama-server"],
+}
+
+_SEARCH_PATHS = [
+    Path.home() / ".local" / "bin",
+    Path("/usr/local/bin"),
+    Path("/usr/bin"),
+]
+
+
+def _find_server_binary(backend: Backend) -> Optional[Path]:
+    """Locate a llama-server binary for *backend*."""
+    import shutil
+
+    for name in _SERVER_BINARY_NAMES.get(backend, ["llama-server"]):
+        found = shutil.which(name)
+        if found:
+            return Path(found)
+        for d in _SEARCH_PATHS:
+            candidate = d / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return candidate
+    return None
 
 
 class LlamaCppServer:
-    """Manages llama.cpp server for local inference with Gemma 3."""
-    
+    """Manages a llama-server process for local inference with Gemma 3."""
+
     def __init__(
         self,
         model_path: Optional[str] = None,
         mmproj_path: Optional[str] = None,
+        binary_path: Optional[str] = None,
+        backend: Optional[Backend] = None,
         host: str = "127.0.0.1",
-        port: int = 8080,
-        context_size: int = 8192,
+        port: int = 8090,
+        context_size: int = 4096,
         n_gpu_layers: int = -1,
-        verbose: bool = False
+        threads: Optional[int] = None,
+        verbose: bool = False,
     ):
-        """
-        Initialize llama.cpp server configuration.
-        
-        Args:
-            model_path: Path to GGUF model
-            mmproj_path: Path to vision projector
-            host: Server host
-            port: Server port
-            context_size: Context window size
-            n_gpu_layers: Number of layers to offload to GPU (-1 = all)
-            verbose: Enable verbose logging
-        """
         self.host = host
         self.port = port
         self.context_size = context_size
         self.n_gpu_layers = n_gpu_layers
+        self.threads = threads or max(1, (os.cpu_count() or 4) // 2)
         self.verbose = verbose
         self.process: Optional[subprocess.Popen] = None
-        
-        # Find model
-        models_dir = Path(os.getenv('LLAMA_CPP_MODELS', Path.home() / '.cache' / 'llama.cpp' / 'models'))
-        
-        if model_path:
-            self.model_path = Path(model_path)
-        else:
-            # Look for Google official model
-            self.model_path = models_dir / 'gemma-3-4b-it-q4_0.gguf'
-        
+
+        # ── Model files ──────────────────────────────────────────────
+        models_dir = Path(
+            os.getenv(
+                "LLAMA_CPP_MODELS",
+                Path.home() / ".cache" / "llama.cpp" / "models",
+            )
+        )
+
+        self.model_path = (
+            Path(model_path) if model_path
+            else models_dir / "gemma-3-4b-it-qat-q4_0_s.gguf"
+        )
         if not self.model_path.exists():
             raise FileNotFoundError(
                 f"Model not found: {self.model_path}\n"
                 f"Run: ./scripts/setup-llama-cpp.sh"
             )
-        
-        # Check for vision projector
-        if mmproj_path:
-            self.mmproj_path = Path(mmproj_path)
-        else:
-            self.mmproj_path = models_dir / 'mmproj-model-f16-4B.gguf'
-        
-        # Vision support = have projector
+
+        self.mmproj_path = (
+            Path(mmproj_path) if mmproj_path
+            else models_dir / "mmproj-model-f16-4B.gguf"
+        )
         self.has_vision = self.mmproj_path.exists()
-        self.model_type = "gemma3-vlm" if self.has_vision else "gemma3-text"
-    
-    def format_chat_messages(self, prompt: str, system: Optional[str] = None) -> str:
-        """
-        Format messages for Gemma 3 chat template.
-        
-        Gemma 3 format:
-        <start_of_turn>user
-        {content}<end_of_turn>
-        <start_of_turn>model
-        """
-        formatted = ""
-        
-        if system:
-            formatted += f"<start_of_turn>system\n{system}<end_of_turn>\n"
-        
-        formatted += f"<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
-        
-        return formatted
-    
-    def start(self, wait_ready: bool = True, timeout: int = 90):
-        """Start the llama.cpp server."""
-        if self.is_running():
-            print(f"Server already running at http://{self.host}:{self.port}")
-            return
-        
-        # Use local files ONLY - no HuggingFace repo
-        cmd = [
-            'llama-server',
-            '--model', str(self.model_path),
-            '--host', self.host,
-            '--port', str(self.port),
-            '--ctx-size', str(self.context_size),
-            '--threads', str(os.cpu_count() // 2 or 4),
-            '--parallel', '1',
-        ]
-        
-        # Add mmproj explicitly if we have it
-        if self.has_vision:
-            cmd.extend(['--mmproj', str(self.mmproj_path)])
-            if self.verbose:
-                print(f"✓ Vision projector: {self.mmproj_path.name}")
-        
-        if self.verbose:
-            print(f"Starting llama-server:")
-            print(f"  {' '.join(cmd)}")
-            print()
+
+        # ── Backend / binary detection ───────────────────────────────
+        if binary_path:
+            self.binary_path = Path(binary_path)
+            self.detection = None
+            self._is_opencl = "opencl" in self.binary_path.name
         else:
-            print(f"Starting llama-server")
-            if self.has_vision:
-                print(f"  ✓ Vision enabled")
-            print()
-        
-        # Start server
+            self.detection = detect(prefer=backend)
+            be = self.detection.recommended_backend
+            self.binary_path = _find_server_binary(be)
+            if self.binary_path is None:
+                raise FileNotFoundError(
+                    f"llama-server binary not found for {be.value}.\n"
+                    "Build with e.g. scripts/build-llama-mtmd-opencl.sh"
+                )
+            self._is_opencl = be == Backend.OPENCL
+
+        log.info("Server binary: %s", self.binary_path)
+
+    # ── URL helpers ──────────────────────────────────────────────────
+
+    @property
+    def base_url(self) -> str:
+        return f"http://{self.host}:{self.port}"
+
+    def _http_post(self, path: str, payload: dict, timeout: int = 600) -> dict:
+        """POST JSON to the server, return parsed response."""
+        data = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            f"{self.base_url}{path}",
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+
+    def _http_get(self, path: str, timeout: int = 5) -> dict:
+        """GET JSON from the server."""
+        with urllib.request.urlopen(
+            f"{self.base_url}{path}", timeout=timeout
+        ) as resp:
+            return json.loads(resp.read())
+
+    # ── Lifecycle ────────────────────────────────────────────────────
+
+    def is_running(self) -> bool:
+        """Return True if the server responds to /health."""
+        try:
+            return self._http_get("/health").get("status") == "ok"
+        except Exception:
+            return False
+
+    def start(self, wait_ready: bool = True, timeout: int = 120):
+        """Start the llama-server subprocess."""
+        if self.is_running():
+            log.info("Server already running at %s", self.base_url)
+            return
+
+        cmd = [
+            str(self.binary_path),
+            "-m", str(self.model_path),
+            "--host", self.host,
+            "--port", str(self.port),
+            "--ctx-size", str(self.context_size),
+            "-t", str(self.threads),
+            "-ngl", str(self.n_gpu_layers),
+            "--parallel", "1",
+            "--jinja",
+            # Disable the new prompt cache — it causes LCP slot reuse that
+            # corrupts multimodal image embeddings on consecutive requests.
+            "--cache-ram", "0",
+        ]
+
+        if self.has_vision:
+            cmd.extend(["--mmproj", str(self.mmproj_path)])
+
+        log.info("Starting: %s", " ".join(cmd[:8]) + " ...")
+
+        # Environment (OpenCL needs OCL_ICD_VENDORS)
+        env = _opencl_env() if self._is_opencl else None
+
         self.process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  # Combine stderr into stdout
+            stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1  # Line buffered
+            env=env,
         )
-        
-        # Wait for server with better diagnostics
+
         if wait_ready:
-            print("Waiting for server to be ready...")
-            if not self._wait_for_ready_with_logs(timeout):
-                self.stop()
-                raise RuntimeError(f"Server failed to start within {timeout} seconds")
+            self._wait_for_ready(timeout)
 
-    def _wait_for_ready_with_logs(self, timeout: int = 60) -> bool:
-        """Wait for server to be ready, showing logs."""
-        import select
-        
-        start_time = time.time()
-        url = f"http://{self.host}:{self.port}/health"
-        
-        while time.time() - start_time < timeout:
-            # Check if process died
-            if self.process.poll() is not None:
-                print("❌ Server process died!")
-                # Print any output
-                stdout, _ = self.process.communicate()
-                if stdout:
-                    print("Server output:")
-                    print(stdout[:500])
-                return False
-            
-            # Try health check
-            try:
-                response = requests.get(url, timeout=1)
-                if response.status_code == 200:
-                    print(f"✅ Server ready in {time.time() - start_time:.1f}s")
-                    return True
-            except requests.exceptions.RequestException:
-                pass
-            
-            # Show server output (non-blocking)
-            if self.process.stdout:
-                # Check if there's data to read
-                ready, _, _ = select.select([self.process.stdout], [], [], 0.1)
-                if ready:
-                    line = self.process.stdout.readline()
-                    if line and self.verbose:
-                        print(f"  [server] {line.rstrip()}")
-            
-            time.sleep(0.5)
-        
-        print(f"❌ Timeout after {timeout}s")
-        return False
+    def _wait_for_ready(self, timeout: int):
+        """Block until the server is healthy or raise."""
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < timeout:
+            if self.process and self.process.poll() is not None:
+                out = self.process.stdout.read() if self.process.stdout else ""
+                raise RuntimeError(f"Server died on startup:\n{out[:1000]}")
+            if self.is_running():
+                elapsed = time.monotonic() - t0
+                log.info("Server ready in %.1fs", elapsed)
+                return
+            time.sleep(1)
+        self.stop()
+        raise RuntimeError(f"Server failed to start within {timeout}s")
 
-    def is_running(self) -> bool:
-        """Check if server is running."""
-        try:
-            response = requests.get(f"http://{self.host}:{self.port}/health", timeout=1)
-            return response.status_code == 200
-        except requests.RequestException:
-            return False
-    
     def stop(self):
-        """Stop the server."""
+        """Gracefully stop the server."""
         if self.process is not None:
-            print("Stopping llama.cpp server...")
+            log.info("Stopping llama-server (pid %d)...", self.process.pid)
             self.process.terminate()
             try:
-                self.process.wait(timeout=5)
+                self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.process.kill()
             self.process = None
-            print("✓ Server stopped")
-    
+
+    # ── Generation ───────────────────────────────────────────────────
+
     def generate(
         self,
         prompt: str,
@@ -207,194 +236,260 @@ class LlamaCppServer:
         top_k: int = 40,
         top_p: float = 0.9,
         repeat_penalty: float = 1.1,
-        stop: Optional[List[str]] = None,
+        stop: Optional[list[str]] = None,
         system: Optional[str] = None,
-        timeout: int = 600
+        timeout: int = 600,
     ) -> dict:
-        """Generate text using Gemma 3 4B with optional image input."""
+        """
+        Generate text, with optional image input.
+
+        Returns dict with keys: content, tokens_evaluated, tokens_predicted,
+        timings, wall_s.
+        """
         if not self.is_running():
             raise RuntimeError("Server is not running. Call start() first.")
-        
-        # Gemma-specific stop tokens
-        gemma_stops = ['<end_of_turn>', '<eos>', '<|endoftext|>']
+
+        gemma_stops = ["<end_of_turn>", "<eos>"]
         if stop:
             gemma_stops.extend(stop)
-        
-        # For vision, use direct completion with image token
+
+        # -- Build prompt ------------------------------------------------
+        # A unique request-id tag is prepended to every prompt.  This
+        # prevents the llama.cpp slot LCP (Longest Common Prefix) cache
+        # from matching two consecutive requests that share the same text
+        # prefix — a scenario that silently corrupts multimodal image
+        # embeddings and produces empty output.
+        rid = uuid.uuid4().hex[:8]
+
         if image_data and self.has_vision:
-            url = f"http://{self.host}:{self.port}/completion"
-            
-            # Simple format that works with llama.cpp
-            formatted_prompt = f"<bos><start_of_turn>user\n<start_of_image>\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
-            
-            payload = {
-                "prompt": formatted_prompt,
-                "image_data": [{"data": image_data}],
-                "n_predict": min(max_tokens, 256),  # Limit for vision to avoid timeout
+            formatted = (
+                f"<start_of_turn>user\n"
+                f"<start_of_image>\n"
+                f"[rid:{rid}] {prompt}"
+                f"<end_of_turn>\n"
+                f"<start_of_turn>model\n"
+            )
+            payload: dict = {
+                "prompt": formatted,
+                "image_data": [{"data": image_data, "id": 10}],
+                "n_predict": min(max_tokens, 512),
                 "temperature": temperature,
                 "top_k": top_k,
                 "top_p": top_p,
                 "stop": gemma_stops,
                 "cache_prompt": False,
-                "stream": False
+                "stream": False,
             }
-            
-            if self.verbose:
-                print(f"[Vision request] Image: {len(image_data)/1024:.1f} KB")
-                print(f"[Vision request] Max tokens limited to {payload['n_predict']} for faster response")
         else:
-            # Standard text completion
-            url = f"http://{self.host}:{self.port}/completion"
-            formatted_prompt = self.format_chat_messages(prompt, system)
-            
+            # Text-only
+            parts = ""
+            if system:
+                parts += f"<start_of_turn>system\n{system}<end_of_turn>\n"
+            parts += (
+                f"<start_of_turn>user\n"
+                f"[rid:{rid}] {prompt}"
+                f"<end_of_turn>\n"
+                f"<start_of_turn>model\n"
+            )
             payload = {
-                'prompt': formatted_prompt,
-                'n_predict': max_tokens,
-                'temperature': temperature,
-                'top_k': top_k,
-                'top_p': top_p,
-                'repeat_penalty': repeat_penalty,
-                'stop': gemma_stops,
-                'cache_prompt': True,
+                "prompt": parts,
+                "n_predict": max_tokens,
+                "temperature": temperature,
+                "top_k": top_k,
+                "top_p": top_p,
+                "repeat_penalty": repeat_penalty,
+                "stop": gemma_stops,
+                "cache_prompt": False,
+                "stream": False,
             }
-            
-            if self.verbose:
-                print(f"[Text request] Using /completion endpoint")
-        
+
+        if self.verbose:
+            mode = "vision" if image_data else "text"
+            log.debug("[%s] rid=%s n_predict=%d", mode, rid, payload["n_predict"])
+
+        # -- Send request ------------------------------------------------
+        t0 = time.monotonic()
         try:
-            if self.verbose:
-                print(f"[Request] Sending to {url}")
-            
-            response = requests.post(url, json=payload, timeout=timeout)
-            response.raise_for_status()
-            
-            result = response.json()
-            
-            # Extract content based on endpoint
-            if "/v1/chat/completions" in url:
-                # Chat completions format
-                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-                tokens_eval = result.get("usage", {}).get("prompt_tokens", 0)
-                tokens_pred = result.get("usage", {}).get("completion_tokens", 0)
-            else:
-                # Standard completion format
-                content = result.get('content', '').strip()
-                tokens_eval = result.get('tokens_evaluated', 0)
-                tokens_pred = result.get('tokens_predicted', 0)
-            
-            # Clean up response
-            for token in gemma_stops:
-                content = content.replace(token, '')
-            content = content.strip()
-            
-            return {
-                'content': content,
-                'tokens_evaluated': tokens_eval,
-                'tokens_predicted': tokens_pred,
-            }
-            
-        except requests.exceptions.Timeout:
-            raise TimeoutError(f"Request timed out after {timeout}s")
-        except requests.exceptions.RequestException as e:
-            raise RuntimeError(f"Request failed: {e}")
-    
+            result = self._http_post("/completion", payload, timeout=timeout)
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"Request to llama-server failed: {exc}") from exc
+        wall = time.monotonic() - t0
+
+        content = result.get("content", "").strip()
+        for tok in gemma_stops:
+            content = content.replace(tok, "")
+        content = content.strip()
+
+        timings = result.get("timings", {})
+        return {
+            "content": content,
+            "tokens_evaluated": result.get("tokens_evaluated", 0),
+            "tokens_predicted": result.get("tokens_predicted", 0),
+            "timings": {
+                "prompt_ms": timings.get("prompt_ms", 0),
+                "predicted_ms": timings.get("predicted_ms", 0),
+                "predicted_per_second": timings.get("predicted_per_second", 0),
+            },
+            "wall_s": round(wall, 2),
+        }
+
+    # ── Vision convenience method ────────────────────────────────────
+
+    def run_vision(
+        self,
+        image_path: str,
+        prompt: str = (
+            "Extract all visible text from this image exactly as written. "
+            "Output ONLY the raw text, nothing else."
+        ),
+        max_tokens: int = 256,
+        timeout: int = 600,
+    ) -> dict:
+        """
+        Run vision OCR on a single image.
+
+        Mirrors ``LlamaMtmdCli.run_vision()`` so callers can swap backends
+        transparently.
+
+        Returns dict with keys: text, elapsed_s, backend, image, timings.
+        """
+        import base64
+
+        image_path = str(Path(image_path).resolve())
+        if not Path(image_path).exists():
+            raise FileNotFoundError(f"Image not found: {image_path}")
+
+        with open(image_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+
+        result = self.generate(
+            prompt=prompt,
+            image_data=b64,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+
+        backend = (
+            self.detection.recommended_backend.value
+            if self.detection else "unknown"
+        )
+        return {
+            "text": result["content"],
+            "elapsed_s": result["wall_s"],
+            "backend": backend,
+            "image": image_path,
+            "timings": result["timings"],
+        }
+
+    # ── Info / diagnostics ───────────────────────────────────────────
+
+    def info(self) -> dict:
+        return {
+            "binary": str(self.binary_path),
+            "model": str(self.model_path),
+            "mmproj": str(self.mmproj_path),
+            "backend": (
+                self.detection.recommended_backend.value
+                if self.detection else "manual"
+            ),
+            "is_opencl": self._is_opencl,
+            "host": self.host,
+            "port": self.port,
+            "threads": self.threads,
+            "ctx_size": self.context_size,
+            "n_gpu_layers": self.n_gpu_layers,
+            "has_vision": self.has_vision,
+        }
+
+    # ── Context manager ──────────────────────────────────────────────
+
     def __enter__(self):
-        """Context manager entry."""
         self.start()
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
         self.stop()
 
 
+# ── CLI entrypoint ───────────────────────────────────────────────────
+
 def main():
-    """Run llama.cpp server in standalone mode."""
+    """Run llama-server in standalone mode or do a quick vision test."""
     import argparse
-    
-    parser = argparse.ArgumentParser(description='llama.cpp server with Gemma 3 4B')
-    parser.add_argument('--model', type=str, help='Path to GGUF model')
-    parser.add_argument('--host', type=str, default='127.0.0.1', help='Server host')
-    parser.add_argument('--port', type=int, default=8080, help='Server port')
-    parser.add_argument('--ctx-size', type=int, default=8192, help='Context window size')
-    parser.add_argument('--n-gpu-layers', type=int, default=-1, help='GPU layers (-1 = all)')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose logging')
-    
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s: %(message)s"
+    )
+
+    parser = argparse.ArgumentParser(
+        description="llama.cpp server with Gemma 3 4B"
+    )
+    parser.add_argument("--model", type=str, help="Path to GGUF model")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8090)
+    parser.add_argument("--ctx-size", type=int, default=4096)
+    parser.add_argument("-v", "--verbose", action="store_true")
+    sub = parser.add_subparsers(dest="cmd")
+
+    sub.add_parser("serve", help="Start server and keep running")
+
+    test_p = sub.add_parser(
+        "test", help="Quick vision test (starts server if needed)"
+    )
+    test_p.add_argument("image", help="Image file to OCR")
+
     args = parser.parse_args()
-    
-    print("Initializing llama.cpp server...")
+
+    server = LlamaCppServer(
+        model_path=args.model,
+        host=args.host,
+        port=args.port,
+        context_size=args.ctx_size,
+        verbose=args.verbose,
+    )
+
+    if args.cmd == "test":
+        managed = False
+        if not server.is_running():
+            print("Starting server...")
+            server.start()
+            managed = True
+        try:
+            result = server.run_vision(args.image)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        finally:
+            if managed:
+                server.stop()
+        return
+
+    # Default: start and keep running
+    print(f"Server binary : {server.binary_path}")
+    print(f"Model         : {server.model_path.name}")
+    print(f"Vision        : {'yes' if server.has_vision else 'no'}")
     print()
-    
+
     try:
-        # Kill any existing llama-server first
-        print("Stopping any existing llama-server processes...")
-        subprocess.run(['pkill', '-f', 'llama-server'], stderr=subprocess.DEVNULL)
-        time.sleep(2)
-        print()
-        
-        server = LlamaCppServer(
-            model_path=args.model,
-            host=args.host,
-            port=args.port,
-            context_size=args.ctx_size,
-            n_gpu_layers=args.n_gpu_layers,
-            verbose=args.verbose
-        )
-        
-        print("Starting server...")
-        server.start(wait_ready=True, timeout=90)
-        
-        print()
-        print("=" * 70)
-        print("✅ llama.cpp server is running!")
-        print("=" * 70)
-        print()
-        print(f"Endpoint: http://{args.host}:{args.port}")
-        print(f"Model: {server.model_path.name}")
-        print(f"Type: {server.model_type}")
-        
-        if server.has_vision:
-            print(f"Vision: ✓ Enabled ({server.mmproj_path.name})")
-        else:
-            print("Vision: ✗ Disabled")
-        
-        print()
-        print("Press Ctrl+C to stop")
-        print()
-        
-        # Set up signal handlers
-        def signal_handler(sig, frame):
-            print("\n\nStopping server...")
+        server.start()
+        print(f"\nServer running at {server.base_url}")
+        print("Press Ctrl+C to stop\n")
+
+        def _handle_signal(sig, frame):
             server.stop()
             sys.exit(0)
-        
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-        
-        # Keep running
+
+        signal.signal(signal.SIGINT, _handle_signal)
+        signal.signal(signal.SIGTERM, _handle_signal)
+
         while True:
             if not server.is_running():
-                print("❌ Server stopped unexpectedly!")
+                print("Server stopped unexpectedly")
                 break
-            time.sleep(1)
-    
-    except FileNotFoundError as e:
-        print(f"❌ Error: {e}")
-        print()
-        print("Run setup first:")
-        print("  ./scripts/setup-llama-cpp.sh")
-        sys.exit(1)
-    except KeyboardInterrupt:
-        print("\n\nShutting down...")
-        if 'server' in locals():
-            server.stop()
+            time.sleep(2)
     except Exception as e:
-        print(f"❌ Error: {e}")
-        if args.verbose:
-            import traceback
-            traceback.print_exc()
+        print(f"Error: {e}")
+        server.stop()
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

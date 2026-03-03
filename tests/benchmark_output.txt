@@ -1,0 +1,120 @@
+nohup: ignoring input
+════════════════════════════════════════════════════════════
+  OCR Pipeline Benchmark (GPU Vision / OpenCL)
+════════════════════════════════════════════════════════════
+  Model:  gemma-3-4b-it-qat-q4_0_s.gguf (2.36 GB)
+  mmproj: mmproj-model-f16-4B.gguf (851 MB)
+  CPUs: 4  (default threads: 2)
+
+────────────────────────────────────────────────────────────────────────
+  0. Backend Detection
+────────────────────────────────────────────────────────────────────────
+  avg=3846ms  best=337ms
+  → opencl: /home/gespitia/.local/bin/llama-mtmd-cli-opencl
+
+────────────────────────────────────────────────────────────────────────
+  1. GPU Vision Baseline
+────────────────────────────────────────────────────────────────────────
+  [  OK] GPU vision baseline (handwritten)                total= 198.5s  enc=107.36s  gen=4.4t/s     toks=158
+
+────────────────────────────────────────────────────────────────────────
+  2. Image Size Impact
+────────────────────────────────────────────────────────────────────────
+  [  OK] small crop 12KB                                  total= 153.7s  enc=108.89s  gen=4.8t/s     toks=28
+  [  OK] medium 145KB 1133x1348                           total= 177.7s  enc=106.96s  gen=4.8t/s     toks=158
+  [  OK] large 706KB 2706x1330                            total= 224.5s  enc=115.24s  gen=4.3t/s     toks=309
+
+────────────────────────────────────────────────────────────────────────
+  3. Thread Scaling
+────────────────────────────────────────────────────────────────────────
+  [  OK] threads=1                                        total= 181.6s  enc=114.0s   gen=4.3t/s     toks=123
+  [  OK] threads=2                                        total= 190.0s  enc=119.59s  gen=4.8t/s     toks=157
+  [  OK] threads=4                                        total= 177.2s  enc=103.56s  gen=4.3t/s     toks=157
+
+────────────────────────────────────────────────────────────────────────
+  4. Context Size
+────────────────────────────────────────────────────────────────────────
+  [  OK] ctx=2048                                         total= 183.0s  enc=109.94s  gen=4.6t/s     toks=158
+  [  OK] ctx=4096                                         total= 176.3s  enc=105.57s  gen=4.7t/s     toks=158
+  [  OK] ctx=8192                                         total= 176.3s  enc=105.52s  gen=4.7t/s     toks=158
+
+────────────────────────────────────────────────────────────────────────
+  5. Max Tokens
+────────────────────────────────────────────────────────────────────────
+  [  OK] max_tokens=128                                   total= 170.0s  enc=106.35s  gen=4.9t/s     toks=127
+  [  OK] max_tokens=256                                   total= 173.1s  enc=103.24s  gen=4.8t/s     toks=159
+  [  OK] max_tokens=512                                   total= 173.0s  enc=103.18s  gen=4.8t/s     toks=159
+  [  OK] max_tokens=1024                                  total= 172.5s  enc=103.13s  gen=4.9t/s     toks=157
+
+────────────────────────────────────────────────────────────────────────
+  6. Sampling Strategy
+────────────────────────────────────────────────────────────────────────
+  [  OK] sampling: greedy                                 total= 172.9s  enc=103.17s  gen=4.8t/s     toks=158
+  [  OK] sampling: default                                total= 165.7s  enc=103.48s  gen=4.9t/s     toks=123
+  [  OK] sampling: creative                               total= 165.5s  enc=103.07s  gen=4.9t/s     toks=124
+
+────────────────────────────────────────────────────────────────────────
+  7. Sequential Crop Batch
+────────────────────────────────────────────────────────────────────────
+  [  OK] crop[0] 1d21248b-9dda-4e67-972b-70aa96e35eee_orange_000.png total= 145.7s  enc=103.23s  gen=4.9t/s     toks=28
+  [  OK] crop[1] 1d21248b-9dda-4e67-972b-70aa96e35eee_orange_001.png total= 144.1s  enc=102.78s  gen=4.9t/s     toks=23
+  [  OK] crop[2] handwritten_orange_000.png               total= 145.2s  enc=102.89s  gen=4.9t/s     toks=29
+  [  OK] crop[3] handwritten_orange_001.png               total= 143.6s  enc=102.89s  gen=4.9t/s     toks=20
+  [  OK] crop[4] orange_purple_orange_000.png             total= 148.2s  enc=103.2s   gen=4.9t/s     toks=41
+  → 5 crops: 726.8s total, 145.4s avg
+
+────────────────────────────────────────────────────────────────────────
+  SUMMARY
+────────────────────────────────────────────────────────────────────────
+   # Label                                              Total   Encode     Gen  Toks
+  ── ──────────────────────────────────────────────── ─────── ──────── ─────── ─────
+   1 GPU vision baseline (handwritten)                 198.5s  107.36s     4.4   158
+   2 small crop 12KB                                   153.7s  108.89s     4.8    28
+   3 medium 145KB 1133x1348                            177.7s  106.96s     4.8   158
+   4 large 706KB 2706x1330                             224.5s  115.24s     4.3   309
+   5 threads=1                                         181.6s   114.0s     4.3   123
+   6 threads=2                                         190.0s  119.59s     4.8   157
+   7 threads=4                                         177.2s  103.56s     4.3   157
+   8 ctx=2048                                          183.0s  109.94s     4.6   158
+   9 ctx=4096                                          176.3s  105.57s     4.7   158
+  10 ctx=8192                                          176.3s  105.52s     4.7   158
+  11 max_tokens=128                                    170.0s  106.35s     4.9   127
+  12 max_tokens=256                                    173.1s  103.24s     4.8   159
+  13 max_tokens=512                                    173.0s  103.18s     4.8   159
+  14 max_tokens=1024                                   172.5s  103.13s     4.9   157
+  15 sampling: greedy                                  172.9s  103.17s     4.8   158
+  16 sampling: default                                 165.7s  103.48s     4.9   123
+  17 sampling: creative                                165.5s  103.07s     4.9   124
+  18 crop[0] 1d21248b-9dda-4e67-972b-70aa96e35eee_orange_000.png  145.7s  103.23s     4.9    28
+  19 crop[1] 1d21248b-9dda-4e67-972b-70aa96e35eee_orange_001.png  144.1s  102.78s     4.9    23
+  20 crop[2] handwritten_orange_000.png                145.2s  102.89s     4.9    29
+  21 crop[3] handwritten_orange_001.png                143.6s  102.89s     4.9    20
+  22 crop[4] orange_purple_orange_000.png              148.2s   103.2s     4.9    41
+
+  → /home/gespitia/projects/ocr-to-anki/tests/benchmark_results.json
+
+────────────────────────────────────────────────────────────────────────
+  OPTIMIZATION ANALYSIS
+────────────────────────────────────────────────────────────────────────
+
+  Baseline breakdown (total 198.5s):
+    Model load:      6.6s  (   3%)
+    Img encode:    107.4s  (  54%)
+    Text gen:       35.7s  (  18%) @ 4.4 tok/s
+    Overhead:       48.9s  (  25%)
+
+  Batch crop analysis (5 crops):
+    Avg load time:  4.6s/crop
+    → Server mode could save ~23s by loading model once
+
+  Optimization Priorities (estimated impact):
+  ┌─────┬────────────────────────────────────────────┬──────────┐
+  │  #  │ Optimization                               │ Est Gain │
+  ├─────┼────────────────────────────────────────────┼──────────┤
+  │  1  │ ✅ GPU vision (OpenCL) — already done      │ ~20×     │
+  │  2  │ 🔲 Server mode (keep model loaded)         │ ~30-50%  │
+  │  3  │ 🔲 Downscale large images before OCR       │ ~20-40%  │
+  │  4  │ 🔲 Shorter/tuned prompt                    │ ~5-15%   │
+  │  5  │ 🔲 Reduce max_tokens for simple extracts   │ ~10-30%  │
+  │  6  │ 🔲 Parallel crop processing (if multi-GPU) │ N/A      │
+  └─────┴────────────────────────────────────────────┴──────────┘
