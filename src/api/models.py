@@ -38,6 +38,13 @@ class VisionOCRRequest(BaseModel):
         description="Prompt for the vision model",
     )
     timeout: int = Field(default=2700, ge=10, le=7200, description="Timeout in seconds")
+    max_image_dim: int = Field(
+        default=768, ge=0, le=4096,
+        description=(
+            "Downscale image so longest side is at most this many pixels. "
+            "Reduces vision tokens and speeds up prompt eval.  0 = no limit."
+        ),
+    )
 
 
 class EnrichRequest(BaseModel):

@@ -304,8 +304,8 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
         final ocrStopwatch = Stopwatch()..start();
 
         // Heartbeat: log progress every 15s so the user isn't staring
-        // at a frozen screen.  Typical timing on Intel iGPU (OpenCL, no
-        // flash-attn): ~24s encode, ~1500s prompt eval, ~23s generation.
+        // at a frozen screen.  Images are auto-downscaled to 768px max
+        // on the server side to reduce SigLIP tile count.
         _heartbeat?.cancel();
         _heartbeat = Timer.periodic(
           const Duration(seconds: 15),
@@ -316,17 +316,17 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
             if (secs < 30) {
               hint = 'preparing image for vision encoder...';
             } else if (secs < 60) {
-              hint = 'vision encoder running on GPU (~24s)...';
-            } else if (secs < 1500) {
-              hint = 'prompt eval on iGPU (slowest phase, ~25 min without flash-attn)...';
-            } else if (secs < 1800) {
+              hint = 'vision encoder processing (~24s)...';
+            } else if (secs < 600) {
+              hint = 'prompt eval on iGPU (slowest phase)...';
+            } else if (secs < 900) {
               hint = 'generating text from visual features...';
             } else {
               hint = 'still working (this image may be complex)...';
             }
             _log(
               'OCR in progress... $mins min elapsed - $hint',
-              progress: 0.20 + 0.30 * (secs / 1800).clamp(0.0, 1.0),
+              progress: 0.20 + 0.30 * (secs / 900).clamp(0.0, 1.0),
             );
           },
         );

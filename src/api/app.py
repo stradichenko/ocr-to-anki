@@ -19,6 +19,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
+import cv2
+import numpy as np
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -174,6 +177,40 @@ def _pause_text_server():
         _text.stop()
 
 
+def _downscale_image(raw: bytes, max_dim: int = 768) -> bytes:
+    """Downscale an image so its longest side is at most *max_dim* pixels.
+
+    Gemma 3's SigLIP vision encoder tiles images into 896x896 chunks.
+    A 1133x1348 image creates multiple tiles, multiplying the number of
+    vision tokens that must go through prompt eval (the slowest phase on
+    Intel iGPU without flash attention).  Fitting the image into a
+    single tile can cut prompt eval time by 50-75%.
+
+    Returns the original bytes unchanged if already within bounds.
+    """
+    arr = np.frombuffer(raw, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        return raw  # not a decodable image -- pass through
+
+    h, w = img.shape[:2]
+    if max(h, w) <= max_dim:
+        return raw  # already small enough
+
+    scale = max_dim / max(h, w)
+    new_w, new_h = int(w * scale), int(h * scale)
+    resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    if not ok:
+        return raw
+
+    log.info(
+        "Downscaled image %dx%d -> %dx%d (%.0f KB -> %.0f KB)",
+        w, h, new_w, new_h, len(raw) / 1024, len(buf) / 1024,
+    )
+    return bytes(buf)
+
+
 # -------------------------------------------------------------------
 # Vision OCR
 # -------------------------------------------------------------------
@@ -196,6 +233,10 @@ async def ocr_vision(req: VisionOCRRequest):
         raise HTTPException(400, "Invalid base64 image data")
 
     img_hash = hashlib.md5(raw).hexdigest()[:12]
+
+    # Downscale large images to reduce vision tokens (fewer SigLIP tiles).
+    if req.max_image_dim > 0:
+        raw = await asyncio.to_thread(_downscale_image, raw, req.max_image_dim)
 
     # Free the GPU -- stop text server if it's occupying the iGPU.
     await asyncio.to_thread(_pause_text_server)
@@ -241,6 +282,7 @@ async def ocr_vision_upload(
         default="Extract all visible text from this image. List each word or phrase you can read."
     ),
     timeout: int = Form(default=2700),
+    max_image_dim: int = Form(default=768),
 ):
     """
     Run vision OCR on an uploaded image file.
@@ -254,6 +296,10 @@ async def ocr_vision_upload(
 
     img_hash = hashlib.md5(raw).hexdigest()[:12]
     suffix = Path(file.filename).suffix if file.filename else ".jpg"
+
+    # Downscale large images to reduce vision tokens.
+    if max_image_dim > 0:
+        raw = await asyncio.to_thread(_downscale_image, raw, max_image_dim)
 
     # Free the GPU -- stop text server if it's occupying the iGPU.
     await asyncio.to_thread(_pause_text_server)
@@ -390,6 +436,9 @@ async def pipeline_image_to_cards(
         raise HTTPException(400, "Empty file")
 
     suffix = Path(file.filename).suffix if file.filename else ".jpg"
+
+    # Downscale large images to reduce vision tokens.
+    raw = await asyncio.to_thread(_downscale_image, raw, 768)
 
     # Free the GPU -- stop text server if it's occupying the iGPU.
     await asyncio.to_thread(_pause_text_server)
