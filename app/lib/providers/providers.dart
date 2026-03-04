@@ -306,6 +306,15 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
         // Heartbeat: log progress every 15s so the user isn't staring
         // at a frozen screen.  Images are auto-downscaled to 768px max
         // on the server side to reduce SigLIP tile count.
+        //
+        // Vulkan + flash-attention timing profile (Intel iGPU):
+        //   0-30s   : image prep / downscale
+        //   30s-20m : SigLIP vision encode on CPU (bottleneck,
+        //             ~20 min — GPU mmproj is fast but corrupts
+        //             CLIP embeddings on Intel iGPU)
+        //   ~20m    : prompt eval with FA on GPU (~40s)
+        //   ~21m    : token generation (~27s)
+        //   ~21.5m  : done
         _heartbeat?.cancel();
         _heartbeat = Timer.periodic(
           const Duration(seconds: 15),
@@ -315,18 +324,18 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
             String hint;
             if (secs < 30) {
               hint = 'preparing image for vision encoder...';
-            } else if (secs < 60) {
-              hint = 'vision encoder processing (~24s)...';
-            } else if (secs < 600) {
-              hint = 'prompt eval on iGPU (slowest phase)...';
-            } else if (secs < 900) {
-              hint = 'generating text from visual features...';
+            } else if (secs < 1200) {
+              hint = 'vision encode on CPU (slowest phase, ~20 min)...';
+            } else if (secs < 1320) {
+              hint = 'prompt eval on iGPU with flash attention (~40s)...';
+            } else if (secs < 1400) {
+              hint = 'generating text from visual features (~27s)...';
             } else {
               hint = 'still working (this image may be complex)...';
             }
             _log(
               'OCR in progress... $mins min elapsed - $hint',
-              progress: 0.20 + 0.30 * (secs / 900).clamp(0.0, 1.0),
+              progress: 0.20 + 0.30 * (secs / 1400).clamp(0.0, 1.0),
             );
           },
         );

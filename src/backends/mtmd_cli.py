@@ -80,11 +80,20 @@ class LlamaMtmdCli:
         self.top_k = top_k
         self.top_p = top_p
         self.max_tokens = max_tokens
-        # Intel iGPU Vulkan produces corrupted vision encoder output;
-        # keep the CLIP/mmproj on CPU and only offload text layers to GPU.
-        # OpenCL also lacks POOL_2D support needed by Gemma 3's SigLIP
-        # vision encoder, so mmproj must stay on CPU for all Intel iGPU
-        # backends until llama.cpp adds the missing op.
+        # Intel iGPU: both Vulkan and OpenCL produce problems when the
+        # vision encoder (CLIP / mmproj) runs on the GPU.
+        #
+        # - Vulkan: CLIP executes quickly on GPU (~22 s) but the resulting
+        #   embeddings are corrupted, leading to degenerate text output.
+        # - OpenCL: lacks GGML_OP_POOL_2D needed by Gemma 3's SigLIP
+        #   vision encoder, causing a crash during warmup.
+        #
+        # Therefore mmproj must stay on CPU (--no-mmproj-offload) for all
+        # Intel iGPU backends.  The text LLM layers still run on the GPU.
+        #
+        # Vulkan is now the preferred backend because it supports flash
+        # attention, which cuts prompt evaluation from ~1536 s to ~40 s.
+        # OpenCL does NOT support FA (crashes during warmup).
 
         # Detect if we're using the OpenCL backend
         self._is_opencl = (
@@ -134,7 +143,10 @@ class LlamaMtmdCli:
 
         The default timeout is 2700 s (45 min) because the vision encoder
         runs on CPU when ``--no-mmproj-offload`` is set (required for
-        Intel iGPU Vulkan which corrupts CLIP outputs).
+        Intel iGPU -- Vulkan corrupts CLIP outputs, OpenCL lacks POOL_2D).
+        CPU encoding of the 896x896 SigLIP tile takes ~20 min on an
+        i3-10110U.  With Vulkan + flash attention the subsequent prompt
+        eval drops to ~40 s and generation to ~27 s.
 
         Returns
         -------

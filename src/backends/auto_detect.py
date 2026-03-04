@@ -334,11 +334,21 @@ def _probe_sycl() -> list[GPUDevice]:
 # -------------------------------------------------------------------
 
 # Backend selection priority (higher = preferred)
+#
+# Vulkan is preferred over OpenCL for Intel iGPUs because:
+#   - Vulkan supports flash attention (FA), cutting prompt eval from
+#     ~1536 s to ~40 s on a Gemma-3 4B vision workload.
+#   - OpenCL does NOT support FA (crashes during warmup) and also
+#     lacks GGML_OP_POOL_2D needed by Gemma-3's SigLIP encoder,
+#     so mmproj must stay on CPU regardless.
+#   - Both backends still require --no-mmproj-offload on Intel iGPU
+#     (Vulkan produces corrupted CLIP embeddings when offloading to
+#     the Intel UHD GPU; OpenCL crashes on POOL_2D).
 _BACKEND_PRIORITY = {
     Backend.CUDA:   100,
     Backend.METAL:  90,
-    Backend.OPENCL: 75,   # Preferred over Vulkan on Intel iGPUs (correct vision encoder)
-    Backend.VULKAN: 70,
+    Backend.VULKAN: 80,   # Preferred: has flash attention
+    Backend.OPENCL: 65,   # Fallback: no FA, no POOL_2D
     Backend.SYCL:   60,
     Backend.CPU:    0,
 }
