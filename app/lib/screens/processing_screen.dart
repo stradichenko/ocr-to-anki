@@ -76,6 +76,18 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
             : null,
         automaticallyImplyLeading: false,
         actions: [
+          // Cancel button (only while processing is active)
+          if (!isFinished)
+            TextButton.icon(
+              onPressed: () {
+                ref.read(processingProvider.notifier).cancel();
+              },
+              icon: const Icon(Icons.cancel_outlined, size: 18),
+              label: const Text('Cancel'),
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
+              ),
+            ),
           // Live elapsed timer
           if (state.startTime != null)
             Padding(

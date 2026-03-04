@@ -173,8 +173,23 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
   ProcessingNotifier(this._ref) : super(const ProcessingState());
 
   final Ref _ref;
+  bool _cancelled = false;
 
-  void reset() => state = const ProcessingState();
+  void reset() {
+    _cancelled = false;
+    state = const ProcessingState();
+  }
+
+  /// Request cancellation of the current pipeline.
+  void cancel() {
+    _cancelled = true;
+    _log('Cancellation requested...', progress: state.progress);
+  }
+
+  /// Throws if cancel() has been called.
+  void _checkCancelled() {
+    if (_cancelled) throw Exception('Processing cancelled by user.');
+  }
 
   /// Append a line to the activity log and update the status message.
   void _log(String message, {ProcessingPhase? phase, double? progress}) {
@@ -215,6 +230,8 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
       final settings = _ref.read(settingsProvider);
 
       _log('Image loaded (${_formatBytes(imgBytes.length)})', progress: 0.05);
+
+      _checkCancelled();
 
       // Step 1: Verify server connectivity.
       _log('Checking server connection...', progress: 0.07);
@@ -266,6 +283,7 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
       final ocrTexts = <String>[];
 
       for (var i = 0; i < imagesToProcess.length; i++) {
+        _checkCancelled();
         final label = imagesToProcess.length > 1
             ? 'crop ${i + 1}/${imagesToProcess.length}'
             : 'image';
@@ -351,6 +369,7 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
       );
 
       // Step 4: Enrich words.
+      _checkCancelled();
       if (uniqueWords.isNotEmpty) {
         final wordCount = uniqueWords.length.clamp(0, 20);
         _log(
@@ -385,6 +404,7 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
       }
 
       // Step 5: Persist to local database.
+      _checkCancelled();
       _log('Saving session to local database...', progress: 0.92);
       final db = _ref.read(databaseProvider);
       final ocrElapsed = stopwatch.elapsedMilliseconds / 1000;
