@@ -307,24 +307,14 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
         // at a frozen screen.  Images are auto-downscaled to 768px max
         // on the server side to reduce SigLIP tile count.
         //
-        // Two timing profiles depending on GPU mmproj offloading:
-        //
-        // FAST (GPU mmproj, preempt_timeout_ms=0):
-        //   0-30s  : image prep / model loading
-        //   ~22s   : SigLIP vision encode on GPU
-        //   ~40s   : prompt eval with FA on GPU
-        //   ~27s   : token generation
-        //   ~90s   : done
-        //
-        // SLOW (CPU mmproj, default preemption timeout):
-        //   0-30s  : image prep / model loading
-        //   ~20min : SigLIP vision encode on CPU (bottleneck)
-        //   ~40s   : prompt eval with FA on GPU
-        //   ~27s   : token generation
-        //   ~21min : done
-        //
-        // We can't know which mode the server uses, so we show adaptive
-        // hints that work for both cases.
+        // Vulkan + flash-attention timing profile (Intel iGPU):
+        //   0-30s   : image prep / downscale
+        //   30s-20m : SigLIP vision encode on CPU (bottleneck,
+        //             ~20 min — GPU mmproj is fast but corrupts
+        //             CLIP embeddings on Intel Gen9.5 Vulkan)
+        //   ~20m    : prompt eval with FA on GPU (~40s)
+        //   ~21m    : token generation (~27s)
+        //   ~21.5m  : done
         _heartbeat?.cancel();
         _heartbeat = Timer.periodic(
           const Duration(seconds: 15),
@@ -334,10 +324,6 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
             String hint;
             if (secs < 30) {
               hint = 'preparing image for vision encoder...';
-            } else if (secs < 90) {
-              hint = 'vision encoding (GPU: ~22s, CPU: ~20 min)...';
-            } else if (secs < 120) {
-              hint = 'prompt eval + generating text...';
             } else if (secs < 1200) {
               hint = 'vision encode on CPU (slowest phase, ~20 min)...';
             } else if (secs < 1320) {

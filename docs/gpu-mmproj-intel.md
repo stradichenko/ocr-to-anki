@@ -1,100 +1,94 @@
 # GPU mmproj Offloading on Intel iGPU
 
-## Overview
+## Status: ❌ NOT WORKING on Gen9.5
 
-The SigLIP vision encoder (mmproj) can run on either CPU or GPU:
+GPU mmproj offloading on Intel Gen9.5 (CML GT2) produces **corrupted
+CLIP embeddings** even with all known fixes applied.  The corruption is
+a Vulkan shader computation bug, likely related to subgroup arithmetic.
 
 | Mode | Encode Time | Total OCR | Quality |
 |------|------------|-----------|---------|
-| CPU mmproj (default) | ~20 min | ~21 min | ✅ Correct |
-| GPU mmproj (optimized) | ~22 s | ~90 s | ✅ Correct (with fix) |
+| CPU mmproj (**current**) | ~20 min | ~21 min | ✅ Correct |
+| GPU mmproj (Vulkan) | ~22 s | ~188 s | ❌ Corrupted |
 
-GPU mmproj is **14x faster** but requires a kernel-level fix on Intel iGPUs.
+## What Was Tried
 
-## The Problem
+### 1. IM2COL workgroup overflow fix (PR #18180)
+- **Status:** ✅ Applied (build b8182, commit 05728db)
+- Prevents `maxComputeWorkGroupCount` overflow in IM2COL shader
+- Required but **not sufficient** — corruption persists
 
-Intel i915's default GPU preemption timeout is **640 ms**. The SigLIP
-encoder's Vulkan compute dispatches exceed this, causing:
+### 2. i915 preemption timeout disabled
+- **Status:** ✅ Applied (`preempt_timeout_ms=0`)
+- Prevents GPU hangs (`vk::DeviceLostError`) and engine resets
+- Required but **not sufficient** — prevents crashes, corruption persists
+- The kernel still logs `Fence expiration time out` warnings
 
-1. **GPU hang** → `vk::DeviceLostError: ErrorDeviceLost`
-2. **Corrupted embeddings** → garbage text output (Devanagari, Greek, etc.)
+### 3. `GGML_VK_DISABLE_INTEGER_DOT_PRODUCT=1`
+- **Status:** ✅ Tested — no effect (int_dot already reports 0)
 
-The kernel log shows:
-```
-Fence expiration time out i915-0000:00:02.0:llama-mtmd-cli
-Resetting rcs0 for preemption time out
-GPU HANG: ecode 9:1:8ed9fff2
-```
+### Test Results
 
-## The Fix
+With **both** fixes applied simultaneously:
+- ✅ No GPU hangs or resets in kernel log
+- ✅ Process completes (~188s)
+- ❌ Output is multilingual garbage (Chinese, Japanese, Korean, Greek,
+  Hindi, Arabic, Thai mixed with random English words)
+- ❌ CLIP embeddings are corrupted at the shader level
 
-Disable the i915 preemption timeout:
+## Root Cause Analysis
 
-```bash
-# One-time (requires root)
-sudo ./scripts/setup-intel-gpu-timeout.sh
+The corruption occurs inside the Vulkan compute shaders during the
+27-layer SigLIP ViT forward pass.  The most likely candidates:
 
-# Or manually:
-sudo sh -c 'echo 0 > /sys/class/drm/card1/engine/rcs0/preempt_timeout_ms'
-```
+1. **Subgroup arithmetic bug** — Intel Gen9.5 reports
+   `subgroup_arithmetic=true` but the Mesa ANV driver may produce
+   incorrect results for subgroup reduction operations.  This is the
+   same class of bug that affected AMD RDNA1/2 on MoltenVK (#15846).
 
-The backend auto-detects this setting and enables GPU mmproj when safe.
+2. **Shared memory or workgroup size issue** — Gen9.5 has smaller
+   limits (65536 bytes shared memory) than discrete GPUs.
 
-### Make Persistent (NixOS)
+## Next Steps to Diagnose
 
-Add to your `configuration.nix`:
-
-```nix
-# Option 1: tmpfiles.d rule (recommended)
-systemd.tmpfiles.rules = [
-  "w /sys/class/drm/card1/engine/rcs0/preempt_timeout_ms - - - - 0"
-  "w /sys/class/drm/card1/engine/rcs0/heartbeat_interval_ms - - - - 60000"
-];
-
-# Option 2: Kernel parameter (disables ALL hang detection)
-# boot.kernelParams = [ "i915.enable_hangcheck=0" ];
-```
-
-### Restore Defaults
+To identify the exact failing Vulkan op, rebuild llama.cpp with:
 
 ```bash
-sudo ./scripts/setup-intel-gpu-timeout.sh restore
+cmake -B build_debug \\
+  -DGGML_VULKAN=ON \\
+  -DGGML_VULKAN_CHECK_RESULTS=ON \\
+  -DGGML_VULKAN_VALIDATE=ON
+cmake --build build_debug -j$(nproc)
+
+# Run — will show first op with incorrect results:
+./build_debug/bin/llama-mtmd-cli \\
+  -m model.gguf --mmproj mmproj.gguf \\
+  --image test.jpg -p "describe this image"
 ```
 
-## Prerequisites
+To test if subgroup arithmetic is the culprit, edit `ggml-vulkan.cpp`:
+```cpp
+// ~line 3733, force disable:
+device->subgroup_arithmetic = false;
+```
 
-Both of these must be satisfied for GPU mmproj to work:
+## Preemption Timeout Script
 
-1. **IM2COL workgroup overflow fix** — llama.cpp PR [#18180](https://github.com/ggml-org/llama.cpp/pull/18180)
-   (merged Dec 21 2025, included in build b8182+). Prevents corrupted CLIP
-   embeddings from the Vulkan IM2COL shader overflowing `maxComputeWorkGroupCount`.
+The `scripts/setup-intel-gpu-timeout.sh` helper is still useful to
+prevent GPU hangs during debugging:
 
-2. **i915 preemption timeout disabled** — set `preempt_timeout_ms=0`
-   via sysfs. Prevents the kernel from interrupting/resetting the GPU
-   during long compute dispatches.
-
-## How Auto-Detection Works
-
-In `src/backends/mtmd_cli.py`, the `_i915_preempt_timeout_disabled()`
-function reads `/sys/class/drm/card*/engine/rcs0/preempt_timeout_ms` and:
-
-- If `0` → enables GPU mmproj offload (fast path, ~90 s)
-- If `>0` → falls back to CPU mmproj (slow path, ~21 min)
-- If not an i915 system → defaults to GPU offload
-
-## ⚠ Warning
-
-With preemption disabled, a truly hung GPU shader will block the render
-engine until reboot. This is safe for OCR workloads since the SigLIP
-shaders are known to terminate, but **do not leave it disabled if you're
-doing GPU development** where shaders might have infinite loops.
+```bash
+sudo ./scripts/setup-intel-gpu-timeout.sh          # disable timeout
+sudo ./scripts/setup-intel-gpu-timeout.sh restore   # restore defaults
+sudo ./scripts/setup-intel-gpu-timeout.sh status    # show current
+```
 
 ## Related Issues
 
 - [llama.cpp #18164](https://github.com/ggml-org/llama.cpp/issues/18164) — IM2COL corruption (fixed by PR #18180)
-- [llama.cpp #17389](https://github.com/ggml-org/llama.cpp/issues/17389) — DeviceLostError on Intel (same root cause)
-- [llama.cpp #19327](https://github.com/ggml-org/llama.cpp/issues/19327) — Intel xe driver timeout (similar issue, different driver)
-- [llama.cpp #15846](https://github.com/ggml-org/llama.cpp/issues/15846) — subgroup_arithmetic bugs on some Intel drivers
+- [llama.cpp #15846](https://github.com/ggml-org/llama.cpp/issues/15846) — subgroup_arithmetic on AMD (analogous bug)
+- [llama.cpp #17389](https://github.com/ggml-org/llama.cpp/issues/17389) — DeviceLostError on Intel
+- [llama.cpp #19327](https://github.com/ggml-org/llama.cpp/issues/19327) — Intel xe driver timeout
 
 ## Hardware Tested
 

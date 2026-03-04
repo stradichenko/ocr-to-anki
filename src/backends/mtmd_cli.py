@@ -23,12 +23,12 @@ log = logging.getLogger(__name__)
 def _i915_preempt_timeout_disabled() -> bool:
     """Check if the i915 GPU preemption timeout is disabled (set to 0).
 
-    The SigLIP vision encoder's Vulkan compute dispatches exceed the
-    default 640 ms preemption timeout on Intel iGPUs, causing either a
-    GPU hang or corrupted embeddings.  GPU mmproj offloading is only
-    safe when ``preempt_timeout_ms`` is 0.
+    **Diagnostic only** — disabling the preemption timeout prevents GPU
+    hangs (``vk::DeviceLostError``) but does NOT fix the corrupted CLIP
+    embeddings.  The corruption is a Vulkan shader computation bug on
+    Intel Gen9.5, likely related to subgroup arithmetic (#15846).
 
-    Returns ``True`` if the timeout is disabled (GPU mmproj is safe).
+    Returns ``True`` if the timeout is disabled.
     """
     import glob
 
@@ -125,28 +125,25 @@ class LlamaMtmdCli:
         self.max_tokens = max_tokens
         # Intel iGPU vision encoder (mmproj) offloading
         # ───────────────────────────────────────────────
-        # The SigLIP vision encoder can run on the GPU (~22 s) instead of
-        # CPU (~20 min), but requires two conditions on Intel iGPUs:
+        # GPU mmproj on Intel Gen9.5 Vulkan produces CORRUPTED CLIP
+        # embeddings (multilingual garbage text) even when:
         #
-        # 1. Vulkan IM2COL workgroup overflow fix (llama.cpp PR #18180,
-        #    merged Dec 21 2025) — prevents corrupted CLIP embeddings.
-        #    ✅ Included in our build b8182 (commit 05728db).
+        #   ✅ IM2COL workgroup overflow fix applied (PR #18180, b8182)
+        #   ✅ i915 preemption timeout disabled (preempt_timeout_ms=0)
+        #   ✅ No GPU hangs or resets in kernel log
         #
-        # 2. i915 preemption timeout disabled — the SigLIP encoder's
-        #    compute dispatches exceed the default 640 ms timeout, causing
-        #    either a GPU hang (vk::DeviceLostError) or corrupted output
-        #    from interrupted shaders.
-        #    Run: sudo scripts/setup-intel-gpu-timeout.sh
-        #    Or set: echo 0 > /sys/class/drm/card1/engine/rcs0/preempt_timeout_ms
+        # The corruption is a Vulkan shader computation bug, likely
+        # related to subgroup arithmetic on Gen9.5 (see #15846 for the
+        # analogous AMD RDNA1/2 fix).  Diagnosing the exact failing op
+        # requires rebuilding with GGML_VULKAN_CHECK_RESULTS=ON.
         #
-        # When both conditions are met, GPU mmproj gives ~90 s total OCR
-        # (vs ~21 min with CPU mmproj).
+        # Therefore mmproj must stay on CPU (--no-mmproj-offload) for
+        # all Intel iGPU backends.  The text LLM layers still run on
+        # the GPU — Vulkan + flash attention cuts prompt eval from
+        # ~1536 s (OpenCL, no FA) to ~40 s.
         #
-        # OpenCL: lacks GGML_OP_POOL_2D needed by Gemma 3's SigLIP
-        # vision encoder, causing a crash during warmup.  Always CPU.
-        #
-        # Vulkan is the preferred backend because it supports flash
-        # attention, which cuts prompt evaluation from ~1536 s to ~40 s.
+        # OpenCL: also needs CPU mmproj — lacks GGML_OP_POOL_2D needed
+        # by Gemma 3's SigLIP vision encoder (crashes during warmup).
 
         # Detect if we're using the OpenCL backend
         self._is_opencl = (
@@ -154,15 +151,7 @@ class LlamaMtmdCli:
             or (self.detection and self.detection.recommended_backend == Backend.OPENCL)
         )
 
-        if mmproj_offload is not None:
-            self.mmproj_offload = mmproj_offload
-        elif self._is_opencl:
-            # OpenCL always needs CPU mmproj (no POOL_2D op)
-            self.mmproj_offload = False
-        else:
-            # Vulkan: auto-detect by checking i915 preemption timeout.
-            # GPU mmproj is only safe when preempt_timeout_ms == 0.
-            self.mmproj_offload = _i915_preempt_timeout_disabled()
+        self.mmproj_offload = mmproj_offload if mmproj_offload is not None else False
 
         # Handle for the currently running subprocess so it can be killed
         # on cancellation from another thread.
@@ -202,14 +191,12 @@ class LlamaMtmdCli:
         """
         Run vision OCR on an image.
 
-        The timeout adapts to the mmproj offload mode:
-
-        - **GPU mmproj** (``preempt_timeout_ms=0``): ~22 s encode +
-          ~40 s prompt eval + ~27 s generation ≈ 90 s.  Timeout default
-          is fine at 2700 s (plenty of headroom).
-        - **CPU mmproj** (default 640 ms preemption): ~20 min encode +
-          ~40 s prompt eval + ~27 s generation ≈ 21 min.  Timeout of
-          2700 s (45 min) provides margin.
+        The default timeout is 2700 s (45 min) because the vision encoder
+        runs on CPU (``--no-mmproj-offload``) — GPU mmproj produces
+        corrupted CLIP embeddings on Intel Gen9.5 Vulkan.  CPU encoding
+        of the 896×896 SigLIP tile takes ~20 min on an i3-10110U.  With
+        Vulkan + flash attention the subsequent prompt eval drops to ~40 s
+        and generation to ~27 s.
 
         Returns
         -------
@@ -231,27 +218,31 @@ class LlamaMtmdCli:
         env = _opencl_env() if self._is_opencl else None
 
         t0 = time.monotonic()
-        self._current_process = subprocess.Popen(
+        proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             env=env,
         )
+        self._current_process = proc
         try:
-            stdout, stderr = self._current_process.communicate(timeout=timeout)
-            returncode = self._current_process.returncode
+            stdout, stderr = proc.communicate(timeout=timeout)
+            returncode = proc.returncode
         except subprocess.TimeoutExpired:
-            self._current_process.kill()
-            self._current_process.wait(timeout=10)
+            proc.kill()
+            proc.wait(timeout=10)
             raise TimeoutError(f"Vision OCR timed out after {timeout}s")
         finally:
-            self._current_process = None
+            # Only clear if we're still the active process (avoids
+            # clobbering a newer request's handle in concurrent use).
+            if self._current_process is proc:
+                self._current_process = None
 
         elapsed = time.monotonic() - t0
 
-        # Negative return code means killed by signal (e.g. cancel).
-        if returncode < 0:
+        # Negative or None return code means killed by signal (e.g. cancel).
+        if returncode is None or returncode < 0:
             raise RuntimeError("Vision OCR was cancelled.")
 
         if returncode != 0:

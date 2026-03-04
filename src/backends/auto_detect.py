@@ -75,17 +75,22 @@ _BINARY_NAMES: dict[Backend, list[str]] = {
 
 
 def _find_binary(backend: Backend) -> Optional[Path]:
-    """Locate a working llama-mtmd-cli binary for *backend*."""
+    """Locate a working llama-mtmd-cli binary for *backend*.
+
+    Search order: explicit search paths (~/.local/bin, /usr/local/bin)
+    first, then PATH.  This ensures manually-built binaries (e.g. with
+    the IM2COL fix) take priority over system/Nix-provided ones.
+    """
     for name in _BINARY_NAMES[backend]:
-        # 1. PATH lookup
-        found = shutil.which(name)
-        if found:
-            return Path(found)
-        # 2. explicit search dirs
+        # 1. explicit search dirs (manually-built binaries first)
         for d in _SEARCH_PATHS:
             candidate = d / name
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 return candidate
+        # 2. PATH lookup (system / Nix packages)
+        found = shutil.which(name)
+        if found:
+            return Path(found)
     return None
 
 
