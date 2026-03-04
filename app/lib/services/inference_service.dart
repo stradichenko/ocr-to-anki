@@ -45,7 +45,29 @@ class InferenceService {
 
   AppSettings _settings;
 
+  /// HTTP client for the current OCR request; can be closed to abort.
+  http.Client? _ocrClient;
+
   void updateSettings(AppSettings settings) => _settings = settings;
+
+  /// Cancel any in-flight OCR request.
+  ///
+  /// This (1) closes the HTTP client to abort the request and
+  /// (2) tells the server to kill the running subprocess.
+  Future<void> cancelOcr() async {
+    // Abort the in-flight HTTP request.
+    _ocrClient?.close();
+    _ocrClient = null;
+
+    // Best-effort: ask the server to kill the subprocess.
+    try {
+      await http
+          .post(Uri.parse('${_settings.serverUrl}/ocr/cancel'))
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Server may already be done or unreachable -- that is fine.
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Health
@@ -135,31 +157,37 @@ class InferenceService {
     final uri = Uri.parse('${_settings.serverUrl}/ocr/vision');
     final b64 = base64Encode(imageBytes);
 
-    final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'image_base64': b64,
-            'prompt': prompt,
-            'timeout': timeoutSeconds,
-          }),
-        )
-        .timeout(Duration(seconds: timeoutSeconds + 30));
+    _ocrClient = http.Client();
+    try {
+      final response = await _ocrClient!
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'image_base64': b64,
+              'prompt': prompt,
+              'timeout': timeoutSeconds,
+            }),
+          )
+          .timeout(Duration(seconds: timeoutSeconds + 30));
 
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Vision OCR failed (${response.statusCode}): ${response.body}',
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Vision OCR failed (${response.statusCode}): ${response.body}',
+        );
+      }
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return VisionOcrResult(
+        text: body['text'] as String? ?? '',
+        elapsedSeconds: (body['elapsed_s'] as num?)?.toDouble() ?? 0,
+        backend: body['backend'] as String? ?? 'remote',
+        imageHash: body['image_hash'] as String? ?? '',
       );
+    } finally {
+      _ocrClient?.close();
+      _ocrClient = null;
     }
-
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return VisionOcrResult(
-      text: body['text'] as String? ?? '',
-      elapsedSeconds: (body['elapsed_s'] as num?)?.toDouble() ?? 0,
-      backend: body['backend'] as String? ?? 'remote',
-      imageHash: body['image_hash'] as String? ?? '',
-    );
   }
 
   // ---------------------------------------------------------------------------

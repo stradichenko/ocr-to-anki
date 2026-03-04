@@ -225,6 +225,15 @@ async def ocr_vision(req: VisionOCRRequest):
     )
 
 
+@app.post("/ocr/cancel", tags=["ocr"])
+async def ocr_cancel():
+    """Cancel any running vision OCR subprocess."""
+    if _vision is not None:
+        await asyncio.to_thread(_vision.cancel)
+        return {"status": "cancelled"}
+    return {"status": "no_vision_backend"}
+
+
 @app.post("/ocr/vision/upload", response_model=VisionOCRResponse, tags=["ocr"])
 async def ocr_vision_upload(
     file: UploadFile = File(...),

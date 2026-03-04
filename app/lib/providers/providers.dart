@@ -174,16 +174,25 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
 
   final Ref _ref;
   bool _cancelled = false;
+  Timer? _heartbeat;
 
   void reset() {
     _cancelled = false;
+    _heartbeat?.cancel();
+    _heartbeat = null;
     state = const ProcessingState();
   }
 
   /// Request cancellation of the current pipeline.
   void cancel() {
     _cancelled = true;
+    // Stop the heartbeat timer immediately so no more log noise.
+    _heartbeat?.cancel();
+    _heartbeat = null;
     _log('Cancellation requested...', progress: state.progress);
+    // Kill the server-side subprocess and abort the HTTP request.
+    final inference = _ref.read(inferenceServiceProvider);
+    inference.cancelOcr();
   }
 
   /// Throws if cancel() has been called.
@@ -297,7 +306,8 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
         // Heartbeat: log progress every 15s so the user isn't staring
         // at a frozen screen.  Typical timing on Intel iGPU (OpenCL, no
         // flash-attn): ~24s encode, ~1500s prompt eval, ~23s generation.
-        final heartbeat = Timer.periodic(
+        _heartbeat?.cancel();
+        _heartbeat = Timer.periodic(
           const Duration(seconds: 15),
           (timer) {
             final secs = ocrStopwatch.elapsed.inSeconds;
@@ -326,7 +336,8 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
             imageBytes: imagesToProcess[i],
           );
           ocrStopwatch.stop();
-          heartbeat.cancel();
+          _heartbeat?.cancel();
+          _heartbeat = null;
 
           ocrTexts.add(result.text);
 
@@ -344,7 +355,8 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
             progress: 0.20 + 0.35 * (i + 1) / imagesToProcess.length,
           );
         } catch (e) {
-          heartbeat.cancel();
+          _heartbeat?.cancel();
+          _heartbeat = null;
           rethrow;
         }
       }

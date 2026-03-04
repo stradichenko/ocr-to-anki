@@ -94,6 +94,10 @@ class LlamaMtmdCli:
 
         self.mmproj_offload = mmproj_offload if mmproj_offload is not None else False
 
+        # Handle for the currently running subprocess so it can be killed
+        # on cancellation from another thread.
+        self._current_process: Optional[subprocess.Popen] = None
+
     def _build_cmd(self, image_path: str, prompt: str) -> list[str]:
         """Build the llama-mtmd-cli command."""
         cmd = [
@@ -148,34 +152,44 @@ class LlamaMtmdCli:
         env = _opencl_env() if self._is_opencl else None
 
         t0 = time.monotonic()
+        self._current_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
         try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-            )
+            stdout, stderr = self._current_process.communicate(timeout=timeout)
+            returncode = self._current_process.returncode
         except subprocess.TimeoutExpired:
+            self._current_process.kill()
+            self._current_process.wait(timeout=10)
             raise TimeoutError(f"Vision OCR timed out after {timeout}s")
+        finally:
+            self._current_process = None
 
         elapsed = time.monotonic() - t0
 
-        if proc.returncode != 0:
-            log.error("llama-mtmd-cli stderr:\n%s", proc.stderr[-500:] if proc.stderr else "(empty)")
+        # Negative return code means killed by signal (e.g. cancel).
+        if returncode < 0:
+            raise RuntimeError("Vision OCR was cancelled.")
+
+        if returncode != 0:
+            log.error("llama-mtmd-cli stderr:\n%s", stderr[-500:] if stderr else "(empty)")
             raise RuntimeError(
-                f"llama-mtmd-cli failed (exit {proc.returncode}): {proc.stderr[-300:]}"
+                f"llama-mtmd-cli failed (exit {returncode}): {stderr[-300:]}"
             )
 
         # The model output is on stdout; stderr has loading/timing info.
         # With --jinja the prompt is NOT echoed, so stdout is clean.
-        text = proc.stdout.strip()
+        text = stdout.strip()
         backend = self.detection.recommended_backend.value if self.detection else "unknown"
 
         # Parse timings from stderr for diagnostics
         timings = {}
-        if proc.stderr:
-            for line in proc.stderr.splitlines():
+        if stderr:
+            for line in stderr.splitlines():
                 if "image slice encoded in" in line:
                     try:
                         ms = int(line.split("encoded in")[1].split("ms")[0].strip())
@@ -196,6 +210,17 @@ class LlamaMtmdCli:
             "image": image_path,
             "timings": timings,
         }
+
+    def cancel(self):
+        """Kill any running vision OCR subprocess."""
+        proc = self._current_process
+        if proc is not None:
+            log.info("Cancelling vision OCR subprocess (pid=%s)...", proc.pid)
+            try:
+                proc.kill()
+                proc.wait(timeout=10)
+            except Exception as exc:
+                log.warning("Error killing subprocess: %s", exc)
 
     def info(self) -> dict:
         """Return diagnostic info about this backend."""
