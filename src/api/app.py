@@ -231,7 +231,7 @@ async def ocr_vision_upload(
     prompt: str = Form(
         default="Extract all visible text from this image. List each word or phrase you can read."
     ),
-    timeout: int = Form(default=600),
+    timeout: int = Form(default=2700),
 ):
     """
     Run vision OCR on an uploaded image file.
@@ -389,7 +389,7 @@ async def pipeline_image_to_cards(
         tmp.write(raw)
         tmp.flush()
         ocr_result = await asyncio.to_thread(
-            _vision.run_vision, tmp.name, prompt=ocr_prompt, timeout=600,
+            _vision.run_vision, tmp.name, prompt=ocr_prompt, timeout=2700,
         )
 
     ocr_text = ocr_result["text"]

@@ -277,24 +277,28 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
         final ocrStopwatch = Stopwatch()..start();
 
         // Heartbeat: log progress every 15s so the user isn't staring
-        // at a frozen log during the 2-4 min vision encode.
+        // at a frozen screen.  Typical timing on Intel iGPU (OpenCL, no
+        // flash-attn): ~24s encode, ~1500s prompt eval, ~23s generation.
         final heartbeat = Timer.periodic(
           const Duration(seconds: 15),
           (timer) {
             final secs = ocrStopwatch.elapsed.inSeconds;
+            final mins = (secs / 60).toStringAsFixed(1);
             String hint;
             if (secs < 30) {
               hint = 'preparing image for vision encoder...';
-            } else if (secs < 120) {
-              hint = 'vision encoder running on GPU (~100s on iGPU)...';
-            } else if (secs < 210) {
+            } else if (secs < 60) {
+              hint = 'vision encoder running on GPU (~24s)...';
+            } else if (secs < 1500) {
+              hint = 'prompt eval on iGPU (slowest phase, ~25 min without flash-attn)...';
+            } else if (secs < 1800) {
               hint = 'generating text from visual features...';
             } else {
               hint = 'still working (this image may be complex)...';
             }
             _log(
-              'OCR in progress... ${secs}s elapsed - $hint',
-              progress: 0.20 + 0.30 * (secs / 300).clamp(0.0, 1.0),
+              'OCR in progress... $mins min elapsed - $hint',
+              progress: 0.20 + 0.30 * (secs / 1800).clamp(0.0, 1.0),
             );
           },
         );

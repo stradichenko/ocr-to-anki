@@ -111,7 +111,7 @@ class InferenceService {
     required Uint8List imageBytes,
     String prompt =
         'Extract all visible text from this image. List each word or phrase you can read.',
-    int timeoutSeconds = 600,
+    int timeoutSeconds = 2700,
   }) async {
     switch (_settings.inferenceMode) {
       case InferenceMode.embedded:

@@ -108,26 +108,37 @@ def _opencl_env() -> dict[str, str]:
     if env.get("OCL_ICD_VENDORS"):
         return env  # already set by user
 
-    # Search Nix store for intel-compute-runtime ICD files.
+    # Fast path: system-wide vendor directory (works on most distros)
+    system_icd = Path("/etc/OpenCL/vendors")
+    if system_icd.exists() and list(system_icd.glob("*.icd")):
+        env["OCL_ICD_VENDORS"] = str(system_icd)
+        log.debug("OpenCL ICD (system): %s", system_icd)
+        return env
+
+    # NixOS: search the Nix store for intel-compute-runtime ICD files.
     # Prefer "legacy1" builds -- Gen9 / Gen9.5 iGPUs (e.g. UHD 620/630)
-    # are NOT supported by the newer intel-compute-runtime (≥25.x).
+    # are NOT supported by the newer intel-compute-runtime (>=25.x).
     nix_store = Path("/nix/store")
     if nix_store.exists():
-        candidates = []
-        for d in nix_store.iterdir():
-            if "intel-compute-runtime" in d.name and not d.name.endswith(".drv"):
-                icd_dir = d / "etc" / "OpenCL" / "vendors"
-                if icd_dir.exists() and list(icd_dir.glob("*.icd")):
-                    is_legacy = "legacy" in d.name
-                    candidates.append((is_legacy, d.name, icd_dir))
-        # Sort: legacy first (True > False), then by name descending
-        candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)
-        if candidates:
-            icd_dir = candidates[0][2]
-            env["OCL_ICD_VENDORS"] = str(icd_dir)
-            log.debug("OpenCL ICD: %s (from %s)", icd_dir, candidates[0][1])
-            return env
+        try:
+            candidates = []
+            for d in nix_store.iterdir():
+                if "intel-compute-runtime" in d.name and not d.name.endswith(".drv"):
+                    icd_dir = d / "etc" / "OpenCL" / "vendors"
+                    if icd_dir.exists() and list(icd_dir.glob("*.icd")):
+                        is_legacy = "legacy" in d.name
+                        candidates.append((is_legacy, d.name, icd_dir))
+            # Sort: legacy first (True > False), then by name descending
+            candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)
+            if candidates:
+                icd_dir = candidates[0][2]
+                env["OCL_ICD_VENDORS"] = str(icd_dir)
+                log.debug("OpenCL ICD (nix): %s (from %s)", icd_dir, candidates[0][1])
+                return env
+        except Exception as exc:
+            log.warning("Nix store scan for OpenCL ICD failed: %s", exc)
 
+    log.warning("Could not locate OpenCL ICD vendors directory")
     return env
 
 

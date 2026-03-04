@@ -37,7 +37,7 @@ class VisionOCRRequest(BaseModel):
         default="Extract all visible text from this image. List each word or phrase you can read.",
         description="Prompt for the vision model",
     )
-    timeout: int = Field(default=600, ge=10, le=3600, description="Timeout in seconds")
+    timeout: int = Field(default=2700, ge=10, le=7200, description="Timeout in seconds")
 
 
 class EnrichRequest(BaseModel):

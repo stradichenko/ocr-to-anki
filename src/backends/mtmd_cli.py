@@ -43,7 +43,7 @@ class LlamaMtmdCli:
         top_k: int = 40,
         top_p: float = 0.9,
         max_tokens: int = 512,
-        mmproj_offload: bool = False,
+        mmproj_offload: Optional[bool] = None,
     ):
         models_dir = Path(
             os.getenv("LLAMA_CPP_MODELS", Path.home() / ".cache" / "llama.cpp" / "models")
@@ -82,14 +82,17 @@ class LlamaMtmdCli:
         self.max_tokens = max_tokens
         # Intel iGPU Vulkan produces corrupted vision encoder output;
         # keep the CLIP/mmproj on CPU and only offload text layers to GPU.
-        # The OpenCL backend does NOT have this issue -- GPU vision works.
-        self.mmproj_offload = mmproj_offload
+        # OpenCL also lacks POOL_2D support needed by Gemma 3's SigLIP
+        # vision encoder, so mmproj must stay on CPU for all Intel iGPU
+        # backends until llama.cpp adds the missing op.
 
         # Detect if we're using the OpenCL backend
         self._is_opencl = (
             self.binary_path.name == "llama-mtmd-cli-opencl"
             or (self.detection and self.detection.recommended_backend == Backend.OPENCL)
         )
+
+        self.mmproj_offload = mmproj_offload if mmproj_offload is not None else False
 
     def _build_cmd(self, image_path: str, prompt: str) -> list[str]:
         """Build the llama-mtmd-cli command."""
@@ -110,6 +113,10 @@ class LlamaMtmdCli:
         ]
         if not self.mmproj_offload:
             cmd.append("--no-mmproj-offload")
+        # OpenCL does not support flash attention; the binary crashes during
+        # warmup if it tries to use the FA kernels.
+        if self._is_opencl:
+            cmd.extend(["-fa", "off"])
         return cmd
 
     def run_vision(
