@@ -20,6 +20,49 @@ from backends.auto_detect import detect, Backend, DetectionResult, _opencl_env
 log = logging.getLogger(__name__)
 
 
+def _i915_preempt_timeout_disabled() -> bool:
+    """Check if the i915 GPU preemption timeout is disabled (set to 0).
+
+    The SigLIP vision encoder's Vulkan compute dispatches exceed the
+    default 640 ms preemption timeout on Intel iGPUs, causing either a
+    GPU hang or corrupted embeddings.  GPU mmproj offloading is only
+    safe when ``preempt_timeout_ms`` is 0.
+
+    Returns ``True`` if the timeout is disabled (GPU mmproj is safe).
+    """
+    import glob
+
+    for card in glob.glob("/sys/class/drm/card*/engine/rcs0/preempt_timeout_ms"):
+        # Only check i915 devices
+        card_dir = str(Path(card).parents[2])
+        driver_link = Path(card_dir) / "device" / "driver"
+        try:
+            driver = driver_link.resolve().name
+        except OSError:
+            continue
+        if driver != "i915":
+            continue
+        try:
+            val = int(Path(card).read_text().strip())
+            if val == 0:
+                log.info(
+                    "i915 preempt_timeout_ms=0 → enabling GPU mmproj offload "
+                    "(~22 s encode vs ~20 min on CPU)"
+                )
+                return True
+            else:
+                log.info(
+                    "i915 preempt_timeout_ms=%d (>0) → using CPU mmproj "
+                    "(run: sudo scripts/setup-intel-gpu-timeout.sh)",
+                    val,
+                )
+                return False
+        except (OSError, ValueError):
+            continue
+    # Not an Intel i915 system — default to GPU offload
+    return True
+
+
 class LlamaMtmdCli:
     """
     Wraps llama-mtmd-cli for vision OCR inference.
@@ -80,20 +123,30 @@ class LlamaMtmdCli:
         self.top_k = top_k
         self.top_p = top_p
         self.max_tokens = max_tokens
-        # Intel iGPU: both Vulkan and OpenCL produce problems when the
-        # vision encoder (CLIP / mmproj) runs on the GPU.
+        # Intel iGPU vision encoder (mmproj) offloading
+        # ───────────────────────────────────────────────
+        # The SigLIP vision encoder can run on the GPU (~22 s) instead of
+        # CPU (~20 min), but requires two conditions on Intel iGPUs:
         #
-        # - Vulkan: CLIP executes quickly on GPU (~22 s) but the resulting
-        #   embeddings are corrupted, leading to degenerate text output.
-        # - OpenCL: lacks GGML_OP_POOL_2D needed by Gemma 3's SigLIP
-        #   vision encoder, causing a crash during warmup.
+        # 1. Vulkan IM2COL workgroup overflow fix (llama.cpp PR #18180,
+        #    merged Dec 21 2025) — prevents corrupted CLIP embeddings.
+        #    ✅ Included in our build b8182 (commit 05728db).
         #
-        # Therefore mmproj must stay on CPU (--no-mmproj-offload) for all
-        # Intel iGPU backends.  The text LLM layers still run on the GPU.
+        # 2. i915 preemption timeout disabled — the SigLIP encoder's
+        #    compute dispatches exceed the default 640 ms timeout, causing
+        #    either a GPU hang (vk::DeviceLostError) or corrupted output
+        #    from interrupted shaders.
+        #    Run: sudo scripts/setup-intel-gpu-timeout.sh
+        #    Or set: echo 0 > /sys/class/drm/card1/engine/rcs0/preempt_timeout_ms
         #
-        # Vulkan is now the preferred backend because it supports flash
+        # When both conditions are met, GPU mmproj gives ~90 s total OCR
+        # (vs ~21 min with CPU mmproj).
+        #
+        # OpenCL: lacks GGML_OP_POOL_2D needed by Gemma 3's SigLIP
+        # vision encoder, causing a crash during warmup.  Always CPU.
+        #
+        # Vulkan is the preferred backend because it supports flash
         # attention, which cuts prompt evaluation from ~1536 s to ~40 s.
-        # OpenCL does NOT support FA (crashes during warmup).
 
         # Detect if we're using the OpenCL backend
         self._is_opencl = (
@@ -101,7 +154,15 @@ class LlamaMtmdCli:
             or (self.detection and self.detection.recommended_backend == Backend.OPENCL)
         )
 
-        self.mmproj_offload = mmproj_offload if mmproj_offload is not None else False
+        if mmproj_offload is not None:
+            self.mmproj_offload = mmproj_offload
+        elif self._is_opencl:
+            # OpenCL always needs CPU mmproj (no POOL_2D op)
+            self.mmproj_offload = False
+        else:
+            # Vulkan: auto-detect by checking i915 preemption timeout.
+            # GPU mmproj is only safe when preempt_timeout_ms == 0.
+            self.mmproj_offload = _i915_preempt_timeout_disabled()
 
         # Handle for the currently running subprocess so it can be killed
         # on cancellation from another thread.
@@ -141,12 +202,14 @@ class LlamaMtmdCli:
         """
         Run vision OCR on an image.
 
-        The default timeout is 2700 s (45 min) because the vision encoder
-        runs on CPU when ``--no-mmproj-offload`` is set (required for
-        Intel iGPU -- Vulkan corrupts CLIP outputs, OpenCL lacks POOL_2D).
-        CPU encoding of the 896x896 SigLIP tile takes ~20 min on an
-        i3-10110U.  With Vulkan + flash attention the subsequent prompt
-        eval drops to ~40 s and generation to ~27 s.
+        The timeout adapts to the mmproj offload mode:
+
+        - **GPU mmproj** (``preempt_timeout_ms=0``): ~22 s encode +
+          ~40 s prompt eval + ~27 s generation ≈ 90 s.  Timeout default
+          is fine at 2700 s (plenty of headroom).
+        - **CPU mmproj** (default 640 ms preemption): ~20 min encode +
+          ~40 s prompt eval + ~27 s generation ≈ 21 min.  Timeout of
+          2700 s (45 min) provides margin.
 
         Returns
         -------
@@ -158,7 +221,11 @@ class LlamaMtmdCli:
             raise FileNotFoundError(f"Image not found: {image_path}")
 
         cmd = self._build_cmd(image_path, prompt)
-        log.info("Running: %s", " ".join(cmd[:6]) + " ...")
+        log.info(
+            "Running: %s ... (mmproj_offload=%s)",
+            " ".join(cmd[:6]),
+            self.mmproj_offload,
+        )
 
         # Set up environment (OpenCL needs OCL_ICD_VENDORS)
         env = _opencl_env() if self._is_opencl else None
@@ -251,6 +318,7 @@ class LlamaMtmdCli:
             "n_gpu_layers": self.n_gpu_layers,
             "max_tokens": self.max_tokens,
             "mmproj_offload": self.mmproj_offload,
+            "i915_preempt_timeout_disabled": _i915_preempt_timeout_disabled(),
         }
 
 
