@@ -82,6 +82,7 @@ class EnrichWordResult(BaseModel):
     definition: str
     examples: str
     warning: str = ""  # "not_found", "truncated", or "" (ok)
+    corrected_word: str = ""  # LLM-suggested correct spelling (if OCR error detected)
 
 
 class EnrichResponse(BaseModel):

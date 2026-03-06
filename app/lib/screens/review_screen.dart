@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,6 +38,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
               definition: cleanDef,
               examples: cleanEx,
               warning: e.warning,
+              correctedWord: e.correctedWord,
               selected: e.warning != 'not_found', // deselect unknowns
             );
           })
@@ -218,7 +218,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
     );
   }
 
-  /// Export selected cards as a TSV file and save with file picker.
+  /// Export selected cards as a TSV file to ~/Downloads.
   Future<void> _exportTsv() async {
     final selected = _cards.where((c) => c.selected).toList();
     if (selected.isEmpty) {
@@ -240,20 +240,32 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
     final tsv = service.exportToTsv(notes);
 
     try {
-      final path = await FilePicker.platform.saveFile(
-        dialogTitle: 'Save Anki TSV file',
-        fileName: 'anki_cards.txt',
-        type: FileType.custom,
-        allowedExtensions: ['txt', 'tsv'],
-      );
+      // Write directly to ~/Downloads (avoids zenity dependency).
+      final home = Platform.environment['HOME'] ?? '/tmp';
+      final downloadsDir = Directory('$home/Downloads');
+      if (!downloadsDir.existsSync()) downloadsDir.createSync(recursive: true);
 
-      if (path == null) return; // user cancelled
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .split('.')
+          .first;
+      final filePath = '${downloadsDir.path}/anki_cards_$timestamp.txt';
 
-      await File(path).writeAsString(tsv);
+      await File(filePath).writeAsString(tsv);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved ${notes.length} card(s) to $path')),
+          SnackBar(
+            content: Text('Saved ${notes.length} card(s) to $filePath'),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Copy path',
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: filePath));
+              },
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -302,6 +314,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
             definition: r.definition,
             examples: r.examples,
             warning: r.warning,
+            correctedWord: r.correctedWord,
             selected: r.warning != 'not_found',
           );
           recovered++;
@@ -356,6 +369,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
           definition: r.definition,
           examples: r.examples,
           warning: r.warning,
+          correctedWord: r.correctedWord,
           selected: r.warning != 'not_found',
         );
       }
@@ -493,6 +507,7 @@ class _EditableCard {
     required this.examples,
     required this.selected,
     this.warning = '',
+    this.correctedWord = '',
   });
 
   String word;
@@ -501,12 +516,20 @@ class _EditableCard {
   bool selected;
   String warning;
 
+  /// LLM-suggested correct spelling (empty if word is already correct).
+  String correctedWord;
+
+  /// Whether the LLM suggested a different spelling.
+  bool get hasCorrectionSuggestion =>
+      correctedWord.isNotEmpty && correctedWord.toLowerCase() != word.toLowerCase();
+
   _EditableCard copyWith({
     String? word,
     String? definition,
     String? examples,
     bool? selected,
     String? warning,
+    String? correctedWord,
   }) =>
       _EditableCard(
         word: word ?? this.word,
@@ -514,6 +537,7 @@ class _EditableCard {
         examples: examples ?? this.examples,
         selected: selected ?? this.selected,
         warning: warning ?? this.warning,
+        correctedWord: correctedWord ?? this.correctedWord,
       );
 }
 
@@ -535,6 +559,13 @@ class _CardTile extends StatelessWidget {
   final VoidCallback onRemoved;
   final VoidCallback? onRetry;
   final bool isRetrying;
+
+  void _acceptCorrection() {
+    onChanged(card.copyWith(
+      word: card.correctedWord,
+      correctedWord: '', // clear after accepting
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -600,6 +631,30 @@ class _CardTile extends StatelessWidget {
                 ),
               ],
             ),
+
+            // Correction suggestion
+            if (card.hasCorrectionSuggestion) ...[
+              Padding(
+                padding: const EdgeInsets.only(left: 48, bottom: 8),
+                child: ActionChip(
+                  avatar: Icon(Icons.auto_fix_high,
+                      size: 16, color: theme.colorScheme.primary),
+                  label: Text(
+                    'Did you mean "${card.correctedWord}"?',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  backgroundColor:
+                      theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                  side: BorderSide(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.3)),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _acceptCorrection,
+                  tooltip: 'Accept correction: change word to "${card.correctedWord}"',
+                ),
+              ),
+            ],
 
             // Warning chip
             if (hasWarning) ...[

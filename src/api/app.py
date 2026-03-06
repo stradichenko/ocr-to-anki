@@ -381,15 +381,20 @@ def _build_enrich_prompt(words: list[str], def_lang: str, ex_lang: str) -> str:
         f"For each word below, provide:\n"
         f"1) A concise definition (1-2 sentences) written in {def_lang}\n"
         f"2) Two short example sentences written in {ex_lang}\n\n"
+        f"IMPORTANT: These words come from OCR and may contain spelling errors.\n"
+        f"If the word is misspelled or has OCR artifacts, add a CORRECTED: line\n"
+        f"with the correct spelling. Use the corrected word in the definition and examples.\n"
+        f"If the word is already correct, omit the CORRECTED: line.\n\n"
         f"CRITICAL: You MUST use these EXACT English labels for formatting:\n"
-        f"WORD:, DEF:, EX1:, EX2:\n"
+        f"WORD:, CORRECTED:, DEF:, EX1:, EX2:\n"
         f"Do NOT translate the labels into {def_lang} or any other language.\n"
         f"Only the definition text and example sentences should be in the "
         f"requested language.\n\n"
         f"If you do not recognize a word or it is not a real word, "
         f"write DEF: UNKNOWN and leave the examples empty.\n\n"
         f"Use EXACTLY this format for each word (no extra text):\n\n"
-        f"WORD: <word>\n"
+        f"WORD: <word as given>\n"
+        f"CORRECTED: <correct spelling>  (only if different from WORD)\n"
         f"DEF: <definition in {def_lang}>\n"
         f"EX1: <example sentence in {ex_lang}>\n"
         f"EX2: <example sentence in {ex_lang}>\n\n"
@@ -415,6 +420,10 @@ _EX2_RE = re.compile(
     r"^(?:EX2|BEISPIEL\s*2|EXEMPLE\s*2|EJEMPLO\s*2|EXEMPLO\s*2|ESEMPIO\s*2):\s*",
     re.IGNORECASE,
 )
+_CORRECTED_RE = re.compile(
+    r"^(?:CORRECTED|KORRIGIERT|CORRIGÉ|CORREGIDO|CORRIGIDO|CORRETTO):\s*",
+    re.IGNORECASE,
+)
 
 
 def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
@@ -434,9 +443,12 @@ def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
         body = lines[1] if len(lines) > 1 else ""
         defn = ""
         examples = ""
+        corrected = ""
         for line in body.split("\n"):
             line = line.strip()
-            if _DEF_RE.match(line):
+            if _CORRECTED_RE.match(line):
+                corrected = _CORRECTED_RE.sub("", line).strip()
+            elif _DEF_RE.match(line):
                 defn = _DEF_RE.sub("", line).strip()
             elif _EX1_RE.match(line):
                 examples = _EX1_RE.sub("", line).strip()
@@ -444,7 +456,7 @@ def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
                 ex2 = _EX2_RE.sub("", line).strip()
                 if ex2:
                     examples += "\n" + ex2
-        data = {"definition": defn, "examples": examples}
+        data = {"definition": defn, "examples": examples, "corrected_word": corrected}
         parsed[word_key.lower()] = data
         parsed_ordered.append(data)
 
@@ -479,11 +491,17 @@ def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
         else:
             warning = ""
 
+        corrected = entry.get("corrected_word", "")
+        # Only keep correction if it actually differs from the original word.
+        if corrected and corrected.lower() == w.lower():
+            corrected = ""
+
         results.append({
             "word": w,
             "definition": defn,
             "examples": examples,
             "warning": warning,
+            "corrected_word": corrected,
         })
     return results
 
@@ -642,6 +660,7 @@ async def enrich(req: EnrichRequest):
             definition=p["definition"],
             examples=p["examples"],
             warning=p.get("warning", ""),
+            corrected_word=p.get("corrected_word", ""),
         )
         for p in all_parsed
     ]

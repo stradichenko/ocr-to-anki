@@ -27,6 +27,7 @@ class EnrichWordResult {
     required this.definition,
     required this.examples,
     this.warning = '',
+    this.correctedWord = '',
   });
 
   final String word;
@@ -35,6 +36,10 @@ class EnrichWordResult {
 
   /// Quality warning: 'not_found', 'truncated', or '' (ok).
   final String warning;
+
+  /// LLM-suggested correct spelling when OCR produced a misspelling.
+  /// Empty if the word is already correct.
+  final String correctedWord;
 }
 
 /// Unified inference service that can run in two modes:
@@ -353,6 +358,7 @@ class InferenceService {
             definition: m['definition'] as String? ?? '',
             examples: m['examples'] as String? ?? '',
             warning: m['warning'] as String? ?? '',
+            correctedWord: m['corrected_word'] as String? ?? '',
           );
         }));
       } catch (e) {
