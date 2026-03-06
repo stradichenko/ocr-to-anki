@@ -175,6 +175,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                     itemBuilder: (context, index) {
                       final card = _cards[index];
                       return _CardTile(
+                        key: ValueKey('card-$index-${card.version}'),
                         card: card,
                         onChanged: (updated) =>
                             setState(() => _cards[index] = updated),
@@ -377,6 +378,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
             examples: r.examples,
             warning: r.warning,
             selected: r.warning != 'not_found',
+            version: _cards[idx].version + 1,
           );
           recovered++;
         }
@@ -439,6 +441,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
           examples: r.examples,
           warning: r.warning,
           selected: r.warning != 'not_found',
+          version: _cards[index].version + 1,
         );
       }
 
@@ -499,6 +502,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
             examples: r.examples,
             warning: r.warning,
             selected: r.warning != 'not_found',
+            version: _cards[idx].version + 1,
           );
           updated++;
         }
@@ -645,6 +649,7 @@ class _EditableCard {
     required this.examples,
     required this.selected,
     this.warning = '',
+    this.version = 0,
   });
 
   String word;
@@ -653,12 +658,16 @@ class _EditableCard {
   bool selected;
   String warning;
 
+  /// Incremented on re-enrich to force TextFormField rebuild via Key.
+  int version;
+
   _EditableCard copyWith({
     String? word,
     String? definition,
     String? examples,
     bool? selected,
     String? warning,
+    int? version,
   }) =>
       _EditableCard(
         word: word ?? this.word,
@@ -666,6 +675,7 @@ class _EditableCard {
         examples: examples ?? this.examples,
         selected: selected ?? this.selected,
         warning: warning ?? this.warning,
+        version: version ?? this.version,
       );
 }
 
@@ -675,6 +685,7 @@ class _EditableCard {
 
 class _CardTile extends StatelessWidget {
   const _CardTile({
+    super.key,
     required this.card,
     required this.onChanged,
     required this.onRemoved,
