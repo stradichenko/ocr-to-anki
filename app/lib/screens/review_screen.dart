@@ -19,6 +19,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
   late List<_EditableCard> _cards;
   bool _initialised = false;
   bool _reEnriching = false;
+  bool _reEnrichingSelected = false;
   int? _retryingIndex;
 
   @override
@@ -33,12 +34,17 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                 ? ''
                 : e.definition;
             final cleanEx = (e.warning == 'not_found') ? '' : e.examples;
+            // Auto-apply OCR correction if the LLM suggested one.
+            final corrected = e.correctedWord;
+            final word = (corrected.isNotEmpty &&
+                    corrected.toLowerCase() != e.word.toLowerCase())
+                ? corrected
+                : e.word;
             return _EditableCard(
-              word: e.word,
+              word: word,
               definition: cleanDef,
               examples: cleanEx,
               warning: e.warning,
-              correctedWord: e.correctedWord,
               selected: e.warning != 'not_found', // deselect unknowns
             );
           })
@@ -113,6 +119,54 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                       ),
                     ],
                   ),
+                // Select all / actions toolbar
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Checkbox(
+                        value: _cards.isEmpty
+                            ? false
+                            : _cards.every((c) => c.selected)
+                                ? true
+                                : _cards.any((c) => c.selected)
+                                    ? null
+                                    : false,
+                        tristate: true,
+                        onChanged: (_) {
+                          setState(() {
+                            final allSel =
+                                _cards.every((c) => c.selected);
+                            for (var i = 0; i < _cards.length; i++) {
+                              _cards[i] = _cards[i]
+                                  .copyWith(selected: !allSel);
+                            }
+                          });
+                        },
+                      ),
+                      Text('Select All',
+                          style: theme.textTheme.bodyMedium),
+                      const Spacer(),
+                      OutlinedButton.icon(
+                        onPressed: _reEnrichingSelected ||
+                                !_cards.any((c) => c.selected)
+                            ? null
+                            : _reEnrichSelected,
+                        icon: _reEnrichingSelected
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2),
+                              )
+                            : const Icon(Icons.refresh),
+                        label: Text(
+                            'Re-enrich (${_cards.where((c) => c.selected).length})'),
+                      ),
+                    ],
+                  ),
+                ),
                 // Card list
                 Expanded(
                   child: ListView.builder(
@@ -310,11 +364,18 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         final r = results[ri];
         if (ri < failedIndices.length && r.definition.isNotEmpty) {
           final idx = failedIndices[ri];
+          // Auto-apply OCR correction.
+          final corrected = r.correctedWord;
+          final word = (corrected.isNotEmpty &&
+                  corrected.toLowerCase() !=
+                      _cards[idx].word.toLowerCase())
+              ? corrected
+              : _cards[idx].word;
           _cards[idx] = _cards[idx].copyWith(
+            word: word,
             definition: r.definition,
             examples: r.examples,
             warning: r.warning,
-            correctedWord: r.correctedWord,
             selected: r.warning != 'not_found',
           );
           recovered++;
@@ -365,11 +426,18 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
 
       if (results.isNotEmpty && results.first.definition.isNotEmpty) {
         final r = results.first;
+        // Auto-apply OCR correction.
+        final corrected = r.correctedWord;
+        final word = (corrected.isNotEmpty &&
+                corrected.toLowerCase() !=
+                    _cards[index].word.toLowerCase())
+            ? corrected
+            : _cards[index].word;
         _cards[index] = _cards[index].copyWith(
+          word: word,
           definition: r.definition,
           examples: r.examples,
           warning: r.warning,
-          correctedWord: r.correctedWord,
           selected: r.warning != 'not_found',
         );
       }
@@ -380,6 +448,76 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         setState(() => _retryingIndex = null);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Retry failed for "${card.word}": $e')),
+        );
+      }
+    }
+  }
+
+  /// Re-enrich all currently selected cards.
+  Future<void> _reEnrichSelected() async {
+    final indices = <int>[];
+    final words = <String>[];
+    for (var i = 0; i < _cards.length; i++) {
+      if (_cards[i].selected) {
+        indices.add(i);
+        words.add(_cards[i].word);
+      }
+    }
+    if (words.isEmpty) return;
+
+    setState(() => _reEnrichingSelected = true);
+
+    try {
+      final inference = ref.read(inferenceServiceProvider);
+      final settings = ref.read(settingsProvider);
+
+      final results = await inference.enrichWords(
+        words: words,
+        definitionLanguage: settings.definitionLanguage,
+        examplesLanguage: settings.examplesLanguage,
+        chunkSize: 1,
+        chunkTimeout: const Duration(minutes: 10),
+      );
+
+      if (!mounted) return;
+
+      var updated = 0;
+      for (var ri = 0; ri < results.length; ri++) {
+        final r = results[ri];
+        if (ri < indices.length && r.definition.isNotEmpty) {
+          final idx = indices[ri];
+          // Auto-apply OCR correction.
+          final corrected = r.correctedWord;
+          final word = (corrected.isNotEmpty &&
+                  corrected.toLowerCase() !=
+                      _cards[idx].word.toLowerCase())
+              ? corrected
+              : _cards[idx].word;
+          _cards[idx] = _cards[idx].copyWith(
+            word: word,
+            definition: r.definition,
+            examples: r.examples,
+            warning: r.warning,
+            selected: r.warning != 'not_found',
+          );
+          updated++;
+        }
+      }
+
+      setState(() => _reEnrichingSelected = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Re-enriched $updated/${words.length} card(s)'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _reEnrichingSelected = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Re-enrich failed: $e')),
         );
       }
     }
@@ -507,7 +645,6 @@ class _EditableCard {
     required this.examples,
     required this.selected,
     this.warning = '',
-    this.correctedWord = '',
   });
 
   String word;
@@ -516,20 +653,12 @@ class _EditableCard {
   bool selected;
   String warning;
 
-  /// LLM-suggested correct spelling (empty if word is already correct).
-  String correctedWord;
-
-  /// Whether the LLM suggested a different spelling.
-  bool get hasCorrectionSuggestion =>
-      correctedWord.isNotEmpty && correctedWord.toLowerCase() != word.toLowerCase();
-
   _EditableCard copyWith({
     String? word,
     String? definition,
     String? examples,
     bool? selected,
     String? warning,
-    String? correctedWord,
   }) =>
       _EditableCard(
         word: word ?? this.word,
@@ -537,7 +666,6 @@ class _EditableCard {
         examples: examples ?? this.examples,
         selected: selected ?? this.selected,
         warning: warning ?? this.warning,
-        correctedWord: correctedWord ?? this.correctedWord,
       );
 }
 
@@ -559,13 +687,6 @@ class _CardTile extends StatelessWidget {
   final VoidCallback onRemoved;
   final VoidCallback? onRetry;
   final bool isRetrying;
-
-  void _acceptCorrection() {
-    onChanged(card.copyWith(
-      word: card.correctedWord,
-      correctedWord: '', // clear after accepting
-    ));
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -632,31 +753,8 @@ class _CardTile extends StatelessWidget {
               ],
             ),
 
-            // Correction suggestion
-            if (card.hasCorrectionSuggestion) ...[
-              Padding(
-                padding: const EdgeInsets.only(left: 48, bottom: 8),
-                child: ActionChip(
-                  avatar: Icon(Icons.auto_fix_high,
-                      size: 16, color: theme.colorScheme.primary),
-                  label: Text(
-                    'Did you mean "${card.correctedWord}"?',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  backgroundColor:
-                      theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-                  side: BorderSide(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.3)),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _acceptCorrection,
-                  tooltip: 'Accept correction: change word to "${card.correctedWord}"',
-                ),
-              ),
-            ],
-
             // Warning chip
+
             if (hasWarning) ...[
               Padding(
                 padding: const EdgeInsets.only(left: 48, bottom: 8),
