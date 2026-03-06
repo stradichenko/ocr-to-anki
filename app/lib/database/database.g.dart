@@ -112,6 +112,18 @@ class $ProcessingSessionsTable extends ProcessingSessions
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _benchmarkJsonMeta = const VerificationMeta(
+    'benchmarkJson',
+  );
+  @override
+  late final GeneratedColumn<String> benchmarkJson = GeneratedColumn<String>(
+    'benchmark_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -135,6 +147,7 @@ class $ProcessingSessionsTable extends ProcessingSessions
     enrichElapsedS,
     backend,
     error,
+    benchmarkJson,
     createdAt,
   ];
   @override
@@ -213,6 +226,15 @@ class $ProcessingSessionsTable extends ProcessingSessions
         error.isAcceptableOrUnknown(data['error']!, _errorMeta),
       );
     }
+    if (data.containsKey('benchmark_json')) {
+      context.handle(
+        _benchmarkJsonMeta,
+        benchmarkJson.isAcceptableOrUnknown(
+          data['benchmark_json']!,
+          _benchmarkJsonMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -264,6 +286,10 @@ class $ProcessingSessionsTable extends ProcessingSessions
         DriftSqlType.string,
         data['${effectivePrefix}error'],
       ),
+      benchmarkJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}benchmark_json'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -288,6 +314,9 @@ class ProcessingSession extends DataClass
   final double enrichElapsedS;
   final String backend;
   final String? error;
+
+  /// Structured benchmark data as JSON (see [BenchmarkData]).
+  final String benchmarkJson;
   final DateTime createdAt;
   const ProcessingSession({
     required this.id,
@@ -299,6 +328,7 @@ class ProcessingSession extends DataClass
     required this.enrichElapsedS,
     required this.backend,
     this.error,
+    required this.benchmarkJson,
     required this.createdAt,
   });
   @override
@@ -317,6 +347,7 @@ class ProcessingSession extends DataClass
     if (!nullToAbsent || error != null) {
       map['error'] = Variable<String>(error);
     }
+    map['benchmark_json'] = Variable<String>(benchmarkJson);
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
   }
@@ -336,6 +367,7 @@ class ProcessingSession extends DataClass
       error: error == null && nullToAbsent
           ? const Value.absent()
           : Value(error),
+      benchmarkJson: Value(benchmarkJson),
       createdAt: Value(createdAt),
     );
   }
@@ -355,6 +387,7 @@ class ProcessingSession extends DataClass
       enrichElapsedS: serializer.fromJson<double>(json['enrichElapsedS']),
       backend: serializer.fromJson<String>(json['backend']),
       error: serializer.fromJson<String?>(json['error']),
+      benchmarkJson: serializer.fromJson<String>(json['benchmarkJson']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -371,6 +404,7 @@ class ProcessingSession extends DataClass
       'enrichElapsedS': serializer.toJson<double>(enrichElapsedS),
       'backend': serializer.toJson<String>(backend),
       'error': serializer.toJson<String?>(error),
+      'benchmarkJson': serializer.toJson<String>(benchmarkJson),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -385,6 +419,7 @@ class ProcessingSession extends DataClass
     double? enrichElapsedS,
     String? backend,
     Value<String?> error = const Value.absent(),
+    String? benchmarkJson,
     DateTime? createdAt,
   }) => ProcessingSession(
     id: id ?? this.id,
@@ -398,6 +433,7 @@ class ProcessingSession extends DataClass
     enrichElapsedS: enrichElapsedS ?? this.enrichElapsedS,
     backend: backend ?? this.backend,
     error: error.present ? error.value : this.error,
+    benchmarkJson: benchmarkJson ?? this.benchmarkJson,
     createdAt: createdAt ?? this.createdAt,
   );
   ProcessingSession copyWithCompanion(ProcessingSessionsCompanion data) {
@@ -417,6 +453,9 @@ class ProcessingSession extends DataClass
           : this.enrichElapsedS,
       backend: data.backend.present ? data.backend.value : this.backend,
       error: data.error.present ? data.error.value : this.error,
+      benchmarkJson: data.benchmarkJson.present
+          ? data.benchmarkJson.value
+          : this.benchmarkJson,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -433,6 +472,7 @@ class ProcessingSession extends DataClass
           ..write('enrichElapsedS: $enrichElapsedS, ')
           ..write('backend: $backend, ')
           ..write('error: $error, ')
+          ..write('benchmarkJson: $benchmarkJson, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -449,6 +489,7 @@ class ProcessingSession extends DataClass
     enrichElapsedS,
     backend,
     error,
+    benchmarkJson,
     createdAt,
   );
   @override
@@ -464,6 +505,7 @@ class ProcessingSession extends DataClass
           other.enrichElapsedS == this.enrichElapsedS &&
           other.backend == this.backend &&
           other.error == this.error &&
+          other.benchmarkJson == this.benchmarkJson &&
           other.createdAt == this.createdAt);
 }
 
@@ -477,6 +519,7 @@ class ProcessingSessionsCompanion extends UpdateCompanion<ProcessingSession> {
   final Value<double> enrichElapsedS;
   final Value<String> backend;
   final Value<String?> error;
+  final Value<String> benchmarkJson;
   final Value<DateTime> createdAt;
   const ProcessingSessionsCompanion({
     this.id = const Value.absent(),
@@ -488,6 +531,7 @@ class ProcessingSessionsCompanion extends UpdateCompanion<ProcessingSession> {
     this.enrichElapsedS = const Value.absent(),
     this.backend = const Value.absent(),
     this.error = const Value.absent(),
+    this.benchmarkJson = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   ProcessingSessionsCompanion.insert({
@@ -500,6 +544,7 @@ class ProcessingSessionsCompanion extends UpdateCompanion<ProcessingSession> {
     this.enrichElapsedS = const Value.absent(),
     this.backend = const Value.absent(),
     this.error = const Value.absent(),
+    this.benchmarkJson = const Value.absent(),
     this.createdAt = const Value.absent(),
   }) : imagePath = Value(imagePath),
        context = Value(context);
@@ -513,6 +558,7 @@ class ProcessingSessionsCompanion extends UpdateCompanion<ProcessingSession> {
     Expression<double>? enrichElapsedS,
     Expression<String>? backend,
     Expression<String>? error,
+    Expression<String>? benchmarkJson,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
@@ -525,6 +571,7 @@ class ProcessingSessionsCompanion extends UpdateCompanion<ProcessingSession> {
       if (enrichElapsedS != null) 'enrich_elapsed_s': enrichElapsedS,
       if (backend != null) 'backend': backend,
       if (error != null) 'error': error,
+      if (benchmarkJson != null) 'benchmark_json': benchmarkJson,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
@@ -539,6 +586,7 @@ class ProcessingSessionsCompanion extends UpdateCompanion<ProcessingSession> {
     Value<double>? enrichElapsedS,
     Value<String>? backend,
     Value<String?>? error,
+    Value<String>? benchmarkJson,
     Value<DateTime>? createdAt,
   }) {
     return ProcessingSessionsCompanion(
@@ -551,6 +599,7 @@ class ProcessingSessionsCompanion extends UpdateCompanion<ProcessingSession> {
       enrichElapsedS: enrichElapsedS ?? this.enrichElapsedS,
       backend: backend ?? this.backend,
       error: error ?? this.error,
+      benchmarkJson: benchmarkJson ?? this.benchmarkJson,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -585,6 +634,9 @@ class ProcessingSessionsCompanion extends UpdateCompanion<ProcessingSession> {
     if (error.present) {
       map['error'] = Variable<String>(error.value);
     }
+    if (benchmarkJson.present) {
+      map['benchmark_json'] = Variable<String>(benchmarkJson.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -603,6 +655,7 @@ class ProcessingSessionsCompanion extends UpdateCompanion<ProcessingSession> {
           ..write('enrichElapsedS: $enrichElapsedS, ')
           ..write('backend: $backend, ')
           ..write('error: $error, ')
+          ..write('benchmarkJson: $benchmarkJson, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -1839,6 +1892,494 @@ class SettingsEntriesCompanion extends UpdateCompanion<SettingsEntry> {
   }
 }
 
+class $EnrichmentCacheEntriesTable extends EnrichmentCacheEntries
+    with TableInfo<$EnrichmentCacheEntriesTable, EnrichmentCacheEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $EnrichmentCacheEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _wordMeta = const VerificationMeta('word');
+  @override
+  late final GeneratedColumn<String> word = GeneratedColumn<String>(
+    'word',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _definitionLanguageMeta =
+      const VerificationMeta('definitionLanguage');
+  @override
+  late final GeneratedColumn<String> definitionLanguage =
+      GeneratedColumn<String>(
+        'definition_language',
+        aliasedName,
+        false,
+        type: DriftSqlType.string,
+        requiredDuringInsert: true,
+      );
+  static const VerificationMeta _examplesLanguageMeta = const VerificationMeta(
+    'examplesLanguage',
+  );
+  @override
+  late final GeneratedColumn<String> examplesLanguage = GeneratedColumn<String>(
+    'examples_language',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _definitionMeta = const VerificationMeta(
+    'definition',
+  );
+  @override
+  late final GeneratedColumn<String> definition = GeneratedColumn<String>(
+    'definition',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _examplesMeta = const VerificationMeta(
+    'examples',
+  );
+  @override
+  late final GeneratedColumn<String> examples = GeneratedColumn<String>(
+    'examples',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _warningMeta = const VerificationMeta(
+    'warning',
+  );
+  @override
+  late final GeneratedColumn<String> warning = GeneratedColumn<String>(
+    'warning',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    word,
+    definitionLanguage,
+    examplesLanguage,
+    definition,
+    examples,
+    warning,
+    createdAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'enrichment_cache_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<EnrichmentCacheEntry> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('word')) {
+      context.handle(
+        _wordMeta,
+        word.isAcceptableOrUnknown(data['word']!, _wordMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_wordMeta);
+    }
+    if (data.containsKey('definition_language')) {
+      context.handle(
+        _definitionLanguageMeta,
+        definitionLanguage.isAcceptableOrUnknown(
+          data['definition_language']!,
+          _definitionLanguageMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_definitionLanguageMeta);
+    }
+    if (data.containsKey('examples_language')) {
+      context.handle(
+        _examplesLanguageMeta,
+        examplesLanguage.isAcceptableOrUnknown(
+          data['examples_language']!,
+          _examplesLanguageMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_examplesLanguageMeta);
+    }
+    if (data.containsKey('definition')) {
+      context.handle(
+        _definitionMeta,
+        definition.isAcceptableOrUnknown(data['definition']!, _definitionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_definitionMeta);
+    }
+    if (data.containsKey('examples')) {
+      context.handle(
+        _examplesMeta,
+        examples.isAcceptableOrUnknown(data['examples']!, _examplesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_examplesMeta);
+    }
+    if (data.containsKey('warning')) {
+      context.handle(
+        _warningMeta,
+        warning.isAcceptableOrUnknown(data['warning']!, _warningMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {
+    word,
+    definitionLanguage,
+    examplesLanguage,
+  };
+  @override
+  EnrichmentCacheEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return EnrichmentCacheEntry(
+      word: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}word'],
+      )!,
+      definitionLanguage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}definition_language'],
+      )!,
+      examplesLanguage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}examples_language'],
+      )!,
+      definition: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}definition'],
+      )!,
+      examples: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}examples'],
+      )!,
+      warning: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}warning'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $EnrichmentCacheEntriesTable createAlias(String alias) {
+    return $EnrichmentCacheEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class EnrichmentCacheEntry extends DataClass
+    implements Insertable<EnrichmentCacheEntry> {
+  /// Lowercased word.
+  final String word;
+
+  /// Language the definition was generated in.
+  final String definitionLanguage;
+
+  /// Language the examples were generated in.
+  final String examplesLanguage;
+  final String definition;
+  final String examples;
+  final String warning;
+  final DateTime createdAt;
+  const EnrichmentCacheEntry({
+    required this.word,
+    required this.definitionLanguage,
+    required this.examplesLanguage,
+    required this.definition,
+    required this.examples,
+    required this.warning,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['word'] = Variable<String>(word);
+    map['definition_language'] = Variable<String>(definitionLanguage);
+    map['examples_language'] = Variable<String>(examplesLanguage);
+    map['definition'] = Variable<String>(definition);
+    map['examples'] = Variable<String>(examples);
+    map['warning'] = Variable<String>(warning);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  EnrichmentCacheEntriesCompanion toCompanion(bool nullToAbsent) {
+    return EnrichmentCacheEntriesCompanion(
+      word: Value(word),
+      definitionLanguage: Value(definitionLanguage),
+      examplesLanguage: Value(examplesLanguage),
+      definition: Value(definition),
+      examples: Value(examples),
+      warning: Value(warning),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory EnrichmentCacheEntry.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return EnrichmentCacheEntry(
+      word: serializer.fromJson<String>(json['word']),
+      definitionLanguage: serializer.fromJson<String>(
+        json['definitionLanguage'],
+      ),
+      examplesLanguage: serializer.fromJson<String>(json['examplesLanguage']),
+      definition: serializer.fromJson<String>(json['definition']),
+      examples: serializer.fromJson<String>(json['examples']),
+      warning: serializer.fromJson<String>(json['warning']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'word': serializer.toJson<String>(word),
+      'definitionLanguage': serializer.toJson<String>(definitionLanguage),
+      'examplesLanguage': serializer.toJson<String>(examplesLanguage),
+      'definition': serializer.toJson<String>(definition),
+      'examples': serializer.toJson<String>(examples),
+      'warning': serializer.toJson<String>(warning),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  EnrichmentCacheEntry copyWith({
+    String? word,
+    String? definitionLanguage,
+    String? examplesLanguage,
+    String? definition,
+    String? examples,
+    String? warning,
+    DateTime? createdAt,
+  }) => EnrichmentCacheEntry(
+    word: word ?? this.word,
+    definitionLanguage: definitionLanguage ?? this.definitionLanguage,
+    examplesLanguage: examplesLanguage ?? this.examplesLanguage,
+    definition: definition ?? this.definition,
+    examples: examples ?? this.examples,
+    warning: warning ?? this.warning,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  EnrichmentCacheEntry copyWithCompanion(EnrichmentCacheEntriesCompanion data) {
+    return EnrichmentCacheEntry(
+      word: data.word.present ? data.word.value : this.word,
+      definitionLanguage: data.definitionLanguage.present
+          ? data.definitionLanguage.value
+          : this.definitionLanguage,
+      examplesLanguage: data.examplesLanguage.present
+          ? data.examplesLanguage.value
+          : this.examplesLanguage,
+      definition: data.definition.present
+          ? data.definition.value
+          : this.definition,
+      examples: data.examples.present ? data.examples.value : this.examples,
+      warning: data.warning.present ? data.warning.value : this.warning,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EnrichmentCacheEntry(')
+          ..write('word: $word, ')
+          ..write('definitionLanguage: $definitionLanguage, ')
+          ..write('examplesLanguage: $examplesLanguage, ')
+          ..write('definition: $definition, ')
+          ..write('examples: $examples, ')
+          ..write('warning: $warning, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    word,
+    definitionLanguage,
+    examplesLanguage,
+    definition,
+    examples,
+    warning,
+    createdAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is EnrichmentCacheEntry &&
+          other.word == this.word &&
+          other.definitionLanguage == this.definitionLanguage &&
+          other.examplesLanguage == this.examplesLanguage &&
+          other.definition == this.definition &&
+          other.examples == this.examples &&
+          other.warning == this.warning &&
+          other.createdAt == this.createdAt);
+}
+
+class EnrichmentCacheEntriesCompanion
+    extends UpdateCompanion<EnrichmentCacheEntry> {
+  final Value<String> word;
+  final Value<String> definitionLanguage;
+  final Value<String> examplesLanguage;
+  final Value<String> definition;
+  final Value<String> examples;
+  final Value<String> warning;
+  final Value<DateTime> createdAt;
+  final Value<int> rowid;
+  const EnrichmentCacheEntriesCompanion({
+    this.word = const Value.absent(),
+    this.definitionLanguage = const Value.absent(),
+    this.examplesLanguage = const Value.absent(),
+    this.definition = const Value.absent(),
+    this.examples = const Value.absent(),
+    this.warning = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  EnrichmentCacheEntriesCompanion.insert({
+    required String word,
+    required String definitionLanguage,
+    required String examplesLanguage,
+    required String definition,
+    required String examples,
+    this.warning = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : word = Value(word),
+       definitionLanguage = Value(definitionLanguage),
+       examplesLanguage = Value(examplesLanguage),
+       definition = Value(definition),
+       examples = Value(examples);
+  static Insertable<EnrichmentCacheEntry> custom({
+    Expression<String>? word,
+    Expression<String>? definitionLanguage,
+    Expression<String>? examplesLanguage,
+    Expression<String>? definition,
+    Expression<String>? examples,
+    Expression<String>? warning,
+    Expression<DateTime>? createdAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (word != null) 'word': word,
+      if (definitionLanguage != null) 'definition_language': definitionLanguage,
+      if (examplesLanguage != null) 'examples_language': examplesLanguage,
+      if (definition != null) 'definition': definition,
+      if (examples != null) 'examples': examples,
+      if (warning != null) 'warning': warning,
+      if (createdAt != null) 'created_at': createdAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  EnrichmentCacheEntriesCompanion copyWith({
+    Value<String>? word,
+    Value<String>? definitionLanguage,
+    Value<String>? examplesLanguage,
+    Value<String>? definition,
+    Value<String>? examples,
+    Value<String>? warning,
+    Value<DateTime>? createdAt,
+    Value<int>? rowid,
+  }) {
+    return EnrichmentCacheEntriesCompanion(
+      word: word ?? this.word,
+      definitionLanguage: definitionLanguage ?? this.definitionLanguage,
+      examplesLanguage: examplesLanguage ?? this.examplesLanguage,
+      definition: definition ?? this.definition,
+      examples: examples ?? this.examples,
+      warning: warning ?? this.warning,
+      createdAt: createdAt ?? this.createdAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (word.present) {
+      map['word'] = Variable<String>(word.value);
+    }
+    if (definitionLanguage.present) {
+      map['definition_language'] = Variable<String>(definitionLanguage.value);
+    }
+    if (examplesLanguage.present) {
+      map['examples_language'] = Variable<String>(examplesLanguage.value);
+    }
+    if (definition.present) {
+      map['definition'] = Variable<String>(definition.value);
+    }
+    if (examples.present) {
+      map['examples'] = Variable<String>(examples.value);
+    }
+    if (warning.present) {
+      map['warning'] = Variable<String>(warning.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EnrichmentCacheEntriesCompanion(')
+          ..write('word: $word, ')
+          ..write('definitionLanguage: $definitionLanguage, ')
+          ..write('examplesLanguage: $examplesLanguage, ')
+          ..write('definition: $definition, ')
+          ..write('examples: $examples, ')
+          ..write('warning: $warning, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -1849,6 +2390,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $SettingsEntriesTable settingsEntries = $SettingsEntriesTable(
     this,
   );
+  late final $EnrichmentCacheEntriesTable enrichmentCacheEntries =
+      $EnrichmentCacheEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -1858,6 +2401,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     wordEntries,
     exportLogs,
     settingsEntries,
+    enrichmentCacheEntries,
   ];
 }
 
@@ -1872,6 +2416,7 @@ typedef $$ProcessingSessionsTableCreateCompanionBuilder =
       Value<double> enrichElapsedS,
       Value<String> backend,
       Value<String?> error,
+      Value<String> benchmarkJson,
       Value<DateTime> createdAt,
     });
 typedef $$ProcessingSessionsTableUpdateCompanionBuilder =
@@ -1885,6 +2430,7 @@ typedef $$ProcessingSessionsTableUpdateCompanionBuilder =
       Value<double> enrichElapsedS,
       Value<String> backend,
       Value<String?> error,
+      Value<String> benchmarkJson,
       Value<DateTime> createdAt,
     });
 
@@ -1998,6 +2544,11 @@ class $$ProcessingSessionsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get benchmarkJson => $composableBuilder(
+    column: $table.benchmarkJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnFilters(column),
@@ -2108,6 +2659,11 @@ class $$ProcessingSessionsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get benchmarkJson => $composableBuilder(
+    column: $table.benchmarkJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -2155,6 +2711,11 @@ class $$ProcessingSessionsTableAnnotationComposer
 
   GeneratedColumn<String> get error =>
       $composableBuilder(column: $table.error, builder: (column) => column);
+
+  GeneratedColumn<String> get benchmarkJson => $composableBuilder(
+    column: $table.benchmarkJson,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -2252,6 +2813,7 @@ class $$ProcessingSessionsTableTableManager
                 Value<double> enrichElapsedS = const Value.absent(),
                 Value<String> backend = const Value.absent(),
                 Value<String?> error = const Value.absent(),
+                Value<String> benchmarkJson = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => ProcessingSessionsCompanion(
                 id: id,
@@ -2263,6 +2825,7 @@ class $$ProcessingSessionsTableTableManager
                 enrichElapsedS: enrichElapsedS,
                 backend: backend,
                 error: error,
+                benchmarkJson: benchmarkJson,
                 createdAt: createdAt,
               ),
           createCompanionCallback:
@@ -2276,6 +2839,7 @@ class $$ProcessingSessionsTableTableManager
                 Value<double> enrichElapsedS = const Value.absent(),
                 Value<String> backend = const Value.absent(),
                 Value<String?> error = const Value.absent(),
+                Value<String> benchmarkJson = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
               }) => ProcessingSessionsCompanion.insert(
                 id: id,
@@ -2287,6 +2851,7 @@ class $$ProcessingSessionsTableTableManager
                 enrichElapsedS: enrichElapsedS,
                 backend: backend,
                 error: error,
+                benchmarkJson: benchmarkJson,
                 createdAt: createdAt,
               ),
           withReferenceMapper: (p0) => p0
@@ -3274,6 +3839,269 @@ typedef $$SettingsEntriesTableProcessedTableManager =
       SettingsEntry,
       PrefetchHooks Function()
     >;
+typedef $$EnrichmentCacheEntriesTableCreateCompanionBuilder =
+    EnrichmentCacheEntriesCompanion Function({
+      required String word,
+      required String definitionLanguage,
+      required String examplesLanguage,
+      required String definition,
+      required String examples,
+      Value<String> warning,
+      Value<DateTime> createdAt,
+      Value<int> rowid,
+    });
+typedef $$EnrichmentCacheEntriesTableUpdateCompanionBuilder =
+    EnrichmentCacheEntriesCompanion Function({
+      Value<String> word,
+      Value<String> definitionLanguage,
+      Value<String> examplesLanguage,
+      Value<String> definition,
+      Value<String> examples,
+      Value<String> warning,
+      Value<DateTime> createdAt,
+      Value<int> rowid,
+    });
+
+class $$EnrichmentCacheEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $EnrichmentCacheEntriesTable> {
+  $$EnrichmentCacheEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get word => $composableBuilder(
+    column: $table.word,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get definitionLanguage => $composableBuilder(
+    column: $table.definitionLanguage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get examplesLanguage => $composableBuilder(
+    column: $table.examplesLanguage,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get definition => $composableBuilder(
+    column: $table.definition,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get examples => $composableBuilder(
+    column: $table.examples,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get warning => $composableBuilder(
+    column: $table.warning,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$EnrichmentCacheEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $EnrichmentCacheEntriesTable> {
+  $$EnrichmentCacheEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get word => $composableBuilder(
+    column: $table.word,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get definitionLanguage => $composableBuilder(
+    column: $table.definitionLanguage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get examplesLanguage => $composableBuilder(
+    column: $table.examplesLanguage,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get definition => $composableBuilder(
+    column: $table.definition,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get examples => $composableBuilder(
+    column: $table.examples,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get warning => $composableBuilder(
+    column: $table.warning,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$EnrichmentCacheEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $EnrichmentCacheEntriesTable> {
+  $$EnrichmentCacheEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get word =>
+      $composableBuilder(column: $table.word, builder: (column) => column);
+
+  GeneratedColumn<String> get definitionLanguage => $composableBuilder(
+    column: $table.definitionLanguage,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get examplesLanguage => $composableBuilder(
+    column: $table.examplesLanguage,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get definition => $composableBuilder(
+    column: $table.definition,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get examples =>
+      $composableBuilder(column: $table.examples, builder: (column) => column);
+
+  GeneratedColumn<String> get warning =>
+      $composableBuilder(column: $table.warning, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$EnrichmentCacheEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $EnrichmentCacheEntriesTable,
+          EnrichmentCacheEntry,
+          $$EnrichmentCacheEntriesTableFilterComposer,
+          $$EnrichmentCacheEntriesTableOrderingComposer,
+          $$EnrichmentCacheEntriesTableAnnotationComposer,
+          $$EnrichmentCacheEntriesTableCreateCompanionBuilder,
+          $$EnrichmentCacheEntriesTableUpdateCompanionBuilder,
+          (
+            EnrichmentCacheEntry,
+            BaseReferences<
+              _$AppDatabase,
+              $EnrichmentCacheEntriesTable,
+              EnrichmentCacheEntry
+            >,
+          ),
+          EnrichmentCacheEntry,
+          PrefetchHooks Function()
+        > {
+  $$EnrichmentCacheEntriesTableTableManager(
+    _$AppDatabase db,
+    $EnrichmentCacheEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$EnrichmentCacheEntriesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$EnrichmentCacheEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$EnrichmentCacheEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> word = const Value.absent(),
+                Value<String> definitionLanguage = const Value.absent(),
+                Value<String> examplesLanguage = const Value.absent(),
+                Value<String> definition = const Value.absent(),
+                Value<String> examples = const Value.absent(),
+                Value<String> warning = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EnrichmentCacheEntriesCompanion(
+                word: word,
+                definitionLanguage: definitionLanguage,
+                examplesLanguage: examplesLanguage,
+                definition: definition,
+                examples: examples,
+                warning: warning,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String word,
+                required String definitionLanguage,
+                required String examplesLanguage,
+                required String definition,
+                required String examples,
+                Value<String> warning = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EnrichmentCacheEntriesCompanion.insert(
+                word: word,
+                definitionLanguage: definitionLanguage,
+                examplesLanguage: examplesLanguage,
+                definition: definition,
+                examples: examples,
+                warning: warning,
+                createdAt: createdAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$EnrichmentCacheEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $EnrichmentCacheEntriesTable,
+      EnrichmentCacheEntry,
+      $$EnrichmentCacheEntriesTableFilterComposer,
+      $$EnrichmentCacheEntriesTableOrderingComposer,
+      $$EnrichmentCacheEntriesTableAnnotationComposer,
+      $$EnrichmentCacheEntriesTableCreateCompanionBuilder,
+      $$EnrichmentCacheEntriesTableUpdateCompanionBuilder,
+      (
+        EnrichmentCacheEntry,
+        BaseReferences<
+          _$AppDatabase,
+          $EnrichmentCacheEntriesTable,
+          EnrichmentCacheEntry
+        >,
+      ),
+      EnrichmentCacheEntry,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -3286,4 +4114,9 @@ class $AppDatabaseManager {
       $$ExportLogsTableTableManager(_db, _db.exportLogs);
   $$SettingsEntriesTableTableManager get settingsEntries =>
       $$SettingsEntriesTableTableManager(_db, _db.settingsEntries);
+  $$EnrichmentCacheEntriesTableTableManager get enrichmentCacheEntries =>
+      $$EnrichmentCacheEntriesTableTableManager(
+        _db,
+        _db.enrichmentCacheEntries,
+      );
 }

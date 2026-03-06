@@ -22,6 +22,11 @@ class ProcessingSessions extends Table {
   RealColumn get enrichElapsedS => real().withDefault(const Constant(0))();
   TextColumn get backend => text().withDefault(const Constant(''))();
   TextColumn get error => text().nullable()();
+
+  /// Structured benchmark data as JSON (see [BenchmarkData]).
+  TextColumn get benchmarkJson =>
+      text().withDefault(const Constant(''))();
+
   DateTimeColumn get createdAt =>
       dateTime().withDefault(currentDateAndTime)();
 }
@@ -65,12 +70,34 @@ class SettingsEntries extends Table {
   Set<Column> get primaryKey => {key};
 }
 
+/// Cache for enriched word definitions so repeated words skip the LLM.
+class EnrichmentCacheEntries extends Table {
+  /// Lowercased word.
+  TextColumn get word => text()();
+
+  /// Language the definition was generated in.
+  TextColumn get definitionLanguage => text()();
+
+  /// Language the examples were generated in.
+  TextColumn get examplesLanguage => text()();
+
+  TextColumn get definition => text()();
+  TextColumn get examples => text()();
+  TextColumn get warning => text().withDefault(const Constant(''))();
+
+  DateTimeColumn get createdAt =>
+      dateTime().withDefault(currentDateAndTime)();
+
+  @override
+  Set<Column> get primaryKey => {word, definitionLanguage, examplesLanguage};
+}
+
 // ---------------------------------------------------------------------------
 // Database
 // ---------------------------------------------------------------------------
 
 @DriftDatabase(
-  tables: [ProcessingSessions, WordEntries, ExportLogs, SettingsEntries],
+  tables: [ProcessingSessions, WordEntries, ExportLogs, SettingsEntries, EnrichmentCacheEntries],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
@@ -79,7 +106,23 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 3;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            // v2: add benchmark_json column to processing_sessions.
+            await m.addColumn(
+                processingSessions, processingSessions.benchmarkJson);
+          }
+          if (from < 3) {
+            // v3: add enrichment_cache_entries table.
+            await m.createTable(enrichmentCacheEntries);
+          }
+        },
+      );
 
   // -------------------------------------------------------------------------
   // Processing sessions
@@ -179,6 +222,86 @@ class AppDatabase extends _$AppDatabase {
     final query = selectOnly(wordEntries)
       ..addColumns([count])
       ..where(wordEntries.exported.equals(true));
+    final row = await query.getSingle();
+    return row.read(count) ?? 0;
+  }
+
+  // -------------------------------------------------------------------------
+  // Enrichment cache
+  // -------------------------------------------------------------------------
+
+  /// Look up a cached enrichment result for the given word + language pair.
+  Future<EnrichmentCacheEntry?> getCachedEnrichment({
+    required String word,
+    required String definitionLanguage,
+    required String examplesLanguage,
+  }) {
+    final lw = word.toLowerCase();
+    return (select(enrichmentCacheEntries)
+          ..where((t) =>
+              t.word.equals(lw) &
+              t.definitionLanguage.equals(definitionLanguage) &
+              t.examplesLanguage.equals(examplesLanguage)))
+        .getSingleOrNull();
+  }
+
+  /// Batch lookup: returns a map from lowercase word → cached entry.
+  Future<Map<String, EnrichmentCacheEntry>> getCachedEnrichments({
+    required List<String> words,
+    required String definitionLanguage,
+    required String examplesLanguage,
+  }) async {
+    if (words.isEmpty) return {};
+    final lowerWords = words.map((w) => w.toLowerCase()).toList();
+    final rows = await (select(enrichmentCacheEntries)
+          ..where((t) =>
+              t.word.isIn(lowerWords) &
+              t.definitionLanguage.equals(definitionLanguage) &
+              t.examplesLanguage.equals(examplesLanguage)))
+        .get();
+    return {for (final r in rows) r.word: r};
+  }
+
+  /// Insert or update a cache entry.
+  Future<void> cacheEnrichment({
+    required String word,
+    required String definitionLanguage,
+    required String examplesLanguage,
+    required String definition,
+    required String examples,
+    String warning = '',
+  }) {
+    return into(enrichmentCacheEntries).insertOnConflictUpdate(
+      EnrichmentCacheEntriesCompanion.insert(
+        word: word.toLowerCase(),
+        definitionLanguage: definitionLanguage,
+        examplesLanguage: examplesLanguage,
+        definition: definition,
+        examples: examples,
+        warning: Value(warning),
+      ),
+    );
+  }
+
+  /// Batch-insert cache entries.
+  Future<void> cacheEnrichments(
+      List<EnrichmentCacheEntriesCompanion> entries) async {
+    await batch((b) {
+      for (final entry in entries) {
+        b.insert(enrichmentCacheEntries, entry,
+            onConflict: DoUpdate((_) => entry));
+      }
+    });
+  }
+
+  /// Clear the entire enrichment cache.
+  Future<int> clearEnrichmentCache() =>
+      delete(enrichmentCacheEntries).go();
+
+  /// Count of cached entries.
+  Future<int> enrichmentCacheCount() async {
+    final count = enrichmentCacheEntries.word.count();
+    final query = selectOnly(enrichmentCacheEntries)..addColumns([count]);
     final row = await query.getSingle();
     return row.read(count) ?? 0;
   }

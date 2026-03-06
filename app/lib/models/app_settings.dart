@@ -152,3 +152,23 @@ enum InferenceMode {
   /// Forward requests to the existing Python FastAPI backend.
   remote,
 }
+
+/// Languages the user can select for definitions / examples.
+const kSupportedLanguages = [
+  'english',
+  'spanish',
+  'french',
+  'german',
+  'portuguese',
+  'italian',
+  'japanese',
+  'chinese',
+  'korean',
+  'russian',
+  'arabic',
+  'dutch',
+  'swedish',
+  'polish',
+  'turkish',
+  'hindi',
+];

@@ -81,6 +81,7 @@ class EnrichWordResult(BaseModel):
     word: str
     definition: str
     examples: str
+    warning: str = ""  # "not_found", "truncated", or "" (ok)
 
 
 class EnrichResponse(BaseModel):

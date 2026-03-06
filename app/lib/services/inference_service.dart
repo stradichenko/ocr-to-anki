@@ -26,11 +26,15 @@ class EnrichWordResult {
     required this.word,
     required this.definition,
     required this.examples,
+    this.warning = '',
   });
 
   final String word;
   final String definition;
   final String examples;
+
+  /// Quality warning: 'not_found', 'truncated', or '' (ok).
+  final String warning;
 }
 
 /// Unified inference service that can run in two modes:
@@ -132,7 +136,7 @@ class InferenceService {
   Future<VisionOcrResult> visionOcr({
     required Uint8List imageBytes,
     String prompt =
-        'Extract all visible text from this image. List each word or phrase you can read.',
+        'List every word visible in this image. Output ONLY the words, one per line. No bullet points, no numbering, no descriptions, no commentary.',
     int timeoutSeconds = 2700,
   }) async {
     switch (_settings.inferenceMode) {
@@ -254,12 +258,24 @@ class InferenceService {
   // ---------------------------------------------------------------------------
 
   /// Enrich a list of words with definitions and example sentences.
+  ///
+  /// Words are sent in chunks of [chunkSize] with a per-chunk [chunkTimeout].
+  /// This makes the timeout scale naturally regardless of total word count
+  /// (100s or 1000s of words all work the same).
+  ///
+  /// [onChunkDone] is called after each chunk finishes so the UI can show
+  /// live progress.  It receives the completed count, total, and the results
+  /// from the just-finished chunk.
   Future<List<EnrichWordResult>> enrichWords({
     required List<String> words,
     String? definitionLanguage,
     String? examplesLanguage,
     int? maxTokens,
     double? temperature,
+    int chunkSize = 6,
+    Duration chunkTimeout = const Duration(minutes: 5),
+    void Function(int completedWords, int totalWords,
+        List<EnrichWordResult> chunkResults)? onChunkDone,
   }) async {
     switch (_settings.inferenceMode) {
       case InferenceMode.embedded:
@@ -267,57 +283,99 @@ class InferenceService {
           'Embedded inference not yet available -- use remote mode.',
         );
       case InferenceMode.remote:
-        return _remoteEnrich(
+        return _remoteEnrichChunked(
           words: words,
           definitionLanguage:
               definitionLanguage ?? _settings.definitionLanguage,
           examplesLanguage: examplesLanguage ?? _settings.examplesLanguage,
           maxTokens: maxTokens ?? 256,
           temperature: temperature ?? _settings.temperature,
+          chunkSize: chunkSize,
+          chunkTimeout: chunkTimeout,
+          onChunkDone: onChunkDone,
         );
     }
   }
 
-  Future<List<EnrichWordResult>> _remoteEnrich({
+  /// Send words in small chunks, each with its own timeout.
+  Future<List<EnrichWordResult>> _remoteEnrichChunked({
     required List<String> words,
     required String definitionLanguage,
     required String examplesLanguage,
     required int maxTokens,
     required double temperature,
+    required int chunkSize,
+    required Duration chunkTimeout,
+    void Function(int completedWords, int totalWords,
+        List<EnrichWordResult> chunkResults)? onChunkDone,
   }) async {
-    final uri = Uri.parse('${_settings.serverUrl}/enrich');
+    final allResults = <EnrichWordResult>[];
+    final chunks = <List<String>>[];
 
-    final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'words': words,
-            'definition_language': definitionLanguage,
-            'examples_language': examplesLanguage,
-            'max_tokens': maxTokens,
-            'temperature': temperature,
-          }),
-        )
-        .timeout(Duration(seconds: words.length * 60 + 30));
+    for (var i = 0; i < words.length; i += chunkSize) {
+      chunks.add(words.sublist(i, (i + chunkSize).clamp(0, words.length)));
+    }
 
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Enrich failed (${response.statusCode}): ${response.body}',
+    for (var ci = 0; ci < chunks.length; ci++) {
+      final chunk = chunks[ci];
+      final uri = Uri.parse('${_settings.serverUrl}/enrich');
+      final prevCount = allResults.length;
+
+      try {
+        final response = await http
+            .post(
+              uri,
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'words': chunk,
+                'definition_language': definitionLanguage,
+                'examples_language': examplesLanguage,
+                'max_tokens': maxTokens,
+                'temperature': temperature,
+              }),
+            )
+            .timeout(chunkTimeout);
+
+        if (response.statusCode != 200) {
+          throw Exception(
+            'Enrich chunk ${ci + 1}/${chunks.length} failed '
+            '(${response.statusCode}): ${response.body}',
+          );
+        }
+
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        final results = body['results'] as List<dynamic>? ?? [];
+
+        allResults.addAll(results.map((r) {
+          final m = r as Map<String, dynamic>;
+          return EnrichWordResult(
+            word: m['word'] as String? ?? '',
+            definition: m['definition'] as String? ?? '',
+            examples: m['examples'] as String? ?? '',
+            warning: m['warning'] as String? ?? '',
+          );
+        }));
+      } catch (e) {
+        // On timeout / error, fill this chunk with not_found entries
+        // so processing continues with the remaining chunks.
+        for (final w in chunk) {
+          allResults.add(EnrichWordResult(
+            word: w,
+            definition: '',
+            examples: '',
+            warning: 'not_found',
+          ));
+        }
+      }
+
+      onChunkDone?.call(
+        allResults.length.clamp(0, words.length),
+        words.length,
+        allResults.sublist(prevCount),
       );
     }
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final results = body['results'] as List<dynamic>? ?? [];
-
-    return results.map((r) {
-      final m = r as Map<String, dynamic>;
-      return EnrichWordResult(
-        word: m['word'] as String? ?? '',
-        definition: m['definition'] as String? ?? '',
-        examples: m['examples'] as String? ?? '',
-      );
-    }).toList();
+    return allResults;
   }
 
   // ---------------------------------------------------------------------------

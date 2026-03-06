@@ -85,13 +85,13 @@ class SettingsScreen extends ConsumerWidget {
           // Language
           // ---------------------------------------------------------------
           _SectionHeader('Languages'),
-          _TextFieldTile(
+          _LanguagePicker(
             label: 'Definition language',
             value: settings.definitionLanguage,
             onChanged: (v) =>
                 notifier.update((s) => s..definitionLanguage = v),
           ),
-          _TextFieldTile(
+          _LanguagePicker(
             label: 'Examples language',
             value: settings.examplesLanguage,
             onChanged: (v) =>
@@ -194,6 +194,12 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 32),
 
           // ---------------------------------------------------------------
+          // Enrichment Cache
+          // ---------------------------------------------------------------
+          _SectionHeader('Enrichment Cache'),
+          _CacheTile(),
+
+          // ---------------------------------------------------------------
           // Connection test
           // ---------------------------------------------------------------
           Padding(
@@ -252,6 +258,45 @@ class _TextFieldTile extends StatelessWidget {
           isDense: true,
         ),
         onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Language picker (dropdown menu)
+// ---------------------------------------------------------------------------
+
+class _LanguagePicker extends StatelessWidget {
+  const _LanguagePicker({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      title: DropdownButtonFormField<String>(
+        value: kSupportedLanguages.contains(value) ? value : kSupportedLanguages.first,
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: kSupportedLanguages.map((lang) {
+          return DropdownMenuItem(
+            value: lang,
+            child: Text(lang[0].toUpperCase() + lang.substring(1)),
+          );
+        }).toList(),
+        onChanged: (v) {
+          if (v != null) onChanged(v);
+        },
       ),
     );
   }
@@ -327,5 +372,83 @@ class _ConnectionTestButtonState
       _testing = false;
       _result = ok ? '[OK] AnkiConnect reachable' : '[FAIL] Cannot reach AnkiConnect';
     });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Enrichment cache management tile
+// ---------------------------------------------------------------------------
+
+class _CacheTile extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_CacheTile> createState() => _CacheTileState();
+}
+
+class _CacheTileState extends ConsumerState<_CacheTile> {
+  int? _count;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCount();
+  }
+
+  Future<void> _loadCount() async {
+    final db = ref.read(databaseProvider);
+    final count = await db.enrichmentCacheCount();
+    if (mounted) setState(() => _count = count);
+  }
+
+  Future<void> _clearCache() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear enrichment cache?'),
+        content: const Text(
+          'All cached word definitions will be deleted. '
+          'Future enrichments will need to call the LLM again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final db = ref.read(databaseProvider);
+    await db.clearEnrichmentCache();
+    await _loadCount();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enrichment cache cleared')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      title: Text(
+        _count != null
+            ? '$_count cached word definition(s)'
+            : 'Loading cache info…',
+      ),
+      subtitle: const Text(
+        'Cached definitions are reused instantly, skipping the LLM',
+      ),
+      trailing: TextButton.icon(
+        onPressed: (_count ?? 0) > 0 ? _clearCache : null,
+        icon: const Icon(Icons.delete_sweep, size: 18),
+        label: const Text('Clear'),
+      ),
+    );
   }
 }

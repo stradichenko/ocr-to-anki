@@ -13,6 +13,7 @@ import asyncio
 import base64
 import hashlib
 import logging
+import re
 import tempfile
 import time
 from contextlib import asynccontextmanager
@@ -42,6 +43,7 @@ from backends.mtmd_cli import LlamaMtmdCli
 from backends.llama_cpp_server import LlamaCppServer
 
 log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(message)s")
 
 # -------------------------------------------------------------------
 # Globals (set during lifespan)
@@ -69,7 +71,9 @@ def _init_vision() -> Optional[LlamaMtmdCli]:
 def _init_text() -> Optional[LlamaCppServer]:
     """Try to initialise the text backend; return None on failure."""
     try:
-        server = LlamaCppServer()
+        # Context window: prompt (~100 tok) + output (2 × 150 = 300 tok) ≈ 400.
+        # 1024 leaves plenty of room and keeps KV cache small for the iGPU.
+        server = LlamaCppServer(context_size=1024)
         # Don't auto-start here; start lazily on first request
         log.info("Text backend configured: %s", server.model_path.name)
         return server
@@ -370,40 +374,283 @@ async def generate(req: GenerateRequest):
     )
 
 
+def _build_enrich_prompt(words: list[str], def_lang: str, ex_lang: str) -> str:
+    """Build a single batched prompt for all words."""
+    word_list = "\n".join(f"- {w}" for w in words)
+    return (
+        f"For each word below, provide:\n"
+        f"1) A concise definition (1-2 sentences) written in {def_lang}\n"
+        f"2) Two short example sentences written in {ex_lang}\n\n"
+        f"CRITICAL: You MUST use these EXACT English labels for formatting:\n"
+        f"WORD:, DEF:, EX1:, EX2:\n"
+        f"Do NOT translate the labels into {def_lang} or any other language.\n"
+        f"Only the definition text and example sentences should be in the "
+        f"requested language.\n\n"
+        f"If you do not recognize a word or it is not a real word, "
+        f"write DEF: UNKNOWN and leave the examples empty.\n\n"
+        f"Use EXACTLY this format for each word (no extra text):\n\n"
+        f"WORD: <word>\n"
+        f"DEF: <definition in {def_lang}>\n"
+        f"EX1: <example sentence in {ex_lang}>\n"
+        f"EX2: <example sentence in {ex_lang}>\n\n"
+        f"Words:\n{word_list}"
+    )
+
+
+# Regex patterns for multilingual format markers the LLM might produce
+# when asked for definitions in non-English languages.
+_WORD_SPLIT_RE = re.compile(
+    r"(?m)^(?:WORD|WORT|MOT|PALABRA|PALAVRA|PAROLA|СЛОВО|単語|단어):\s*",
+    re.IGNORECASE,
+)
+_DEF_RE = re.compile(
+    r"^(?:DEF|DEFINITION|BEDEUTUNG|DÉFINITION|DEFINICIÓN|DEFINIÇÃO|DEFINIZIONE):\s*",
+    re.IGNORECASE,
+)
+_EX1_RE = re.compile(
+    r"^(?:EX1|BEISPIEL\s*1|EXEMPLE\s*1|EJEMPLO\s*1|EXEMPLO\s*1|ESEMPIO\s*1):\s*",
+    re.IGNORECASE,
+)
+_EX2_RE = re.compile(
+    r"^(?:EX2|BEISPIEL\s*2|EXEMPLE\s*2|EJEMPLO\s*2|EXEMPLO\s*2|ESEMPIO\s*2):\s*",
+    re.IGNORECASE,
+)
+
+
+def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
+    """Parse batched enrichment response into per-word dicts."""
+    log.debug("Raw LLM response (%d chars):\n%s", len(text), text[:800])
+    results = []
+    # Split by WORD: markers (supports translated labels)
+    blocks = _WORD_SPLIT_RE.split(text)
+    parsed: dict[str, dict] = {}
+    parsed_ordered: list[dict] = []  # positional fallback
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        lines = block.split("\n", 1)
+        word_key = lines[0].strip()
+        body = lines[1] if len(lines) > 1 else ""
+        defn = ""
+        examples = ""
+        for line in body.split("\n"):
+            line = line.strip()
+            if _DEF_RE.match(line):
+                defn = _DEF_RE.sub("", line).strip()
+            elif _EX1_RE.match(line):
+                examples = _EX1_RE.sub("", line).strip()
+            elif _EX2_RE.match(line):
+                ex2 = _EX2_RE.sub("", line).strip()
+                if ex2:
+                    examples += "\n" + ex2
+        data = {"definition": defn, "examples": examples}
+        parsed[word_key.lower()] = data
+        parsed_ordered.append(data)
+
+    # Match back to original word list.
+    for idx, w in enumerate(words):
+        # 1. Exact case-insensitive match.
+        entry = parsed.get(w.lower())
+        # 2. Positional fallback — if the model reformulated the word
+        #    (e.g. singular vs plural, added accent), use the Nth block.
+        if entry is None and idx < len(parsed_ordered):
+            entry = parsed_ordered[idx]
+            log.debug("Positional match for %r → block %d", w, idx)
+        if entry is None:
+            entry = {}
+        defn = entry.get("definition", "")
+        examples = entry.get("examples", "")
+
+        # Detect UNKNOWN marker from LLM
+        if (
+            defn.strip().upper() == "UNKNOWN"
+            or defn.strip().upper().startswith("UNKNOWN")
+            or "UNKNOWN" in defn.upper()
+        ):
+            defn = ""
+            examples = ""
+            warning = "not_found"
+        # Detect truncated definitions (no terminal punctuation)
+        elif defn and not defn.rstrip().endswith(('.', '!', '?', '"', ')')):
+            warning = "truncated"
+        elif not defn:
+            warning = "not_found"
+        else:
+            warning = ""
+
+        results.append({
+            "word": w,
+            "definition": defn,
+            "examples": examples,
+            "warning": warning,
+        })
+    return results
+
+
+def _sanitize_words(raw: list[str]) -> list[str]:
+    """Clean OCR artefacts from word list before enrichment."""
+    cleaned: list[str] = []
+    for w in raw:
+        # Strip markdown bullets, numbering, leading punctuation
+        w = re.sub(r'^[\s*\-\u2022\u00b7#>]+', '', w)
+        w = re.sub(r'^\d+\.\s*', '', w)
+        w = w.strip()
+        if len(w) < 2:
+            continue
+        # Skip LLM commentary: sentences with >4 words
+        if len(w.split()) > 4:
+            log.debug("Skipping non-word: %r", w)
+            continue
+        cleaned.append(w)
+    return cleaned
+
+
 @app.post("/enrich", response_model=EnrichResponse, tags=["vocabulary"])
 async def enrich(req: EnrichRequest):
     """
     Enrich a list of vocabulary words with definitions and example sentences.
+
+    Processes words in small batches (3 at a time) to keep each LLM call
+    short enough for the iGPU.  Each batch generates ~180 tokens instead
+    of ~1600 for 20 words, avoiding timeouts and keeping the model on-format.
     """
     _ensure_text_server()
 
+    # Sanitize words — remove OCR/LLM artefacts before sending to the model
+    sanitized = _sanitize_words(req.words)
+    if not sanitized:
+        return EnrichResponse(results=[], elapsed_s=0.0)
+    log.info("Enrichment: %d raw words → %d after cleanup", len(req.words), len(sanitized))
+
     t0 = time.monotonic()
-    results = []
+    all_parsed: list[dict] = []
 
-    for word in req.words:
-        # Definition
-        def_result = await asyncio.to_thread(
-            _text.generate,
-            prompt=f'Define the word "{word}" in {req.definition_language}. Be concise (1\u20132 sentences).',
-            max_tokens=req.max_tokens,
-            temperature=req.temperature,
+    BATCH_SIZE = 2  # small batches — 2 words × 150 tok ≈ 300 output, fits 1024
+    # Token budget per word: definitions (1-2 sentences) + 2 example sentences
+    # typically need 90-120 tokens each.  The old budget of 60 caused
+    # truncation and lost words when the response was cut mid-batch.
+    TOKENS_PER_WORD = 150
+    batches = [
+        sanitized[i : i + BATCH_SIZE]
+        for i in range(0, len(sanitized), BATCH_SIZE)
+    ]
+
+    for batch_idx, batch in enumerate(batches, 1):
+        log.info(
+            "Enrichment batch %d/%d  (%d words: %s)",
+            batch_idx, len(batches), len(batch), ", ".join(batch),
+        )
+        prompt = _build_enrich_prompt(
+            batch, req.definition_language, req.examples_language,
+        )
+        max_tok = TOKENS_PER_WORD * len(batch)
+        # Timeout: iGPU needs ~200s prompt eval + ~200s/word generation.
+        # First batch may also include server restart overhead (~90s).
+        batch_timeout = 900
+
+        batch_parsed = None
+        for attempt in range(2):  # one retry on failure
+            try:
+                result = await asyncio.to_thread(
+                    _text.generate,
+                    prompt=prompt,
+                    max_tokens=max_tok,
+                    temperature=req.temperature,
+                    timeout=batch_timeout,
+                )
+                batch_parsed = _parse_enrich_response(result["content"], batch)
+                break
+            except Exception as e:
+                if attempt == 0:
+                    log.warning(
+                        "Batch %d/%d failed (attempt 1: %s), restarting server...",
+                        batch_idx, len(batches), e,
+                    )
+                    # Server may have crashed / timed out — restart it
+                    try:
+                        _text.stop()
+                    except Exception:
+                        pass
+                    try:
+                        _ensure_text_server()
+                    except Exception as restart_err:
+                        log.error("Server restart failed: %s", restart_err)
+                else:
+                    log.error(
+                        "Batch %d/%d failed after retry: %s",
+                        batch_idx, len(batches), e,
+                    )
+
+        if batch_parsed:
+            all_parsed.extend(batch_parsed)
+        else:
+            # Fill with empty entries so we don't lose words
+            for w in batch:
+                all_parsed.append({"word": w, "definition": "", "examples": "", "warning": "not_found"})
+
+        log.info(
+            "Batch %d/%d done in %.1fs",
+            batch_idx, len(batches), time.monotonic() - t0,
         )
 
-        # Examples
-        ex_result = await asyncio.to_thread(
-            _text.generate,
-            prompt=f'Write 2 short example sentences using "{word}" in {req.examples_language}.',
-            max_tokens=req.max_tokens,
-            temperature=max(0.5, req.temperature),
+    # ── Retry not_found words in small batches ─────────────────────
+    not_found_words = [p["word"] for p in all_parsed if p["warning"] == "not_found"]
+    if not_found_words:
+        retry_list = not_found_words[:4]  # cap to 2 retry batches of 2
+        log.info(
+            "Retrying %d/%d not_found word(s): %s",
+            len(retry_list), len(not_found_words), ", ".join(retry_list),
         )
+        retry_batches = [
+            retry_list[i : i + 2]
+            for i in range(0, len(retry_list), 2)
+        ]
+        retry_lookup: dict[str, dict] = {}
+        for rb_idx, rb in enumerate(retry_batches, 1):
+            prompt = _build_enrich_prompt(
+                rb, req.definition_language, req.examples_language,
+            )
+            try:
+                result = await asyncio.to_thread(
+                    _text.generate,
+                    prompt=prompt,
+                    max_tokens=TOKENS_PER_WORD * len(rb),
+                    temperature=req.temperature,
+                    timeout=batch_timeout,
+                )
+                rp = _parse_enrich_response(result["content"], rb)
+                for entry in rp:
+                    if entry["definition"]:
+                        retry_lookup[entry["word"].lower()] = entry
+            except Exception as e:
+                log.warning("Retry batch %d failed: %s", rb_idx, e)
 
-        results.append(EnrichWordResult(
-            word=word,
-            definition=def_result["content"],
-            examples=ex_result["content"],
-        ))
+        # Merge recovered words back.
+        recovered = 0
+        for i, p in enumerate(all_parsed):
+            replacement = retry_lookup.get(p["word"].lower())
+            if p["warning"] == "not_found" and replacement:
+                all_parsed[i] = replacement
+                recovered += 1
+        if recovered:
+            log.info("Retry recovered %d/%d word(s)", recovered, len(not_found_words))
+
+    results = [
+        EnrichWordResult(
+            word=p["word"],
+            definition=p["definition"],
+            examples=p["examples"],
+            warning=p.get("warning", ""),
+        )
+        for p in all_parsed
+    ]
 
     elapsed = time.monotonic() - t0
+    log.info(
+        "Enrichment complete: %d words in %d batches, %.1fs total",
+        len(sanitized), len(batches), elapsed,
+    )
 
     return EnrichResponse(results=results, elapsed_s=round(elapsed, 2))
 
@@ -466,30 +713,30 @@ async def pipeline_image_to_cards(
 
     # Step 3: Enrich (skip if text server unavailable)
     cards = []
-    if _text is not None:
+    capped = words[:20]
+    if _text is not None and capped:
         _ensure_text_server()
-        for word in words[:20]:  # cap at 20 words
-            try:
-                defn = await asyncio.to_thread(
+        BATCH_SIZE = 3  # small batches to fit in 1024 context window
+        batches = [capped[i : i + BATCH_SIZE] for i in range(0, len(capped), BATCH_SIZE)]
+        try:
+            for batch in batches:
+                prompt = _build_enrich_prompt(batch, definition_language, examples_language)
+                max_tok = 60 * len(batch)
+                result = await asyncio.to_thread(
                     _text.generate,
-                    prompt=f'Define "{word}" in {definition_language}. 1-2 sentences.',
-                    max_tokens=128,
+                    prompt=prompt,
+                    max_tokens=max_tok,
                     temperature=0.1,
+                    timeout=len(batch) * 60 + 60,
                 )
-                exs = await asyncio.to_thread(
-                    _text.generate,
-                    prompt=f'Write 2 example sentences using "{word}" in {examples_language}.',
-                    max_tokens=150,
-                    temperature=0.5,
-                )
-                cards.append({
-                    "word": word,
-                    "definition": defn["content"],
-                    "examples": exs["content"],
-                })
-            except Exception as e:
-                log.warning("Failed to enrich '%s': %s", word, e)
-                cards.append({"word": word, "definition": "", "examples": ""})
+                cards.extend(_parse_enrich_response(result["content"], batch))
+        except Exception as e:
+            log.warning("Batched enrichment failed: %s", e)
+            # Fill remaining words with empty entries
+            enriched = {c["word"].lower() for c in cards}
+            for w in capped:
+                if w.lower() not in enriched:
+                    cards.append({"word": w, "definition": "", "examples": ""})
     else:
         cards = [{"word": w, "definition": "", "examples": ""} for w in words]
 

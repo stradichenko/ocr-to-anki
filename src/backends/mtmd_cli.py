@@ -125,24 +125,21 @@ class LlamaMtmdCli:
         self.max_tokens = max_tokens
         # Intel iGPU vision encoder (mmproj) offloading
         # ───────────────────────────────────────────────
-        # GPU mmproj on Intel Gen9.5 Vulkan produces CORRUPTED CLIP
-        # embeddings (multilingual garbage text) even when:
+        # GPU mmproj on Intel Gen9.5 Vulkan works correctly when using
+        # a patched ggml-vulkan.cpp with these workarounds:
+        #   - serialize_graph: per-node submit + fence wait (fixes
+        #     broken intra-command-buffer barriers in Mesa i915)
+        #   - force_f32_matmul: f32 accumulation in matmul shaders
+        #     (fixes 1-6% per-op error from fp16 accumulation)
+        #   - disable_fusion: prevents fused ops that bypass barriers
         #
-        #   ✅ IM2COL workgroup overflow fix applied (PR #18180, b8182)
-        #   ✅ i915 preemption timeout disabled (preempt_timeout_ms=0)
-        #   ✅ No GPU hangs or resets in kernel log
+        # Also requires i915 preempt_timeout_ms=0 and heartbeat_interval_ms=0
+        # (set via NixOS systemd service or scripts/setup-intel-gpu-timeout.sh).
         #
-        # The corruption is a Vulkan shader computation bug, likely
-        # related to subgroup arithmetic on Gen9.5 (see #15846 for the
-        # analogous AMD RDNA1/2 fix).  Diagnosing the exact failing op
-        # requires rebuilding with GGML_VULKAN_CHECK_RESULTS=ON.
+        # With these fixes, GPU vision encoder runs in ~14s vs ~20 min on CPU.
+        # Total inference time: ~5.5 min (vision 14s + prompt eval 69s + gen 248s).
         #
-        # Therefore mmproj must stay on CPU (--no-mmproj-offload) for
-        # all Intel iGPU backends.  The text LLM layers still run on
-        # the GPU — Vulkan + flash attention cuts prompt eval from
-        # ~1536 s (OpenCL, no FA) to ~40 s.
-        #
-        # OpenCL: also needs CPU mmproj — lacks GGML_OP_POOL_2D needed
+        # OpenCL: needs CPU mmproj — lacks GGML_OP_POOL_2D needed
         # by Gemma 3's SigLIP vision encoder (crashes during warmup).
 
         # Detect if we're using the OpenCL backend
@@ -151,7 +148,7 @@ class LlamaMtmdCli:
             or (self.detection and self.detection.recommended_backend == Backend.OPENCL)
         )
 
-        self.mmproj_offload = mmproj_offload if mmproj_offload is not None else False
+        self.mmproj_offload = mmproj_offload if mmproj_offload is not None else True
 
         # Handle for the currently running subprocess so it can be killed
         # on cancellation from another thread.
@@ -192,11 +189,10 @@ class LlamaMtmdCli:
         Run vision OCR on an image.
 
         The default timeout is 2700 s (45 min) because the vision encoder
-        runs on CPU (``--no-mmproj-offload``) — GPU mmproj produces
-        corrupted CLIP embeddings on Intel Gen9.5 Vulkan.  CPU encoding
-        of the 896×896 SigLIP tile takes ~20 min on an i3-10110U.  With
-        Vulkan + flash attention the subsequent prompt eval drops to ~40 s
-        and generation to ~27 s.
+        runs on GPU with the patched ggml-vulkan.cpp (serialize_graph +
+        force_f32_matmul workarounds for Intel Gen9.5). Vision encoding
+        takes ~14s on GPU vs ~20 min on CPU. Total inference ~5.5 min
+        on i3-10110U with all 34 LLM layers on Vulkan GPU.
 
         Returns
         -------

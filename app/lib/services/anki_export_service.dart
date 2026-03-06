@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -35,13 +36,28 @@ class AnkiExportService {
       'params': params,
     };
 
-    final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(payload),
-        )
-        .timeout(Duration(seconds: _settings.ankiConnectTimeout));
+    http.Response response;
+    try {
+      response = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(payload),
+          )
+          .timeout(Duration(seconds: _settings.ankiConnectTimeout));
+    } on SocketException catch (e) {
+      if (e.osError?.errorCode == 111 || e.message.contains('Connection refused')) {
+        throw AnkiConnectException(
+          'Connection refused – is Anki running with AnkiConnect installed?\n\n'
+          'AnkiConnect URL: ${_settings.ankiConnectUrl}\n'
+          'Error: $e',
+        );
+      }
+      throw AnkiConnectException(
+        'Cannot reach Anki at ${_settings.ankiConnectUrl}\n'
+        'Error: $e',
+      );
+    }
 
     if (response.statusCode != 200) {
       throw AnkiConnectException(
@@ -128,6 +144,46 @@ class AnkiExportService {
     } catch (_) {
       return List<int?>.filled(notes.length, null);
     }
+  }
+
+  /// Export notes as a tab-separated text file importable by Anki.
+  ///
+  /// Format: `Front\tBack\ttag1 tag2`
+  /// Anki File → Import understands this format.
+  String exportToTsv(List<AnkiNote> notes) {
+    final buffer = StringBuffer();
+    // Header comment so the user knows what this file is.
+    buffer.writeln('#separator:tab');
+    buffer.writeln('#html:false');
+    buffer.writeln('#deck:${_settings.defaultDeck}');
+    buffer.writeln('#notetype:${_settings.defaultModel}');
+    buffer.writeln('#tags column:3');
+
+    for (final note in notes) {
+      final front = _escapeTsvField(note.front);
+      final back = _escapeTsvField(
+        note.back.isNotEmpty ? note.back : _composeBack(note),
+      );
+      final tags = note.tags.join(' ');
+      buffer.writeln('$front\t$back\t$tags');
+    }
+
+    return buffer.toString();
+  }
+
+  String _composeBack(AnkiNote note) {
+    final parts = <String>[];
+    if (note.definition.isNotEmpty) parts.add(note.definition);
+    if (note.examples.isNotEmpty) parts.add(note.examples);
+    return parts.join('\n\n');
+  }
+
+  /// Escape a TSV field: replace tabs with spaces, newlines with <br>.
+  String _escapeTsvField(String value) {
+    return value
+        .replaceAll('\t', '    ')
+        .replaceAll('\r\n', '<br>')
+        .replaceAll('\n', '<br>');
   }
 
   /// Export notes as a JSON string in the same format as `data/test_notes.json`.

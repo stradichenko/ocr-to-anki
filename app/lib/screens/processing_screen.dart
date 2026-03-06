@@ -22,9 +22,16 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
   void initState() {
     super.initState();
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final start = ref.read(processingProvider).startTime;
+      final state = ref.read(processingProvider);
+      final start = state.startTime;
       if (start != null) {
         setState(() => _elapsed = DateTime.now().difference(start));
+      }
+      // Stop the timer once processing finishes.
+      if (state.phase == ProcessingPhase.done ||
+          state.phase == ProcessingPhase.error) {
+        _elapsedTimer?.cancel();
+        _elapsedTimer = null;
       }
     });
   }
@@ -138,17 +145,35 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
                 const SizedBox(height: 8),
 
                 // Status message
-                Text(
-                  state.statusMessage,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w500,
+                Flexible(
+                  flex: 0,
+                  child: Text(
+                    state.statusMessage,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
 
-                // Activity log
-                if (state.activityLog.isNotEmpty)
+                // ── Word Review UI ──────────────────────────────────────
+                if (state.phase == ProcessingPhase.wordReview)
+                  Expanded(
+                    child: _WordReviewPanel(
+                      words: state.words,
+                      onConfirm: (words) => ref
+                          .read(processingProvider.notifier)
+                          .confirmWords(words),
+                      onSkip: () => ref
+                          .read(processingProvider.notifier)
+                          .skipEnrichment(),
+                    ),
+                  )
+                // ── Activity log (all other phases) ─────────────────────
+                else if (state.activityLog.isNotEmpty)
                   Expanded(
                     child: Card(
                       color: theme.colorScheme.surfaceContainerLowest,
@@ -312,7 +337,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
                   FilledButton.icon(
                     onPressed: () {
                       Navigator.of(context)
-                          .pushReplacementNamed('/review');
+                          .pushNamed('/review');
                     },
                     icon: const Icon(Icons.rate_review),
                     label: const Text('Review Cards'),
@@ -331,6 +356,156 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Editable word list shown during the wordReview phase
+// ---------------------------------------------------------------------------
+
+class _WordReviewPanel extends StatefulWidget {
+  const _WordReviewPanel({
+    required this.words,
+    required this.onConfirm,
+    required this.onSkip,
+  });
+
+  final List<String> words;
+  final void Function(List<String>) onConfirm;
+  final VoidCallback onSkip;
+
+  @override
+  State<_WordReviewPanel> createState() => _WordReviewPanelState();
+}
+
+class _WordReviewPanelState extends State<_WordReviewPanel> {
+  late List<String> _words;
+  final _addController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _words = List<String>.from(widget.words);
+  }
+
+  @override
+  void dispose() {
+    _addController.dispose();
+    super.dispose();
+  }
+
+  void _removeWord(int index) => setState(() => _words.removeAt(index));
+
+  void _addWord() {
+    final w = _addController.text.trim();
+    if (w.isNotEmpty) {
+      setState(() => _words.add(w));
+      _addController.clear();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.edit_note,
+                    size: 20, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Review Words (${_words.length})',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Remove any OCR errors or add missing words before enrichment.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Add word row
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _addController,
+                    decoration: const InputDecoration(
+                      hintText: 'Add a word…',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    onSubmitted: (_) => _addWord(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: _addWord,
+                  icon: const Icon(Icons.add, size: 20),
+                  tooltip: 'Add word',
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            // Scrollable word chips
+            Expanded(
+              child: SingleChildScrollView(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: List.generate(_words.length, (i) {
+                    return InputChip(
+                      label: Text(_words[i]),
+                      onDeleted: () => _removeWord(i),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                    );
+                  }),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: widget.onSkip,
+                    child: const Text('Skip Enrichment'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton.icon(
+                    onPressed: _words.isNotEmpty
+                        ? () => widget.onConfirm(_words)
+                        : null,
+                    icon: const Icon(Icons.auto_awesome),
+                    label: Text('Enrich ${_words.length} Word(s)'),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -417,6 +592,7 @@ class _PhaseIndicator extends StatelessWidget {
     final steps = [
       ('Crop', ProcessingPhase.cropping, Icons.crop),
       ('OCR', ProcessingPhase.ocr, Icons.document_scanner),
+      ('Review', ProcessingPhase.wordReview, Icons.edit_note),
       ('Enrich', ProcessingPhase.enriching, Icons.auto_awesome),
       ('Done', ProcessingPhase.done, Icons.check_circle),
     ];

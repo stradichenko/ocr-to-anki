@@ -311,7 +311,8 @@ class LlamaCppServer:
         t0 = time.monotonic()
         try:
             result = self._http_post("/completion", payload, timeout=timeout)
-        except urllib.error.URLError as exc:
+        except (urllib.error.URLError, OSError) as exc:
+            # OSError catches ConnectionError / RemoteDisconnected (server crash)
             raise RuntimeError(f"Request to llama-server failed: {exc}") from exc
         wall = time.monotonic() - t0
 
