@@ -369,15 +369,8 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         final r = results[ri];
         if (ri < failedIndices.length && r.definition.isNotEmpty) {
           final idx = failedIndices[ri];
-          // Auto-apply OCR correction.
-          final corrected = r.correctedWord;
-          final word = (corrected.isNotEmpty &&
-                  corrected.toLowerCase() !=
-                      _cards[idx].word.toLowerCase())
-              ? corrected
-              : _cards[idx].word;
+          // Keep the original word – only update definition & examples.
           _cards[idx] = _cards[idx].copyWith(
-            word: word,
             definition: r.definition,
             examples: r.examples,
             warning: r.warning,
@@ -432,15 +425,8 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
 
       if (results.isNotEmpty && results.first.definition.isNotEmpty) {
         final r = results.first;
-        // Auto-apply OCR correction.
-        final corrected = r.correctedWord;
-        final word = (corrected.isNotEmpty &&
-                corrected.toLowerCase() !=
-                    _cards[index].word.toLowerCase())
-            ? corrected
-            : _cards[index].word;
+        // Keep the original word – only update definition & examples.
         _cards[index] = _cards[index].copyWith(
-          word: word,
           definition: r.definition,
           examples: r.examples,
           warning: r.warning,
@@ -493,15 +479,8 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         final r = results[ri];
         if (ri < indices.length && r.definition.isNotEmpty) {
           final idx = indices[ri];
-          // Auto-apply OCR correction.
-          final corrected = r.correctedWord;
-          final word = (corrected.isNotEmpty &&
-                  corrected.toLowerCase() !=
-                      _cards[idx].word.toLowerCase())
-              ? corrected
-              : _cards[idx].word;
+          // Keep the original word – only update definition & examples.
           _cards[idx] = _cards[idx].copyWith(
-            word: word,
             definition: r.definition,
             examples: r.examples,
             warning: r.warning,
