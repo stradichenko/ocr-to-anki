@@ -145,7 +145,11 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                           });
                         },
                       ),
-                      Text('Select All',
+                      Text(
+                          _cards.isNotEmpty &&
+                                  _cards.every((c) => c.selected)
+                              ? 'Deselect All'
+                              : 'Select All',
                           style: theme.textTheme.bodyMedium),
                       const Spacer(),
                       OutlinedButton.icon(
@@ -726,10 +730,17 @@ class _CardTile extends StatelessWidget {
                       onChanged(card.copyWith(selected: v ?? true)),
                 ),
                 Expanded(
-                  child: Text(
-                    card.word,
+                  child: TextFormField(
+                    initialValue: card.word,
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.bold),
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 4),
+                    ),
+                    onChanged: (v) => onChanged(card.copyWith(word: v)),
                   ),
                 ),
                 if (hasWarning) ...[

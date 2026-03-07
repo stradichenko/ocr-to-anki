@@ -399,6 +399,49 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
 
   void _removeWord(int index) => setState(() => _words.removeAt(index));
 
+  void _editWord(int index) {
+    final controller = TextEditingController(text: _words[index]);
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Edit word'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            onSubmitted: (value) {
+              final trimmed = value.trim();
+              if (trimmed.isNotEmpty) {
+                setState(() => _words[index] = trimmed);
+              }
+              Navigator.of(ctx).pop();
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final trimmed = controller.text.trim();
+                if (trimmed.isNotEmpty) {
+                  setState(() => _words[index] = trimmed);
+                }
+                Navigator.of(ctx).pop();
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    ).then((_) => controller.dispose());
+  }
+
   void _addWord() {
     final w = _addController.text.trim();
     if (w.isNotEmpty) {
@@ -431,7 +474,8 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Remove any OCR errors or add missing words before enrichment.',
+              'Remove any OCR errors or add missing words before enrichment.\n'
+              'Tap a word to edit it.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -474,6 +518,7 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
                   children: List.generate(_words.length, (i) {
                     return InputChip(
                       label: Text(_words[i]),
+                      onPressed: () => _editWord(i),
                       onDeleted: () => _removeWord(i),
                       deleteIcon: const Icon(Icons.close, size: 16),
                     );
