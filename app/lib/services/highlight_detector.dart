@@ -36,7 +36,7 @@ class HighlightDetector {
   /// Returns a list of PNG-encoded byte arrays, one per detected region.
   List<Uint8List> detectAndCrop({
     required Uint8List imageBytes,
-    required HighlightColor color,
+    required HsvRange color,
   }) {
     final image = img.decodeImage(imageBytes);
     if (image == null) return [];
@@ -69,7 +69,7 @@ class HighlightDetector {
   /// Return just the bounding boxes (without cropping) for visualisation.
   List<HighlightBBox> detectBoxes({
     required Uint8List imageBytes,
-    required HighlightColor color,
+    required HsvRange color,
   }) {
     final image = img.decodeImage(imageBytes);
     if (image == null) return [];
@@ -80,13 +80,69 @@ class HighlightDetector {
     return mergeNearby ? _mergeNearbyBoxes(boxes) : boxes;
   }
 
+  /// Sample pixels inside a rectangle and return an [HsvRange] describing
+  /// the dominant colour.  Used by the custom colour-picker UI.
+  HsvRange sampleHsvRange({
+    required Uint8List imageBytes,
+    required int x,
+    required int y,
+    required int w,
+    required int h,
+    String label = 'Custom',
+  }) {
+    final image = img.decodeImage(imageBytes);
+    if (image == null) throw ArgumentError('Failed to decode image');
+
+    final x0 = x.clamp(0, image.width - 1);
+    final y0 = y.clamp(0, image.height - 1);
+    final x1 = (x + w).clamp(0, image.width);
+    final y1 = (y + h).clamp(0, image.height);
+
+    final hues = <double>[];
+    final sats = <double>[];
+    final vals = <double>[];
+
+    for (var py = y0; py < y1; py++) {
+      for (var px = x0; px < x1; px++) {
+        final pixel = image.getPixel(px, py);
+        final hsv =
+            _rgbToHsv(pixel.r.toInt(), pixel.g.toInt(), pixel.b.toInt());
+        hues.add(hsv.h);
+        sats.add(hsv.s);
+        vals.add(hsv.v);
+      }
+    }
+
+    if (hues.isEmpty) throw StateError('No pixels in selection');
+
+    hues.sort();
+    sats.sort();
+    vals.sort();
+
+    // Use median for hue centre, IQR-based spread + padding for range.
+    final hueCenter = hues[hues.length ~/ 2];
+    final hueQ1 = hues[hues.length ~/ 4];
+    final hueQ3 = hues[3 * hues.length ~/ 4];
+    final hueRange = ((hueQ3 - hueQ1) / 2 + 10).clamp(5.0, 90.0);
+
+    return HsvRange(
+      label: label,
+      hueCenter: hueCenter,
+      hueRange: hueRange,
+      satMin: (sats.first - 20).clamp(0, 255),
+      satMax: (sats.last + 20).clamp(0, 255),
+      valMin: (vals.first - 30).clamp(0, 255),
+      valMax: (vals.last + 20).clamp(0, 255),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // HSV mask construction
   // ---------------------------------------------------------------------------
 
   /// Build a binary mask (same dimensions as [image]) where `true` means the
   /// pixel falls within the HSV range for [color].
-  List<bool> _buildMask(img.Image image, HighlightColor color) {
+  List<bool> _buildMask(img.Image image, HsvRange color) {
     final w = image.width;
     final h = image.height;
     final mask = List<bool>.filled(w * h, false);
@@ -149,26 +205,26 @@ class HighlightDetector {
     );
   }
 
-  bool _inRange(_Hsv hsv, HighlightColor color) {
-    // Red wraps around in HSV.
-    if (color == HighlightColor.red) {
-      final inLower = hsv.h >= 0 && hsv.h <= 10;
-      final inUpper = hsv.h >= 170 && hsv.h <= 180;
-      if (!inLower && !inUpper) return false;
-      return hsv.s >= color.satMin &&
-          hsv.s <= color.satMax &&
-          hsv.v >= color.valMin &&
-          hsv.v <= color.valMax;
+  bool _inRange(_Hsv hsv, HsvRange range) {
+    final tolerance =
+        adaptiveMode ? colorTolerance.toDouble() : range.hueRange;
+    final hLow = range.hueCenter - tolerance;
+    final hHigh = range.hueCenter + tolerance;
+
+    bool hueOk;
+    if (hLow < 0) {
+      // Wraps below 0 (e.g. red: centre 0, range 10 → 170-180 ∪ 0-10).
+      hueOk = hsv.h >= (hLow + 180) || hsv.h <= hHigh;
+    } else if (hHigh > 180) {
+      // Wraps above 180.
+      hueOk = hsv.h >= hLow || hsv.h <= (hHigh - 180);
+    } else {
+      hueOk = hsv.h >= hLow && hsv.h <= hHigh;
     }
 
-    final tolerance =
-        adaptiveMode ? colorTolerance.toDouble() : color.hueRange;
-    final hLow = color.hueCenter - tolerance;
-    final hHigh = color.hueCenter + tolerance;
-
-    if (hsv.h < hLow || hsv.h > hHigh) return false;
-    if (hsv.s < color.satMin || hsv.s > color.satMax) return false;
-    if (hsv.v < color.valMin || hsv.v > color.valMax) return false;
+    if (!hueOk) return false;
+    if (hsv.s < range.satMin || hsv.s > range.satMax) return false;
+    if (hsv.v < range.valMin || hsv.v > range.valMax) return false;
     return true;
   }
 

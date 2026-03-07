@@ -82,3 +82,44 @@ enum HighlightColor {
   final double valMin;
   final double valMax;
 }
+
+/// An arbitrary HSV colour range for highlight detection.
+///
+/// Preset ranges come from [HighlightColor] enum values via
+/// [HsvRange.fromPreset]; custom ranges can be sampled from an image
+/// region using [HighlightDetector.sampleHsvRange].
+class HsvRange {
+  const HsvRange({
+    required this.label,
+    required this.hueCenter,
+    required this.hueRange,
+    required this.satMin,
+    required this.satMax,
+    required this.valMin,
+    required this.valMax,
+  });
+
+  /// Build from a preset [HighlightColor].
+  factory HsvRange.fromPreset(HighlightColor c) => HsvRange(
+        label: c.label,
+        hueCenter: c.hueCenter,
+        hueRange: c.hueRange,
+        satMin: c.satMin,
+        satMax: c.satMax,
+        valMin: c.valMin,
+        valMax: c.valMax,
+      );
+
+  final String label;
+
+  /// Centre hue in OpenCV scale (0-180).
+  final double hueCenter;
+
+  /// Acceptable range around [hueCenter].
+  final double hueRange;
+
+  final double satMin;
+  final double satMax;
+  final double valMin;
+  final double valMax;
+}

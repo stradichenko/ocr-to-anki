@@ -331,23 +331,42 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     required String filename,
     required OcrContext context,
     HighlightColor? highlightColor,
+  }) =>
+      processImages(
+        images: [(bytes: imageBytes, name: filename)],
+        context: context,
+        hsvRange: highlightColor != null
+            ? HsvRange.fromPreset(highlightColor)
+            : null,
+      );
+
+  /// Run the full pipeline on a batch of images.
+  ///
+  /// Each image is optionally cropped and OCR'd; the resulting words from
+  /// ALL images are de-duplicated then sent through a single word-review
+  /// gate and a single enrichment pass.
+  Future<void> processImages({
+    required List<({Uint8List bytes, String name})> images,
+    required OcrContext context,
+    HsvRange? hsvRange,
   }) async {
-    final imgBytes = imageBytes;
     final stopwatch = Stopwatch()..start();
 
     // Benchmark data collector.
+    final totalBytes = images.fold<int>(0, (s, i) => s + i.bytes.length);
     final bench = BenchmarkData(
       timestamp: DateTime.now(),
-      imageSizeBytes: imgBytes.length,
+      imageSizeBytes: totalBytes,
     );
 
     try {
+      final names = images.map((i) => i.name).join(', ');
       state = const ProcessingState().copyWith(
         phase: ProcessingPhase.ocr,
         progress: 0,
-        statusMessage: 'Preparing image...',
+        statusMessage: 'Preparing ${images.length} image(s)...',
         startTime: DateTime.now(),
-        activityLog: ['Processing started for: $filename'],
+        activityLog: ['Processing started for: $names'],
       );
 
       final inference = ref.read(inferenceServiceProvider);
@@ -356,7 +375,10 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       bench.definitionLanguage = settings.definitionLanguage;
       bench.examplesLanguage = settings.examplesLanguage;
 
-      _log('Image loaded (${_formatBytes(imgBytes.length)})', progress: 0.05);
+      _log(
+        '${images.length} image(s) loaded (${_formatBytes(totalBytes)})',
+        progress: 0.05,
+      );
 
       _checkCancelled();
 
@@ -372,70 +394,73 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       }
       _log('Server is online (${settings.serverUrl})', progress: 0.08);
 
-      // Step 2: If highlighted context, crop first.
-      List<Uint8List> imagesToProcess = [imgBytes];
-      if (context == OcrContext.highlighted && highlightColor != null) {
-        _log(
-          'Scanning for ${highlightColor.label} highlights...',
-          phase: ProcessingPhase.cropping,
-          progress: 0.10,
-        );
-        final cropWatch = Stopwatch()..start();
-        final detector = ref.read(highlightDetectorProvider);
-        final crops = detector.detectAndCrop(
-          imageBytes: imgBytes,
-          color: highlightColor,
-        );
-        cropWatch.stop();
-        bench.cropElapsedS = cropWatch.elapsedMilliseconds / 1000;
-        if (crops.isNotEmpty) {
-          imagesToProcess = crops;
-          bench.cropCount = crops.length;
-          _log('Found ${crops.length} highlighted region(s)', progress: 0.15);
-        } else {
-          _log('No highlighted regions detected, using full image',
-              progress: 0.15);
-        }
-      } else {
-        _log(
-          'Mode: ${context == OcrContext.handwrittenOrPrinted ? "handwritten/printed text" : "highlighted text"}',
-          progress: 0.10,
-        );
-      }
-
-      // Step 3: Vision OCR on each image/crop.
-      _log(
-        'Sending ${imagesToProcess.length} image(s) to vision model...',
-        phase: ProcessingPhase.ocr,
-        progress: 0.18,
-      );
-
+      // Steps 2-3: For each image → crop (if highlighted) → OCR.
       final allWords = <String>[];
       final ocrTexts = <String>[];
+      var totalCropCount = 0;
 
-      for (var i = 0; i < imagesToProcess.length; i++) {
+      for (var imgIdx = 0; imgIdx < images.length; imgIdx++) {
         _checkCancelled();
-        final label = imagesToProcess.length > 1
-            ? 'crop ${i + 1}/${imagesToProcess.length}'
-            : 'image';
-        _log(
-          'Running OCR on $label (this may take a minute)...',
-          progress: 0.20 + 0.35 * i / imagesToProcess.length,
-        );
+        final imgBytes = images[imgIdx].bytes;
+        final imgName = images[imgIdx].name;
+        final imgProgress = 0.10 + 0.45 * imgIdx / images.length;
+
+        if (images.length > 1) {
+          _log(
+            '── Image ${imgIdx + 1}/${images.length}: $imgName ──',
+            progress: imgProgress,
+          );
+        }
+
+        // Step 2: If highlighted context, crop first.
+        List<Uint8List> imagesToProcess = [imgBytes];
+        if (context == OcrContext.highlighted && hsvRange != null) {
+          _log(
+            'Scanning for ${hsvRange.label} highlights...',
+            phase: ProcessingPhase.cropping,
+            progress: imgProgress,
+          );
+          final cropWatch = Stopwatch()..start();
+          final detector = ref.read(highlightDetectorProvider);
+          final crops = detector.detectAndCrop(
+            imageBytes: imgBytes,
+            color: hsvRange,
+          );
+          cropWatch.stop();
+          bench.cropElapsedS += cropWatch.elapsedMilliseconds / 1000;
+          if (crops.isNotEmpty) {
+            imagesToProcess = crops;
+            totalCropCount += crops.length;
+            _log('Found ${crops.length} highlighted region(s)');
+          } else {
+            _log('No highlighted regions detected, using full image');
+          }
+        } else if (imgIdx == 0) {
+          _log(
+            'Mode: ${context == OcrContext.handwrittenOrPrinted ? "handwritten/printed text" : "highlighted text"}',
+            progress: 0.10,
+          );
+        }
+
+        // Step 3: Vision OCR on each image/crop.
+        for (var i = 0; i < imagesToProcess.length; i++) {
+          _checkCancelled();
+          final label = imagesToProcess.length > 1
+              ? 'crop ${i + 1}/${imagesToProcess.length}'
+              : (images.length > 1 ? imgName : 'image');
+
+          final cropProgress = 0.10 +
+              0.45 *
+                  (imgIdx + (i / imagesToProcess.length)) /
+                  images.length;
+          _log(
+            'Running OCR on $label (this may take a minute)...',
+            phase: ProcessingPhase.ocr,
+            progress: cropProgress,
+          );
 
         final ocrStopwatch = Stopwatch()..start();
 
-        // Heartbeat: log progress every 15s so the user isn't staring
-        // at a frozen screen.  Images are auto-downscaled to 768px max
-        // on the server side to reduce SigLIP tile count.
-        //
-        // GPU Vulkan timing profile (Intel iGPU, patched ggml-vulkan.cpp
-        // with serialize_graph + force_f32_matmul):
-        //   0-15s   : image prep / downscale / server start
-        //   15-30s  : SigLIP vision encode on GPU (~14s)
-        //   30-60s  : prompt eval with flash attention (~40s)
-        //   60-240s : token generation (~27s per ~100 tokens)
-        //   ~4 min  : done (total ~228s typical)
         _heartbeat?.cancel();
         _heartbeat = Timer.periodic(
           const Duration(seconds: 15),
@@ -456,7 +481,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
             }
             _log(
               'OCR in progress... $mins min elapsed - $hint',
-              progress: 0.20 + 0.30 * (secs / 300).clamp(0.0, 1.0),
+              progress: cropProgress + 0.30 * (secs / 300).clamp(0.0, 1.0),
             );
           },
         );
@@ -493,14 +518,16 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           _log(
             'OCR on $label complete: ${words.length} word(s) found in ${elapsed}s'
             '${result.backend.isNotEmpty ? " [${result.backend}]" : ""}',
-            progress: 0.20 + 0.35 * (i + 1) / imagesToProcess.length,
           );
         } catch (e) {
           _heartbeat?.cancel();
           _heartbeat = null;
           rethrow;
         }
-      }
+        }
+      } // end image loop
+
+      bench.cropCount = totalCropCount;
 
       // Deduplicate (case-insensitive).
       final seen = <String>{};
@@ -545,7 +572,20 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       // null = user chose to skip enrichment entirely.
       if (confirmedWords == null || confirmedWords.isEmpty) {
         _log('Enrichment skipped by user.', progress: 0.95);
-        state = state.copyWith(words: confirmedWords ?? []);
+        // Keep the existing word list and create stub cards so the
+        // user can still review / export the raw words.
+        final wordsToKeep = confirmedWords ?? state.words;
+        final stubCards = wordsToKeep
+            .map((w) => EnrichWordResult(
+                  word: w,
+                  definition: '',
+                  examples: '',
+                ))
+            .toList();
+        state = state.copyWith(
+          words: wordsToKeep,
+          enrichedWords: stubCards,
+        );
       } else {
         // Update the word list with whatever the user confirmed.
         state = state.copyWith(words: confirmedWords);
@@ -724,9 +764,9 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       final dbPersist = ref.read(databaseProvider);
       final sessionId = await dbPersist.insertSession(
         ProcessingSessionsCompanion.insert(
-          imagePath: filename,
+          imagePath: images.map((i) => i.name).join(', '),
           context: context.name,
-          highlightColor: Value(highlightColor?.name),
+          highlightColor: Value(hsvRange?.label),
           ocrText: Value(state.ocrText),
           ocrElapsedS: Value(bench.ocrElapsedS),
           enrichElapsedS: Value(bench.enrichElapsedS),
