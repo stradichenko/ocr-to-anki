@@ -349,6 +349,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     required List<({Uint8List bytes, String name})> images,
     required OcrContext context,
     HsvRange? hsvRange,
+    List<HighlightBBox>? firstImageBoxes,
   }) async {
     final stopwatch = Stopwatch()..start();
 
@@ -422,16 +423,36 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           );
           final cropWatch = Stopwatch()..start();
           final detector = ref.read(highlightDetectorProvider);
-          final crops = detector.detectAndCrop(
-            imageBytes: imgBytes,
-            color: hsvRange,
-          );
+
+          // Use pre-filtered boxes from the preview for the first image;
+          // auto-detect for subsequent images.
+          List<Uint8List> crops;
+          if (imgIdx == 0 && firstImageBoxes != null) {
+            if (firstImageBoxes.isNotEmpty) {
+              crops = detector.cropBoxes(
+                imageBytes: imgBytes,
+                boxes: firstImageBoxes,
+              );
+              _log('Using ${crops.length} user-confirmed region(s)');
+            } else {
+              crops = [];
+              _log('All regions removed by user, using full image');
+            }
+          } else {
+            crops = detector.detectAndCrop(
+              imageBytes: imgBytes,
+              color: hsvRange,
+            );
+          }
+
           cropWatch.stop();
           bench.cropElapsedS += cropWatch.elapsedMilliseconds / 1000;
           if (crops.isNotEmpty) {
             imagesToProcess = crops;
             totalCropCount += crops.length;
-            _log('Found ${crops.length} highlighted region(s)');
+            if (!(imgIdx == 0 && firstImageBoxes != null)) {
+              _log('Found ${crops.length} highlighted region(s)');
+            }
           } else {
             _log('No highlighted regions detected, using full image');
           }

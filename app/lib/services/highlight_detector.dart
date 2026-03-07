@@ -66,6 +66,32 @@ class HighlightDetector {
     return results;
   }
 
+  /// Crop specific bounding boxes from an image **without** re-detecting.
+  ///
+  /// The provided [boxes] are used as-is (no additional padding is applied).
+  /// Use this when boxes already include padding (e.g. from the bounding-box
+  /// preview).
+  List<Uint8List> cropBoxes({
+    required Uint8List imageBytes,
+    required List<HighlightBBox> boxes,
+  }) {
+    final image = img.decodeImage(imageBytes);
+    if (image == null) return [];
+
+    final results = <Uint8List>[];
+    for (final box in boxes) {
+      final x0 = box.x.clamp(0, image.width - 1);
+      final y0 = box.y.clamp(0, image.height - 1);
+      final w = box.w.clamp(1, image.width - x0);
+      final h = box.h.clamp(1, image.height - y0);
+
+      final cropped = img.copyCrop(image, x: x0, y: y0, width: w, height: h);
+      results.add(Uint8List.fromList(img.encodePng(cropped)));
+    }
+
+    return results;
+  }
+
   /// Return just the bounding boxes (without cropping) for visualisation.
   List<HighlightBBox> detectBoxes({
     required Uint8List imageBytes,

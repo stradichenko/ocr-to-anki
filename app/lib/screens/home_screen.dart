@@ -362,10 +362,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (_imageQueue.isEmpty) return;
 
     // Show bounding-box preview for highlighted mode (first image as sample).
+    List<HighlightBBox>? firstImageBoxes;
     if (_context == OcrContext.highlighted && _effectiveHsvRange != null) {
-      final proceed =
+      firstImageBoxes =
           await _showBoundingBoxPreview(_imageQueue.first.bytes);
-      if (!proceed || !mounted) return;
+      if (firstImageBoxes == null || !mounted) return;
     }
 
     final images = List<({Uint8List bytes, String name})>.of(_imageQueue);
@@ -382,22 +383,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       images: images,
       context: _context,
       hsvRange: _effectiveHsvRange,
+      firstImageBoxes: firstImageBoxes,
     );
   }
 
   /// Run highlight detection and show a preview dialog with bounding-box
-  /// overlays.  Returns `true` if the user wants to proceed.
-  Future<bool> _showBoundingBoxPreview(Uint8List bytes) async {
+  /// overlays.  Returns the (possibly user-filtered) list of boxes to
+  /// process, or `null` if the user cancelled.
+  Future<List<HighlightBBox>?> _showBoundingBoxPreview(Uint8List bytes) async {
     final detector = ref.read(highlightDetectorProvider);
     final range = _effectiveHsvRange;
-    if (range == null) return true;
+    if (range == null) return <HighlightBBox>[];
     final rawBoxes = detector.detectBoxes(
       imageBytes: bytes,
       color: range,
     );
 
     if (rawBoxes.isEmpty) {
-      if (!mounted) return false;
+      if (!mounted) return null;
       final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -418,7 +421,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ],
         ),
       );
-      return proceed ?? false;
+      return (proceed ?? false) ? <HighlightBBox>[] : null;
     }
 
     // Decode to get natural dimensions for overlay scaling.
@@ -439,42 +442,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return HighlightBBox(x, y, x2 - x, y2 - y);
     }).toList();
 
-    if (!mounted) return false;
+    if (!mounted) return null;
 
     final moreImages = _imageQueue.length > 1
         ? ' (showing preview for first image; '
           '${_imageQueue.length - 1} more queued)'
         : '';
 
-    return await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text('${boxes.length} region(s) detected$moreImages'),
-            content: SizedBox(
-              width: 500,
-              height: 400,
-              child: _BoundingBoxPreview(
-                imageBytes: bytes,
-                boxes: boxes,
-                naturalWidth: naturalWidth,
-                naturalHeight: naturalHeight,
-                overlayColor: _overlayColor,
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton.icon(
-                onPressed: () => Navigator.pop(ctx, true),
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Process'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+    return await showDialog<List<HighlightBBox>>(
+      context: context,
+      builder: (ctx) => _BoundingBoxPreviewDialog(
+        imageBytes: bytes,
+        boxes: boxes,
+        naturalWidth: naturalWidth,
+        naturalHeight: naturalHeight,
+        overlayColor: _overlayColor,
+        moreImagesText: moreImages,
+      ),
+    );
   }
 }
 
@@ -615,13 +600,18 @@ class _ImageDropZoneState extends State<_ImageDropZone> {
 // Bounding-box overlay preview
 // ---------------------------------------------------------------------------
 
-class _BoundingBoxPreview extends StatelessWidget {
-  const _BoundingBoxPreview({
+// ---------------------------------------------------------------------------
+// Bounding-box preview dialog (zoom, scrollbars, tap-to-remove regions)
+// ---------------------------------------------------------------------------
+
+class _BoundingBoxPreviewDialog extends StatefulWidget {
+  const _BoundingBoxPreviewDialog({
     required this.imageBytes,
     required this.boxes,
     required this.naturalWidth,
     required this.naturalHeight,
     required this.overlayColor,
+    required this.moreImagesText,
   });
 
   final Uint8List imageBytes;
@@ -629,30 +619,220 @@ class _BoundingBoxPreview extends StatelessWidget {
   final double naturalWidth;
   final double naturalHeight;
   final Color overlayColor;
+  final String moreImagesText;
+
+  @override
+  State<_BoundingBoxPreviewDialog> createState() =>
+      _BoundingBoxPreviewDialogState();
+}
+
+class _BoundingBoxPreviewDialogState extends State<_BoundingBoxPreviewDialog> {
+  // Zoom
+  double _zoomScale = 1.0;
+  static const double _minZoom = 1.0;
+  static const double _maxZoom = 8.0;
+  static const double _zoomStep = 0.5;
+
+  // Scroll controllers
+  final ScrollController _hScrollCtrl = ScrollController();
+  final ScrollController _vScrollCtrl = ScrollController();
+
+  // Box removal tracking
+  final Set<int> _removedIndices = {};
+  int _toggleVersion = 0; // for painter repaint
+
+  @override
+  void dispose() {
+    _hScrollCtrl.dispose();
+    _vScrollCtrl.dispose();
+    super.dispose();
+  }
+
+  void _zoomIn() =>
+      setState(() => _zoomScale = (_zoomScale + _zoomStep).clamp(_minZoom, _maxZoom));
+
+  void _zoomOut() =>
+      setState(() => _zoomScale = (_zoomScale - _zoomStep).clamp(_minZoom, _maxZoom));
+
+  void _zoomReset() => setState(() => _zoomScale = 1.0);
+
+  void _restoreAll() => setState(() {
+        _removedIndices.clear();
+        _toggleVersion++;
+      });
+
+  List<HighlightBBox> get _activeBoxes => [
+        for (var i = 0; i < widget.boxes.length; i++)
+          if (!_removedIndices.contains(i)) widget.boxes[i],
+      ];
+
+  int get _activeCount => widget.boxes.length - _removedIndices.length;
+
+  void _handleTap(Offset localPos, double displayW, double displayH) {
+    final scaleX = widget.naturalWidth / displayW;
+    final scaleY = widget.naturalHeight / displayH;
+    final natX = localPos.dx * scaleX;
+    final natY = localPos.dy * scaleY;
+
+    // Toggle the topmost box under the tap.
+    for (var i = widget.boxes.length - 1; i >= 0; i--) {
+      final b = widget.boxes[i];
+      if (natX >= b.x && natX <= b.x + b.w &&
+          natY >= b.y && natY <= b.y + b.h) {
+        setState(() {
+          if (_removedIndices.contains(i)) {
+            _removedIndices.remove(i);
+          } else {
+            _removedIndices.add(i);
+          }
+          _toggleVersion++;
+        });
+        return;
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return FittedBox(
-      fit: BoxFit.contain,
-      child: SizedBox(
-        width: naturalWidth,
-        height: naturalHeight,
-        child: Stack(
+    final titleText =
+        '$_activeCount/${widget.boxes.length} region(s)${widget.moreImagesText}';
+
+    return AlertDialog(
+      title: Text(titleText),
+      content: SizedBox(
+        width: 600,
+        height: 500,
+        child: Column(
           children: [
-            Image.memory(
-              imageBytes,
-              fit: BoxFit.fill,
-              width: naturalWidth,
-              height: naturalHeight,
+            Text(
+              'Tap a region to remove/restore it.\n'
+              'Use zoom to inspect details; scroll to navigate.',
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
             ),
-            CustomPaint(
-              size: Size(naturalWidth, naturalHeight),
-              painter: _BoundingBoxPainter(
-                boxes: boxes,
-                color: overlayColor,
+            const SizedBox(height: 8),
+            // -- Zoom controls -------------------------------------------------
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.zoom_out),
+                  tooltip: 'Zoom out',
+                  onPressed: _zoomScale > _minZoom ? _zoomOut : null,
+                ),
+                Text('${(_zoomScale * 100).round()}%',
+                    style: Theme.of(context).textTheme.bodyMedium),
+                IconButton(
+                  icon: const Icon(Icons.zoom_in),
+                  tooltip: 'Zoom in',
+                  onPressed: _zoomScale < _maxZoom ? _zoomIn : null,
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  icon: const Icon(Icons.fit_screen, size: 18),
+                  label: const Text('Reset'),
+                  onPressed: _zoomScale != 1.0 ? _zoomReset : null,
+                ),
+                if (_removedIndices.isNotEmpty) ...[
+                  const SizedBox(width: 12),
+                  TextButton.icon(
+                    icon: const Icon(Icons.restore, size: 18),
+                    label: const Text('Restore All'),
+                    onPressed: _restoreAll,
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ClipRect(
+                child: LayoutBuilder(
+                  builder: (context, constraints) =>
+                      _buildScrollableImage(constraints),
+                ),
               ),
             ),
           ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: _activeCount > 0
+              ? () => Navigator.pop(context, _activeBoxes)
+              : null,
+          icon: const Icon(Icons.play_arrow),
+          label: Text('Process $_activeCount region(s)'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScrollableImage(BoxConstraints constraints) {
+    final aspect = widget.naturalWidth / widget.naturalHeight;
+    double baseW = constraints.maxWidth;
+    double baseH = baseW / aspect;
+    if (baseH > constraints.maxHeight) {
+      baseH = constraints.maxHeight;
+      baseW = baseH * aspect;
+    }
+
+    final displayW = baseW * _zoomScale;
+    final displayH = baseH * _zoomScale;
+
+    return RawScrollbar(
+      controller: _vScrollCtrl,
+      thumbVisibility: true,
+      thumbColor: Colors.grey.shade600,
+      radius: const Radius.circular(4),
+      thickness: 8,
+      child: RawScrollbar(
+        controller: _hScrollCtrl,
+        thumbVisibility: true,
+        thumbColor: Colors.grey.shade600,
+        radius: const Radius.circular(4),
+        thickness: 8,
+        notificationPredicate: (n) => n.depth == 1,
+        child: SingleChildScrollView(
+          controller: _vScrollCtrl,
+          physics: const ClampingScrollPhysics(),
+          child: SingleChildScrollView(
+            controller: _hScrollCtrl,
+            scrollDirection: Axis.horizontal,
+            physics: const ClampingScrollPhysics(),
+            child: GestureDetector(
+              onTapUp: (d) =>
+                  _handleTap(d.localPosition, displayW, displayH),
+              child: SizedBox(
+                width: displayW,
+                height: displayH,
+                child: Stack(
+                  children: [
+                    Image.memory(
+                      widget.imageBytes,
+                      width: displayW,
+                      height: displayH,
+                      fit: BoxFit.fill,
+                    ),
+                    CustomPaint(
+                      size: Size(displayW, displayH),
+                      painter: _BoundingBoxPainter(
+                        boxes: widget.boxes,
+                        color: widget.overlayColor,
+                        removedIndices: _removedIndices,
+                        naturalWidth: widget.naturalWidth,
+                        naturalHeight: widget.naturalHeight,
+                        toggleVersion: _toggleVersion,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -660,37 +840,70 @@ class _BoundingBoxPreview extends StatelessWidget {
 }
 
 class _BoundingBoxPainter extends CustomPainter {
-  _BoundingBoxPainter({required this.boxes, required this.color});
+  _BoundingBoxPainter({
+    required this.boxes,
+    required this.color,
+    required this.removedIndices,
+    required this.naturalWidth,
+    required this.naturalHeight,
+    required this.toggleVersion,
+  });
 
   final List<HighlightBBox> boxes;
   final Color color;
+  final Set<int> removedIndices;
+  final double naturalWidth;
+  final double naturalHeight;
+  final int toggleVersion;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final strokePaint = Paint()
+    final scaleX = size.width / naturalWidth;
+    final scaleY = size.height / naturalHeight;
+
+    final activeStroke = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3.0;
 
-    final fillPaint = Paint()
+    final activeFill = Paint()
       ..color = color.withValues(alpha: 0.15)
       ..style = PaintingStyle.fill;
 
-    for (final box in boxes) {
+    final removedStroke = Paint()
+      ..color = Colors.red.withValues(alpha: 0.5)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    final removedXPaint = Paint()
+      ..color = Colors.red.withValues(alpha: 0.4)
+      ..strokeWidth = 2.0;
+
+    for (var i = 0; i < boxes.length; i++) {
+      final b = boxes[i];
       final rect = Rect.fromLTWH(
-        box.x.toDouble(),
-        box.y.toDouble(),
-        box.w.toDouble(),
-        box.h.toDouble(),
+        b.x * scaleX,
+        b.y * scaleY,
+        b.w * scaleX,
+        b.h * scaleY,
       );
-      canvas.drawRect(rect, fillPaint);
-      canvas.drawRect(rect, strokePaint);
+
+      if (removedIndices.contains(i)) {
+        canvas.drawRect(rect, removedStroke);
+        canvas.drawLine(rect.topLeft, rect.bottomRight, removedXPaint);
+        canvas.drawLine(rect.topRight, rect.bottomLeft, removedXPaint);
+      } else {
+        canvas.drawRect(rect, activeFill);
+        canvas.drawRect(rect, activeStroke);
+      }
     }
   }
 
   @override
   bool shouldRepaint(covariant _BoundingBoxPainter old) =>
-      boxes != old.boxes || color != old.color;
+      boxes != old.boxes ||
+      color != old.color ||
+      toggleVersion != old.toggleVersion;
 }
 
 // ---------------------------------------------------------------------------
