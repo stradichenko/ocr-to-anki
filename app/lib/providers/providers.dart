@@ -34,16 +34,17 @@ final themeModeProvider = Provider<ThemeMode>((ref) {
 // ---------------------------------------------------------------------------
 
 final settingsProvider =
-    StateNotifierProvider<SettingsNotifier, AppSettings>((ref) {
-  return SettingsNotifier(ref.watch(databaseProvider));
-});
+    NotifierProvider<SettingsNotifier, AppSettings>(SettingsNotifier.new);
 
-class SettingsNotifier extends StateNotifier<AppSettings> {
-  SettingsNotifier(this._db) : super(AppSettings()) {
+class SettingsNotifier extends Notifier<AppSettings> {
+  late AppDatabase _db;
+
+  @override
+  AppSettings build() {
+    _db = ref.watch(databaseProvider);
     _load();
+    return AppSettings();
   }
-
-  final AppDatabase _db;
 
   Future<void> _load() async {
     final json = await _db.getSetting('app_settings');
@@ -117,32 +118,35 @@ class ServerStartupState {
 }
 
 final serverStartupProvider =
-    StateNotifierProvider<ServerStartupNotifier, ServerStartupState>((ref) {
-  return ServerStartupNotifier(ref);
-});
+    NotifierProvider<ServerStartupNotifier, ServerStartupState>(
+        ServerStartupNotifier.new);
 
-class ServerStartupNotifier extends StateNotifier<ServerStartupState> {
-  ServerStartupNotifier(this._ref) : super(const ServerStartupState()) {
+class ServerStartupNotifier extends Notifier<ServerStartupState> {
+  bool _disposed = false;
+
+  @override
+  ServerStartupState build() {
+    _disposed = false;
+    ref.onDispose(() => _disposed = true);
     _boot();
+    return const ServerStartupState();
   }
-
-  final Ref _ref;
 
   Future<void> _boot() async {
     try {
-      final server = _ref.read(backendServerProvider);
+      final server = ref.read(backendServerProvider);
       state = const ServerStartupState(
         status: ServerStatus.starting,
         message: 'Starting backend server…',
       );
       await server.start(timeout: const Duration(seconds: 60));
-      if (!mounted) return;
+      if (_disposed) return;
       state = const ServerStartupState(
         status: ServerStatus.ready,
         message: 'Backend ready.',
       );
     } catch (e) {
-      if (!mounted) return;
+      if (_disposed) return;
       state = ServerStartupState(
         status: ServerStatus.error,
         message: 'Failed to start backend: $e',
@@ -234,19 +238,18 @@ class ProcessingState {
 }
 
 final processingProvider =
-    StateNotifierProvider<ProcessingNotifier, ProcessingState>((ref) {
-  return ProcessingNotifier(ref);
-});
+    NotifierProvider<ProcessingNotifier, ProcessingState>(
+        ProcessingNotifier.new);
 
-class ProcessingNotifier extends StateNotifier<ProcessingState> {
-  ProcessingNotifier(this._ref) : super(const ProcessingState());
-
-  final Ref _ref;
+class ProcessingNotifier extends Notifier<ProcessingState> {
   bool _cancelled = false;
   Timer? _heartbeat;
 
   /// Completer that the pipeline awaits during word review.
   Completer<List<String>?>? _wordReviewCompleter;
+
+  @override
+  ProcessingState build() => const ProcessingState();
 
   void reset() {
     _cancelled = false;
@@ -274,7 +277,7 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
     _heartbeat = null;
     _log('Cancellation requested...', progress: state.progress);
     // Kill the server-side subprocess and abort the HTTP request.
-    final inference = _ref.read(inferenceServiceProvider);
+    final inference = ref.read(inferenceServiceProvider);
     inference.cancelOcr();
   }
 
@@ -347,8 +350,8 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
         activityLog: ['Processing started for: $filename'],
       );
 
-      final inference = _ref.read(inferenceServiceProvider);
-      final settings = _ref.read(settingsProvider);
+      final inference = ref.read(inferenceServiceProvider);
+      final settings = ref.read(settingsProvider);
 
       bench.definitionLanguage = settings.definitionLanguage;
       bench.examplesLanguage = settings.examplesLanguage;
@@ -378,7 +381,7 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
           progress: 0.10,
         );
         final cropWatch = Stopwatch()..start();
-        final detector = _ref.read(highlightDetectorProvider);
+        final detector = ref.read(highlightDetectorProvider);
         final crops = detector.detectAndCrop(
           imageBytes: imgBytes,
           color: highlightColor,
@@ -550,7 +553,7 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
       // Step 4: Enrich words (with cache integration).
       _checkCancelled();
       if (confirmedWords.isNotEmpty) {
-        final db = _ref.read(databaseProvider);
+        final db = ref.read(databaseProvider);
 
         // ── Cache lookup ─────────────────────────────────────────
         final cachedMap = await db.getCachedEnrichments(
@@ -718,7 +721,7 @@ class ProcessingNotifier extends StateNotifier<ProcessingState> {
       stopwatch.stop();
       bench.totalElapsedS = stopwatch.elapsedMilliseconds / 1000;
 
-      final dbPersist = _ref.read(databaseProvider);
+      final dbPersist = ref.read(databaseProvider);
       final sessionId = await dbPersist.insertSession(
         ProcessingSessionsCompanion.insert(
           imagePath: filename,
