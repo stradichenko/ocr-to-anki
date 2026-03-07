@@ -401,7 +401,7 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
 
   void _editWord(int index) {
     final controller = TextEditingController(text: _words[index]);
-    showDialog(
+    showDialog<String>(
       context: context,
       builder: (ctx) {
         return AlertDialog(
@@ -413,13 +413,7 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
               border: OutlineInputBorder(),
               isDense: true,
             ),
-            onSubmitted: (value) {
-              final trimmed = value.trim();
-              if (trimmed.isNotEmpty) {
-                setState(() => _words[index] = trimmed);
-              }
-              Navigator.of(ctx).pop();
-            },
+            onSubmitted: (value) => Navigator.of(ctx).pop(value),
           ),
           actions: [
             TextButton(
@@ -427,19 +421,21 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () {
-                final trimmed = controller.text.trim();
-                if (trimmed.isNotEmpty) {
-                  setState(() => _words[index] = trimmed);
-                }
-                Navigator.of(ctx).pop();
-              },
+              onPressed: () => Navigator.of(ctx).pop(controller.text),
               child: const Text('Save'),
             ),
           ],
         );
       },
-    ).then((_) => controller.dispose());
+    ).then((result) {
+      controller.dispose();
+      if (result != null && mounted) {
+        final trimmed = result.trim();
+        if (trimmed.isNotEmpty) {
+          setState(() => _words[index] = trimmed);
+        }
+      }
+    });
   }
 
   void _addWord() {
