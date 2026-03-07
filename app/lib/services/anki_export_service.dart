@@ -18,9 +18,7 @@ import '../models/app_settings.dart';
 class AnkiExportService {
   AnkiExportService({required AppSettings settings}) : _settings = settings;
 
-  AppSettings _settings;
-
-  void updateSettings(AppSettings settings) => _settings = settings;
+  final AppSettings _settings;
 
   // ---------------------------------------------------------------------------
   // AnkiConnect helpers
@@ -87,15 +85,6 @@ class AnkiExportService {
     }
   }
 
-  /// Get the AnkiConnect version number.
-  Future<int?> getVersion() async {
-    try {
-      return await _invoke('version') as int?;
-    } catch (_) {
-      return null;
-    }
-  }
-
   /// List all available deck names.
   Future<List<String>> getDecks() async {
     final result = await _invoke('deckNames');
@@ -111,21 +100,6 @@ class AnkiExportService {
   /// Create a deck if it does not exist.
   Future<void> createDeck(String deckName) async {
     await _invoke('createDeck', {'deck': deckName});
-  }
-
-  /// Add a single note to Anki. Returns the note ID or `null` on failure.
-  Future<int?> addNote(AnkiNote note) async {
-    try {
-      final result = await _invoke('addNote', {
-        'note': note.toAnkiJson(
-          defaultDeck: _settings.defaultDeck,
-          defaultModel: _settings.defaultModel,
-        ),
-      });
-      return result as int?;
-    } catch (_) {
-      return null;
-    }
   }
 
   /// Add multiple notes in a single batch. Returns a list of note IDs (null
@@ -187,19 +161,15 @@ class AnkiExportService {
   }
 
   /// Export notes as a JSON string in the same format as `data/test_notes.json`.
-  String exportToJson(
-    List<AnkiNote> notes, {
-    AnkiImportSettings? importSettings,
-  }) {
-    final settings = importSettings ??
-        AnkiImportSettings(
-          defaultDeck: _settings.defaultDeck,
-          defaultModel: _settings.defaultModel,
-          batchSize: _settings.batchSize,
-        );
-
+  String exportToJson(List<AnkiNote> notes) {
     final output = {
-      'settings': settings.toJson(),
+      'settings': {
+        'defaultDeck': _settings.defaultDeck,
+        'defaultModel': _settings.defaultModel,
+        'batchSize': _settings.batchSize,
+        'allowDuplicates': _settings.allowDuplicates,
+        'duplicateScope': 'deck',
+      },
       'notes': notes
           .map((n) => {
                 'fields': {

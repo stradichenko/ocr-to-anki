@@ -11,13 +11,11 @@ class VisionOcrResult {
     required this.text,
     required this.elapsedSeconds,
     required this.backend,
-    this.imageHash = '',
   });
 
   final String text;
   final double elapsedSeconds;
   final String backend;
-  final String imageHash;
 }
 
 /// Result of a text-generation / enrichment call.
@@ -52,12 +50,10 @@ class EnrichWordResult {
 class InferenceService {
   InferenceService({required AppSettings settings}) : _settings = settings;
 
-  AppSettings _settings;
+  final AppSettings _settings;
 
   /// HTTP client for the current OCR request; can be closed to abort.
   http.Client? _ocrClient;
-
-  void updateSettings(AppSettings settings) => _settings = settings;
 
   /// Cancel any in-flight OCR request.
   ///
@@ -191,71 +187,11 @@ class InferenceService {
         text: body['text'] as String? ?? '',
         elapsedSeconds: (body['elapsed_s'] as num?)?.toDouble() ?? 0,
         backend: body['backend'] as String? ?? 'remote',
-        imageHash: body['image_hash'] as String? ?? '',
       );
     } finally {
       _ocrClient?.close();
       _ocrClient = null;
     }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Text Generation
-  // ---------------------------------------------------------------------------
-
-  /// Raw text generation.
-  Future<String> generate({
-    required String prompt,
-    String? system,
-    int? maxTokens,
-    double? temperature,
-  }) async {
-    switch (_settings.inferenceMode) {
-      case InferenceMode.embedded:
-        throw UnimplementedError(
-          'Embedded inference not yet available -- use remote mode.',
-        );
-      case InferenceMode.remote:
-        return _remoteGenerate(
-          prompt: prompt,
-          system: system,
-          maxTokens: maxTokens ?? _settings.maxTokens,
-          temperature: temperature ?? _settings.temperature,
-        );
-    }
-  }
-
-  Future<String> _remoteGenerate({
-    required String prompt,
-    String? system,
-    required int maxTokens,
-    required double temperature,
-  }) async {
-    final uri = Uri.parse('${_settings.serverUrl}/generate');
-
-    final body = <String, dynamic>{
-      'prompt': prompt,
-      'max_tokens': maxTokens,
-      'temperature': temperature,
-    };
-    if (system != null) body['system'] = system;
-
-    final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(body),
-        )
-        .timeout(const Duration(seconds: 120));
-
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Generate failed (${response.statusCode}): ${response.body}',
-      );
-    }
-
-    final respBody = jsonDecode(response.body) as Map<String, dynamic>;
-    return respBody['content'] as String? ?? '';
   }
 
   // ---------------------------------------------------------------------------
@@ -384,88 +320,4 @@ class InferenceService {
     return allResults;
   }
 
-  // ---------------------------------------------------------------------------
-  // Full pipeline: image → OCR → enrich → cards
-  // ---------------------------------------------------------------------------
-
-  /// Runs the full pipeline via the remote FastAPI `/pipeline/image-to-cards`
-  /// endpoint.
-  Future<PipelineResult> runPipeline({
-    required Uint8List imageBytes,
-    required String filename,
-    String? definitionLanguage,
-    String? examplesLanguage,
-    String? ocrPrompt,
-  }) async {
-    if (_settings.inferenceMode != InferenceMode.remote) {
-      throw UnimplementedError(
-        'Pipeline is only available in remote mode for now.',
-      );
-    }
-
-    final uri = Uri.parse('${_settings.serverUrl}/pipeline/image-to-cards');
-
-    final request = http.MultipartRequest('POST', uri)
-      ..files.add(http.MultipartFile.fromBytes(
-        'file',
-        imageBytes,
-        filename: filename,
-      ))
-      ..fields['definition_language'] =
-          definitionLanguage ?? _settings.definitionLanguage
-      ..fields['examples_language'] =
-          examplesLanguage ?? _settings.examplesLanguage;
-
-    if (ocrPrompt != null) {
-      request.fields['ocr_prompt'] = ocrPrompt;
-    }
-
-    final streamed = await request.send().timeout(
-          const Duration(minutes: 15),
-        );
-
-    final response = await http.Response.fromStream(streamed);
-
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Pipeline failed (${response.statusCode}): ${response.body}',
-      );
-    }
-
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final cards = (body['cards'] as List<dynamic>? ?? []).map((c) {
-      final m = c as Map<String, dynamic>;
-      return EnrichWordResult(
-        word: m['word'] as String? ?? '',
-        definition: m['definition'] as String? ?? '',
-        examples: m['examples'] as String? ?? '',
-      );
-    }).toList();
-
-    return PipelineResult(
-      ocrText: body['ocr_text'] as String? ?? '',
-      ocrBackend: body['ocr_backend'] as String? ?? '',
-      ocrElapsedSeconds: (body['ocr_elapsed_s'] as num?)?.toDouble() ?? 0,
-      cards: cards,
-      totalElapsedSeconds:
-          (body['total_elapsed_s'] as num?)?.toDouble() ?? 0,
-    );
-  }
-}
-
-/// Full pipeline result from the FastAPI backend.
-class PipelineResult {
-  const PipelineResult({
-    required this.ocrText,
-    required this.ocrBackend,
-    required this.ocrElapsedSeconds,
-    required this.cards,
-    required this.totalElapsedSeconds,
-  });
-
-  final String ocrText;
-  final String ocrBackend;
-  final double ocrElapsedSeconds;
-  final List<EnrichWordResult> cards;
-  final double totalElapsedSeconds;
 }

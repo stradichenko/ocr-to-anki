@@ -108,14 +108,16 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: (v) =>
                 notifier.update((s) => s..ankiConnectUrl = v),
           ),
-          _TextFieldTile(
+          _AnkiDropdownTile(
             label: 'Default deck',
             value: settings.defaultDeck,
+            fetcher: () => ref.read(ankiExportServiceProvider).getDecks(),
             onChanged: (v) => notifier.update((s) => s..defaultDeck = v),
           ),
-          _TextFieldTile(
+          _AnkiDropdownTile(
             label: 'Default note model',
             value: settings.defaultModel,
+            fetcher: () => ref.read(ankiExportServiceProvider).getModels(),
             onChanged: (v) =>
                 notifier.update((s) => s..defaultModel = v),
           ),
@@ -264,6 +266,129 @@ class _TextFieldTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// Anki live-query dropdown (deck / model picker)
+// ---------------------------------------------------------------------------
+
+class _AnkiDropdownTile extends StatefulWidget {
+  const _AnkiDropdownTile({
+    required this.label,
+    required this.value,
+    required this.fetcher,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String value;
+  final Future<List<String>> Function() fetcher;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_AnkiDropdownTile> createState() => _AnkiDropdownTileState();
+}
+
+class _AnkiDropdownTileState extends State<_AnkiDropdownTile> {
+  List<String>? _options;
+  bool _loading = true;
+  bool _fallback = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    try {
+      final result = await widget.fetcher();
+      if (mounted) {
+        setState(() {
+          _options = result;
+          _loading = false;
+          _fallback = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _fallback = true;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return ListTile(
+        title: TextFormField(
+          initialValue: widget.value,
+          readOnly: true,
+          decoration: InputDecoration(
+            labelText: widget.label,
+            border: const OutlineInputBorder(),
+            isDense: true,
+            suffixIcon: const SizedBox(
+              width: 20,
+              height: 20,
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_fallback || _options == null || _options!.isEmpty) {
+      return ListTile(
+        title: TextFormField(
+          initialValue: widget.value,
+          decoration: InputDecoration(
+            labelText: widget.label,
+            border: const OutlineInputBorder(),
+            isDense: true,
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.refresh, size: 18),
+              tooltip: 'Retry fetching from AnkiConnect',
+              onPressed: () {
+                setState(() => _loading = true);
+                _fetch();
+              },
+            ),
+          ),
+          onChanged: widget.onChanged,
+        ),
+      );
+    }
+
+    // Ensure current value is in the list so the dropdown doesn't break.
+    final options = [..._options!];
+    if (!options.contains(widget.value) && widget.value.isNotEmpty) {
+      options.insert(0, widget.value);
+    }
+
+    return ListTile(
+      title: DropdownButtonFormField<String>(
+        initialValue: options.contains(widget.value) ? widget.value : null,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        items: options.map((o) {
+          return DropdownMenuItem(value: o, child: Text(o));
+        }).toList(),
+        onChanged: (v) {
+          if (v != null) widget.onChanged(v);
+        },
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Language picker (dropdown menu)
 // ---------------------------------------------------------------------------
 
@@ -282,7 +407,7 @@ class _LanguagePicker extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       title: DropdownButtonFormField<String>(
-        value: kSupportedLanguages.contains(value) ? value : kSupportedLanguages.first,
+        initialValue: kSupportedLanguages.contains(value) ? value : kSupportedLanguages.first,
         decoration: InputDecoration(
           labelText: label,
           border: const OutlineInputBorder(),

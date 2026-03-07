@@ -95,37 +95,3 @@ class AnkiNote {
   @override
   String toString() => 'AnkiNote(front: $front)';
 }
-
-/// Import settings that accompany a batch of notes.
-class AnkiImportSettings {
-  const AnkiImportSettings({
-    this.defaultDeck = 'Vocabulary::Japanese',
-    this.defaultModel = 'Basic',
-    this.batchSize = 10,
-    this.allowDuplicates = false,
-    this.duplicateScope = 'deck',
-  });
-
-  final String defaultDeck;
-  final String defaultModel;
-  final int batchSize;
-  final bool allowDuplicates;
-  final String duplicateScope;
-
-  Map<String, dynamic> toJson() => {
-        'defaultDeck': defaultDeck,
-        'defaultModel': defaultModel,
-        'batchSize': batchSize,
-        'allowDuplicates': allowDuplicates,
-        'duplicateScope': duplicateScope,
-      };
-
-  factory AnkiImportSettings.fromJson(Map<String, dynamic> json) =>
-      AnkiImportSettings(
-        defaultDeck: json['defaultDeck'] as String? ?? 'Vocabulary::Japanese',
-        defaultModel: json['defaultModel'] as String? ?? 'Basic',
-        batchSize: json['batchSize'] as int? ?? 10,
-        allowDuplicates: json['allowDuplicates'] as bool? ?? false,
-        duplicateScope: json['duplicateScope'] as String? ?? 'deck',
-      );
-}
