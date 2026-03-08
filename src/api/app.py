@@ -381,12 +381,22 @@ def _build_enrich_prompt(words: list[str], def_lang: str, ex_lang: str) -> str:
         f"For each word below, provide:\n"
         f"1) A concise definition (1-2 sentences) written in {def_lang}\n"
         f"2) Two short example sentences written in {ex_lang}\n\n"
+        f"FORMATTING RULE: Output ONLY plain text. Do NOT use asterisks (*),\n"
+        f"bold, italic, markdown, or any other formatting in definitions or\n"
+        f"examples. Never wrap words in asterisks like *word*.\n\n"
         f"LANGUAGE RULE: The words may be in a different language than the\n"
-        f"definition or examples language. When writing the definition in\n"
-        f"{def_lang}, use the {def_lang} translation/equivalent of the word,\n"
-        f"NOT the original word. When writing examples in {ex_lang}, use the\n"
-        f"{ex_lang} translation/equivalent of the word in the sentences.\n"
-        f"For example: if the word is French 'tantôt' but definition language\n"
+        f"definition or examples language.\n"
+        f"- The definition MUST be written entirely in {def_lang}, using the\n"
+        f"  {def_lang} translation of the word — NOT the original word.\n"
+        f"- The example sentences MUST be written entirely in {ex_lang}, using\n"
+        f"  the {ex_lang} translation of the word — NOT the original word.\n"
+        f"- NEVER insert the original foreign word into {def_lang} or {ex_lang}\n"
+        f"  sentences. Always translate it first.\n"
+        f"Example: if the word is Spanish 'calor' and definition language is\n"
+        f"English, write the definition about 'heat', NOT 'calor'.\n"
+        f"If examples language is English, write: 'The heat was unbearable.'\n"
+        f"NOT: 'The calor was unbearable.'\n"
+        f"Another example: if the word is French 'tantôt' and definition language\n"
         f"is German, write the definition using the German equivalent.\n"
         f"If examples language is Portuguese, use the Portuguese equivalent\n"
         f"in the example sentences.\n\n"
@@ -409,9 +419,9 @@ def _build_enrich_prompt(words: list[str], def_lang: str, ex_lang: str) -> str:
         f"Use EXACTLY this format for each word (no extra text):\n\n"
         f"WORD: <word as given>\n"
         f"CORRECTED: <correct spelling>  (only if different from WORD)\n"
-        f"DEF: <definition in {def_lang}, using {def_lang} equivalent of the word>\n"
-        f"EX1: <example sentence in {ex_lang}, using {ex_lang} equivalent of the word>\n"
-        f"EX2: <example sentence in {ex_lang}, using {ex_lang} equivalent of the word>\n\n"
+        f"DEF: <plain text definition in {def_lang}, using {def_lang} equivalent of the word>\n"
+        f"EX1: <plain text example in {ex_lang}, using {ex_lang} equivalent of the word>\n"
+        f"EX2: <plain text example in {ex_lang}, using {ex_lang} equivalent of the word>\n\n"
         f"Words:\n{word_list}"
     )
 
@@ -471,6 +481,9 @@ def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
                 if ex2:
                     examples += "\n" + ex2
         data = {"definition": defn, "examples": examples, "corrected_word": corrected}
+        # Strip markdown-style asterisks the LLM may insert despite instructions.
+        for key in ("definition", "examples"):
+            data[key] = data[key].replace("*", "")
         parsed[word_key.lower()] = data
         parsed_ordered.append(data)
 

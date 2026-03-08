@@ -397,6 +397,7 @@ class _WordReviewPanel extends StatefulWidget {
 class _WordReviewPanelState extends State<_WordReviewPanel> {
   late List<String> _words;
   final _addController = TextEditingController();
+  final _addFocusNode = FocusNode();
 
   @override
   void initState() {
@@ -407,6 +408,7 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
   @override
   void dispose() {
     _addController.dispose();
+    _addFocusNode.dispose();
     super.dispose();
   }
 
@@ -457,6 +459,8 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
       setState(() => _words.add(w));
       _addController.clear();
     }
+    // Keep focus in the text field so the user can keep typing.
+    _addFocusNode.requestFocus();
   }
 
   @override
@@ -497,6 +501,7 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
                 Expanded(
                   child: TextField(
                     controller: _addController,
+                    focusNode: _addFocusNode,
                     decoration: const InputDecoration(
                       hintText: 'Add a word…',
                       border: OutlineInputBorder(),
