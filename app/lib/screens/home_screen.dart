@@ -21,8 +21,10 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  OcrContext _context = OcrContext.handwrittenOrPrinted;
-  HighlightColor _selectedPresetColor = HighlightColor.orange;
+  /// Currently selected preset colour for highlight detection.
+  /// `null` means no global colour — images are OCR'd as full images unless
+  /// they have a per-image colour override.
+  HighlightColor? _selectedPresetColor;
   bool _useCustomColor = false;
   HsvRange? _customHsvRange;
   final List<ImageEntry> _imageQueue = [];
@@ -38,20 +40,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.dispose();
   }
 
-  /// The HSV range to use for highlight detection.
+  /// The global HSV range for highlight detection.
+  /// Returns `null` when no colour is selected (→ plain OCR).
   HsvRange? get _effectiveHsvRange {
-    if (_context != OcrContext.highlighted) return null;
     if (_useCustomColor) return _customHsvRange;
-    return HsvRange.fromPreset(_selectedPresetColor);
+    if (_selectedPresetColor != null) {
+      return HsvRange.fromPreset(_selectedPresetColor!);
+    }
+    return null;
   }
 
   bool get _canStartProcessing {
     if (_imageQueue.isEmpty) return false;
-    if (_context == OcrContext.highlighted &&
-        _useCustomColor &&
-        _customHsvRange == null) {
-      return false;
-    }
+    // Custom mode selected but not yet sampled → block
+    if (_useCustomColor && _customHsvRange == null) return false;
     return true;
   }
 
@@ -91,108 +93,92 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                Text('OCR Context', style: theme.textTheme.titleMedium),
+                // -- Highlight colour picker (always visible) -----------------
+                Text('Highlight Colour', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  'Select a colour to detect highlighted regions, or leave '
+                  'empty to OCR full images.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
                 const SizedBox(height: 8),
-                SegmentedButton<OcrContext>(
-                  segments: const [
-                    ButtonSegment(
-                      value: OcrContext.handwrittenOrPrinted,
-                      label: Text('Handwritten / Printed'),
-                      icon: Icon(Icons.text_fields),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    // "None" chip — no highlight detection
+                    ChoiceChip(
+                      avatar: const Icon(Icons.text_fields, size: 18),
+                      label: const Text('None'),
+                      selected: !_useCustomColor &&
+                          _selectedPresetColor == null,
+                      onSelected: (_) => setState(() {
+                        _useCustomColor = false;
+                        _selectedPresetColor = null;
+                      }),
                     ),
-                    ButtonSegment(
-                      value: OcrContext.highlighted,
-                      label: Text('Highlighted'),
-                      icon: Icon(Icons.highlight),
+                    ...HighlightColor.values.map((c) {
+                      return ChoiceChip(
+                        label: Text(c.label),
+                        selected:
+                            !_useCustomColor &&
+                            _selectedPresetColor == c,
+                        selectedColor: _chipColor(c),
+                        onSelected: (_) => setState(() {
+                          _useCustomColor = false;
+                          _selectedPresetColor = c;
+                        }),
+                      );
+                    }),
+                    ChoiceChip(
+                      avatar: _customHsvRange != null
+                          ? Container(
+                              width: 18,
+                              height: 18,
+                              decoration: BoxDecoration(
+                                color: _hsvRangeToColor(
+                                    _customHsvRange!),
+                                shape: BoxShape.circle,
+                                border:
+                                    Border.all(color: Colors.grey),
+                              ),
+                            )
+                          : const Icon(Icons.colorize, size: 18),
+                      label: const Text('Custom'),
+                      selected: _useCustomColor,
+                      onSelected: (_) =>
+                          setState(() => _useCustomColor = true),
                     ),
                   ],
-                  selected: {_context},
-                  onSelectionChanged: (v) =>
-                      setState(() => _context = v.first),
                 ),
+                // Custom colour actions
+                if (_useCustomColor) ...[
+                  const SizedBox(height: 8),
+                  if (_imageQueue.isEmpty)
+                    Text(
+                      'Add an image first to sample a custom colour.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    )
+                  else
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.colorize),
+                      label: Text(_customHsvRange != null
+                          ? 'Re-sample Colour'
+                          : 'Pick Colour from Image'),
+                      onPressed: _showColorSampler,
+                    ),
+                  if (_customHsvRange != null) ...[
+                    const SizedBox(height: 4),
+                    _SampledColorInfo(range: _customHsvRange!),
+                  ],
+                ],
                 const SizedBox(height: 16),
 
-                // -- Color picker (only for highlighted context) ---------------
-                AnimatedCrossFade(
-                  duration: const Duration(milliseconds: 200),
-                  crossFadeState: _context == OcrContext.highlighted
-                      ? CrossFadeState.showFirst
-                      : CrossFadeState.showSecond,
-                  firstChild: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Highlight Colour',
-                          style: theme.textTheme.titleSmall),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          ...HighlightColor.values.map((c) {
-                            return ChoiceChip(
-                              label: Text(c.label),
-                              selected:
-                                  !_useCustomColor &&
-                                  _selectedPresetColor == c,
-                              selectedColor: _chipColor(c),
-                              onSelected: (_) => setState(() {
-                                _useCustomColor = false;
-                                _selectedPresetColor = c;
-                              }),
-                            );
-                          }),
-                          ChoiceChip(
-                            avatar: _customHsvRange != null
-                                ? Container(
-                                    width: 18,
-                                    height: 18,
-                                    decoration: BoxDecoration(
-                                      color: _hsvRangeToColor(
-                                          _customHsvRange!),
-                                      shape: BoxShape.circle,
-                                      border:
-                                          Border.all(color: Colors.grey),
-                                    ),
-                                  )
-                                : const Icon(Icons.colorize, size: 18),
-                            label: const Text('Custom'),
-                            selected: _useCustomColor,
-                            onSelected: (_) =>
-                                setState(() => _useCustomColor = true),
-                          ),
-                        ],
-                      ),
-                      // Custom colour actions
-                      if (_useCustomColor) ...[
-                        const SizedBox(height: 8),
-                        if (_imageQueue.isEmpty)
-                          Text(
-                            'Add an image first to sample a custom colour.',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          )
-                        else
-                          OutlinedButton.icon(
-                            icon: const Icon(Icons.colorize),
-                            label: Text(_customHsvRange != null
-                                ? 'Re-sample Colour'
-                                : 'Pick Colour from Image'),
-                            onPressed: _showColorSampler,
-                          ),
-                        if (_customHsvRange != null) ...[
-                          const SizedBox(height: 4),
-                          _SampledColorInfo(range: _customHsvRange!),
-                        ],
-                      ],
-                      const SizedBox(height: 16),
-                    ],
-                  ),
-                  secondChild: const SizedBox.shrink(),
-                ),
-
                 // -- Image upload area ----------------------------------------
-                const SizedBox(height: 8),
                 _ImageDropZone(
                   onImagesSelected: (images) => setState(() {
                     _imageQueue.addAll(
@@ -428,7 +414,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         return _PerImageSettingsSheet(
           entry: entry,
           globalColor: _effectiveHsvRange,
-          isHighlightedMode: _context == OcrContext.highlighted,
           detector: detector,
           onCropSet: (box) {
             setState(() => _imageQueue[index].cropRegion = box);
@@ -554,9 +539,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       return entry;
     }).toList();
 
-    // Show bounding-box preview for highlighted mode (ALL images).
+    // Show bounding-box preview for any images that will use highlight
+    // detection (global colour or per-image colour override).
+    final anyHighlighted = _effectiveHsvRange != null ||
+        images.any((e) => e.hsvOverride != null);
     Map<int, List<HighlightBBox>>? confirmedBoxes;
-    if (_context == OcrContext.highlighted && _effectiveHsvRange != null) {
+    if (anyHighlighted) {
       confirmedBoxes = await _showBatchBoundingBoxPreview(images);
       if (confirmedBoxes == null || !mounted) return;
     }
@@ -572,7 +560,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     await notifier.processImages(
       images: images,
-      context: _context,
       hsvRange: _effectiveHsvRange,
       confirmedBoxes: confirmedBoxes,
     );
@@ -1550,8 +1537,9 @@ class _ColorSamplerDialog extends StatefulWidget {
 }
 
 class _ColorSamplerDialogState extends State<_ColorSamplerDialog> {
-  Offset? _dragStart;
-  Offset? _dragEnd;
+  /// Drag coordinates normalised to 0-1 (fraction of displayed image).
+  Offset? _dragStartNorm;
+  Offset? _dragEndNorm;
   HsvRange? _sampledRange;
 
   double _imageWidth = 0;
@@ -1583,24 +1571,24 @@ class _ColorSamplerDialogState extends State<_ColorSamplerDialog> {
   void _zoomIn() {
     setState(() {
       _zoomScale = (_zoomScale + _zoomStep).clamp(_minZoom, _maxZoom);
-      _dragStart = null;
-      _dragEnd = null;
+      _dragStartNorm = null;
+      _dragEndNorm = null;
     });
   }
 
   void _zoomOut() {
     setState(() {
       _zoomScale = (_zoomScale - _zoomStep).clamp(_minZoom, _maxZoom);
-      _dragStart = null;
-      _dragEnd = null;
+      _dragStartNorm = null;
+      _dragEndNorm = null;
     });
   }
 
   void _zoomReset() {
     setState(() {
       _zoomScale = 1.0;
-      _dragStart = null;
-      _dragEnd = null;
+      _dragStartNorm = null;
+      _dragEndNorm = null;
     });
   }
 
@@ -1671,6 +1659,11 @@ class _ColorSamplerDialogState extends State<_ColorSamplerDialog> {
             if (_sampledRange != null) ...[
               const SizedBox(height: 12),
               _SampledColorInfo(range: _sampledRange!),
+            ] else ...[
+              // Reserve the same vertical space so the image area doesn't
+              // resize when the colour info appears.
+              const SizedBox(height: 12),
+              const SizedBox(height: 24),
             ],
           ],
         ),
@@ -1728,19 +1721,22 @@ class _ColorSamplerDialogState extends State<_ColorSamplerDialog> {
                 child: GestureDetector(
                   onPanStart: (d) {
                     setState(() {
-                      _dragStart = d.localPosition;
-                      _dragEnd = d.localPosition;
+                      _dragStartNorm = Offset(
+                        d.localPosition.dx / displayW,
+                        d.localPosition.dy / displayH,
+                      );
+                      _dragEndNorm = _dragStartNorm;
                       _sampledRange = null;
                     });
                   },
                   onPanUpdate: (d) {
-                    final clamped = Offset(
-                      d.localPosition.dx.clamp(0.0, displayW),
-                      d.localPosition.dy.clamp(0.0, displayH),
+                    final norm = Offset(
+                      (d.localPosition.dx / displayW).clamp(0.0, 1.0),
+                      (d.localPosition.dy / displayH).clamp(0.0, 1.0),
                     );
-                    setState(() => _dragEnd = clamped);
+                    setState(() => _dragEndNorm = norm);
                   },
-                  onPanEnd: (_) => _sampleRegion(displayW, displayH),
+                  onPanEnd: (_) => _sampleRegion(),
                   child: Stack(
                     children: [
                       Image.memory(
@@ -1749,12 +1745,18 @@ class _ColorSamplerDialogState extends State<_ColorSamplerDialog> {
                         height: displayH,
                         fit: BoxFit.fill,
                       ),
-                      if (_dragStart != null && _dragEnd != null)
+                      if (_dragStartNorm != null && _dragEndNorm != null)
                         CustomPaint(
                           size: Size(displayW, displayH),
                           painter: _SelectionRectPainter(
-                            start: _dragStart!,
-                            end: _dragEnd!,
+                            start: Offset(
+                              _dragStartNorm!.dx * displayW,
+                              _dragStartNorm!.dy * displayH,
+                            ),
+                            end: Offset(
+                              _dragEndNorm!.dx * displayW,
+                              _dragEndNorm!.dy * displayH,
+                            ),
                           ),
                         ),
                     ],
@@ -1767,17 +1769,14 @@ class _ColorSamplerDialogState extends State<_ColorSamplerDialog> {
     );
   }
 
-  void _sampleRegion(double displayW, double displayH) {
-    if (_dragStart == null || _dragEnd == null) return;
+  void _sampleRegion() {
+    if (_dragStartNorm == null || _dragEndNorm == null) return;
     if (_imageWidth == 0 || _imageHeight == 0) return;
 
-    final scaleX = _imageWidth / displayW;
-    final scaleY = _imageHeight / displayH;
-
-    final x0 = (min(_dragStart!.dx, _dragEnd!.dx) * scaleX).round();
-    final y0 = (min(_dragStart!.dy, _dragEnd!.dy) * scaleY).round();
-    final x1 = (max(_dragStart!.dx, _dragEnd!.dx) * scaleX).round();
-    final y1 = (max(_dragStart!.dy, _dragEnd!.dy) * scaleY).round();
+    final x0 = (min(_dragStartNorm!.dx, _dragEndNorm!.dx) * _imageWidth).round();
+    final y0 = (min(_dragStartNorm!.dy, _dragEndNorm!.dy) * _imageHeight).round();
+    final x1 = (max(_dragStartNorm!.dx, _dragEndNorm!.dx) * _imageWidth).round();
+    final y1 = (max(_dragStartNorm!.dy, _dragEndNorm!.dy) * _imageHeight).round();
 
     if (x1 - x0 < 5 || y1 - y0 < 5) return; // Too small
 
@@ -1877,7 +1876,6 @@ class _PerImageSettingsSheet extends StatelessWidget {
   const _PerImageSettingsSheet({
     required this.entry,
     required this.globalColor,
-    required this.isHighlightedMode,
     required this.detector,
     required this.onCropSet,
     required this.onCropCleared,
@@ -1887,7 +1885,6 @@ class _PerImageSettingsSheet extends StatelessWidget {
 
   final ImageEntry entry;
   final HsvRange? globalColor;
-  final bool isHighlightedMode;
   final HighlightDetector detector;
   final void Function(HighlightBBox) onCropSet;
   final VoidCallback onCropCleared;
@@ -1965,10 +1962,9 @@ class _PerImageSettingsSheet extends StatelessWidget {
             },
           ),
 
-          // -- Per-image colour (only in highlighted mode) --
-          if (isHighlightedMode) ...[
-            const Divider(),
-            ListTile(
+          // -- Per-image colour --
+          const Divider(),
+          ListTile(
               leading: Icon(
                 Icons.palette,
                 color: entry.hasColorOverride
@@ -2004,7 +2000,6 @@ class _PerImageSettingsSheet extends StatelessWidget {
                 if (result != null) onColorSet(result);
               },
             ),
-          ],
           const SizedBox(height: 8),
         ],
       ),

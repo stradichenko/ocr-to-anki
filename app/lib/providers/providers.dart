@@ -611,7 +611,6 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
   Future<void> processImage({
     required Uint8List imageBytes,
     required String filename,
-    required OcrContext context,
     HighlightColor? highlightColor,
   }) =>
       processImages(
@@ -621,7 +620,6 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
             name: filename,
           ),
         ],
-        context: context,
         hsvRange: highlightColor != null
             ? HsvRange.fromPreset(highlightColor)
             : null,
@@ -643,7 +641,6 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
   /// are used instead of auto-detecting.
   Future<void> processImages({
     required List<ImageEntry> images,
-    required OcrContext context,
     HsvRange? hsvRange,
     Map<int, List<HighlightBBox>>? confirmedBoxes,
   }) async {
@@ -718,7 +715,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
 
         // Step 2: If highlighted context, crop first.
         List<Uint8List> imagesToProcess = [imgBytes];
-        if (context == OcrContext.highlighted && effectiveHsv != null) {
+        if (effectiveHsv != null) {
           _log(
             'Scanning for ${effectiveHsv.label} highlights...',
             phase: ProcessingPhase.cropping,
@@ -762,7 +759,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           }
         } else if (imgIdx == 0) {
           _log(
-            'Mode: ${context == OcrContext.handwrittenOrPrinted ? "handwritten/printed text" : "highlighted text"}',
+            'Mode: full-image OCR (no highlight colour set)',
             progress: 0.10,
           );
         }
@@ -1174,7 +1171,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       final sessionId = await dbPersist.insertSession(
         ProcessingSessionsCompanion.insert(
           imagePath: images.map((i) => i.name).join(', '),
-          context: context.name,
+          context: hsvRange != null ? 'highlighted' : 'handwrittenOrPrinted',
           highlightColor: Value(hsvRange?.label),
           ocrText: Value(state.ocrText),
           ocrElapsedS: Value(bench.ocrElapsedS),
