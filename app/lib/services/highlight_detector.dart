@@ -14,7 +14,7 @@ class HighlightDetector {
   HighlightDetector({
     this.colorTolerance = 25,
     this.minArea = 200,
-    this.padding = 10,
+    this.padding = 5,
     this.mergeNearby = true,
     this.mergeDistance = 25,
     this.adaptiveMode = false,
@@ -90,6 +90,63 @@ class HighlightDetector {
     }
 
     return results;
+  }
+
+  /// Stitch a list of crop images into a single vertical montage.
+  ///
+  /// A 4 px red separator is drawn between crops so the vision model
+  /// clearly sees the boundary.  Returns the montage as PNG bytes.
+  /// This lets us OCR all crops in a single inference call instead of
+  /// launching a new subprocess per crop.
+  static Uint8List buildMontage(List<Uint8List> crops) {
+    if (crops.length == 1) return crops.first;
+
+    final images = crops
+        .map((b) => img.decodeImage(b))
+        .whereType<img.Image>()
+        .toList();
+    if (images.isEmpty) return crops.first;
+
+    const sep = 4;
+    final totalW = images.map((i) => i.width).reduce(max);
+    final totalH = images.fold<int>(0, (s, i) => s + i.height) +
+        sep * (images.length - 1);
+
+    final canvas = img.Image(width: totalW, height: totalH);
+    // Fill white
+    img.fill(canvas, color: img.ColorRgba8(255, 255, 255, 255));
+
+    var yOff = 0;
+    for (var i = 0; i < images.length; i++) {
+      img.compositeImage(canvas, images[i], dstY: yOff);
+      yOff += images[i].height;
+      if (i < images.length - 1) {
+        // Red separator line
+        img.fillRect(canvas,
+            x1: 0, y1: yOff, x2: totalW, y2: yOff + sep,
+            color: img.ColorRgba8(255, 0, 0, 255));
+        yOff += sep;
+      }
+    }
+
+    return Uint8List.fromList(img.encodePng(canvas));
+  }
+
+  /// Crop the given image to [region] and return the result as PNG bytes.
+  static Uint8List cropRegion({
+    required Uint8List imageBytes,
+    required HighlightBBox region,
+  }) {
+    final image = img.decodeImage(imageBytes);
+    if (image == null) return imageBytes;
+
+    final x0 = region.x.clamp(0, image.width - 1);
+    final y0 = region.y.clamp(0, image.height - 1);
+    final w = region.w.clamp(1, image.width - x0);
+    final h = region.h.clamp(1, image.height - y0);
+
+    final cropped = img.copyCrop(image, x: x0, y: y0, width: w, height: h);
+    return Uint8List.fromList(img.encodePng(cropped));
   }
 
   /// Return just the bounding boxes (without cropping) for visualisation.

@@ -327,7 +327,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
                           const SizedBox(height: 8),
                           Text('Words found: ${state.words.length}'),
                           Text(
-                              'Cards enriched: ${state.enrichedWords.length}'),
+                              'Cards enriched: ${state.enrichmentSkipped ? "0 (skipped)" : "${state.enrichedWords.length}"}'),
                           Text('Total time: ${_formatDuration(_elapsed)}'),
                         ],
                       ),

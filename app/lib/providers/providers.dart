@@ -197,6 +197,7 @@ class ProcessingState {
     this.error,
     this.activityLog = const [],
     this.startTime,
+    this.enrichmentSkipped = false,
   });
 
   final ProcessingPhase phase;
@@ -213,6 +214,9 @@ class ProcessingState {
   /// When processing started (for elapsed timer).
   final DateTime? startTime;
 
+  /// Whether the user chose to skip enrichment.
+  final bool enrichmentSkipped;
+
   ProcessingState copyWith({
     ProcessingPhase? phase,
     double? progress,
@@ -223,6 +227,7 @@ class ProcessingState {
     String? error,
     List<String>? activityLog,
     DateTime? startTime,
+    bool? enrichmentSkipped,
   }) =>
       ProcessingState(
         phase: phase ?? this.phase,
@@ -234,6 +239,7 @@ class ProcessingState {
         error: error,
         activityLog: activityLog ?? this.activityLog,
         startTime: startTime ?? this.startTime,
+        enrichmentSkipped: enrichmentSkipped ?? this.enrichmentSkipped,
       );
 }
 
@@ -323,6 +329,217 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       }();
     }
     // macOS / Windows could be added later.
+  }
+
+  /// Skip OCR and go straight to word review → enrichment.
+  ///
+  /// Used when the user wants to add words manually without any images.
+  Future<void> processWordsOnly(List<String> words) async {
+    final stopwatch = Stopwatch()..start();
+    final bench = BenchmarkData(
+      timestamp: DateTime.now(),
+      imageSizeBytes: 0,
+    );
+
+    try {
+      state = const ProcessingState().copyWith(
+        phase: ProcessingPhase.wordReview,
+        progress: 0.62,
+        statusMessage: 'Review your word list before enrichment.',
+        startTime: DateTime.now(),
+        activityLog: ['Manual word entry (no images).'],
+        words: words,
+        ocrText: words.join('\n'),
+      );
+
+      final settings = ref.read(settingsProvider);
+      bench.definitionLanguage = settings.definitionLanguage;
+      bench.examplesLanguage = settings.examplesLanguage;
+
+      _log(
+        'Word extraction complete – review the word list before enrichment.',
+        phase: ProcessingPhase.wordReview,
+        progress: 0.62,
+      );
+
+      // Reuse the same word-review gate and enrichment pipeline as
+      // processImages (everything from the Completer onwards).
+      _wordReviewCompleter = Completer<List<String>?>();
+      final confirmedWords = await _wordReviewCompleter!.future;
+      _wordReviewCompleter = null;
+
+      _checkCancelled();
+
+      if (confirmedWords == null || confirmedWords.isEmpty) {
+        _log('Enrichment skipped by user.', progress: 0.95);
+        final wordsToKeep = confirmedWords ?? state.words;
+        final stubCards = wordsToKeep
+            .map((w) => EnrichWordResult(
+                  word: w, definition: '', examples: ''))
+            .toList();
+        state = state.copyWith(
+          words: wordsToKeep,
+          enrichedWords: stubCards,
+          enrichmentSkipped: true,
+        );
+      } else {
+        state = state.copyWith(words: confirmedWords);
+
+        _checkCancelled();
+        if (confirmedWords.isNotEmpty) {
+          final inference = ref.read(inferenceServiceProvider);
+          final db = ref.read(databaseProvider);
+
+          // Server check
+          _log('Checking server connection...', progress: 0.63);
+          final serverOk = await inference.isAvailable();
+          if (!serverOk) {
+            final detail = inference.debugMessage ?? 'no details';
+            throw Exception(
+              'Cannot reach inference server at ${settings.serverUrl} ($detail). '
+              'Make sure the FastAPI backend is running.',
+            );
+          }
+
+          // Cache lookup
+          final cachedMap = await db.getCachedEnrichments(
+            words: confirmedWords,
+            definitionLanguage: settings.definitionLanguage,
+            examplesLanguage: settings.examplesLanguage,
+          );
+
+          final cachedResults = <EnrichWordResult>[];
+          final uncachedWords = <String>[];
+          for (final w in confirmedWords) {
+            final hit = cachedMap[w.toLowerCase()];
+            if (hit != null && hit.warning != 'not_found') {
+              cachedResults.add(EnrichWordResult(
+                word: w,
+                definition: hit.definition,
+                examples: hit.examples,
+                warning: hit.warning,
+              ));
+            } else {
+              uncachedWords.add(w);
+            }
+          }
+
+          if (cachedResults.isNotEmpty) {
+            _log(
+              '${cachedResults.length} word(s) found in cache, '
+              '${uncachedWords.length} word(s) need enrichment',
+              progress: 0.64,
+            );
+            state = state.copyWith(
+              enrichedWords: [...state.enrichedWords, ...cachedResults],
+            );
+          }
+
+          List<EnrichWordResult> freshResults = [];
+          if (uncachedWords.isNotEmpty) {
+            _log(
+              'Enriching ${uncachedWords.length} word(s)...',
+              phase: ProcessingPhase.enriching,
+              progress: 0.70,
+            );
+
+            final enrichWatch = Stopwatch()..start();
+            freshResults = await inference.enrichWords(
+              words: uncachedWords,
+              definitionLanguage: settings.definitionLanguage,
+              examplesLanguage: settings.examplesLanguage,
+              chunkSize: 1,
+              chunkTimeout: const Duration(minutes: 10),
+              onChunkDone: (completed, total, chunkResults) {
+                state = state.copyWith(
+                  enrichedWords: [...state.enrichedWords, ...chunkResults],
+                );
+                _log(
+                  'Enrichment: $completed/$total word(s) done',
+                  progress: 0.68 + 0.20 * (completed / total),
+                );
+              },
+            );
+            enrichWatch.stop();
+            bench.enrichElapsedS = enrichWatch.elapsedMilliseconds / 1000;
+
+            // Cache new results
+            final toCache = freshResults
+                .where((e) => e.warning != 'not_found')
+                .map((e) => EnrichmentCacheEntriesCompanion.insert(
+                      word: e.word.toLowerCase(),
+                      definitionLanguage: settings.definitionLanguage,
+                      examplesLanguage: settings.examplesLanguage,
+                      definition: e.definition,
+                      examples: e.examples,
+                      warning: Value(e.warning),
+                    ))
+                .toList();
+            if (toCache.isNotEmpty) {
+              await db.cacheEnrichments(toCache);
+              _log('Cached ${toCache.length} enrichment(s) for future re-use');
+            }
+          }
+
+          bench.enrichedWordCount = cachedResults.length + freshResults.length;
+
+          // Merge in original order
+          final allResultsMap = <String, EnrichWordResult>{};
+          for (final r in cachedResults) {
+            allResultsMap[r.word.toLowerCase()] = r;
+          }
+          for (final r in freshResults) {
+            allResultsMap[r.word.toLowerCase()] = r;
+          }
+          final orderedResults = confirmedWords
+              .map((w) => allResultsMap[w.toLowerCase()])
+              .whereType<EnrichWordResult>()
+              .toList();
+
+          state = state.copyWith(enrichedWords: orderedResults);
+        }
+      }
+
+      // Done
+      _checkCancelled();
+      _log('Saving session to local database...', progress: 0.92);
+      final totalElapsed =
+          (stopwatch.elapsedMilliseconds / 1000).toStringAsFixed(1);
+
+      if (state.enrichedWords.isNotEmpty) {
+        _log(
+          'Done! ${state.enrichedWords.length} card(s) ready for export '
+          '(${totalElapsed}s total)',
+          phase: ProcessingPhase.done,
+          progress: 1.0,
+        );
+      } else {
+        _log(
+          'Done. No words to process (${totalElapsed}s total)',
+          phase: ProcessingPhase.done,
+          progress: 1.0,
+        );
+      }
+    } catch (e) {
+      if (_cancelled) {
+        _log('Processing cancelled.', progress: 0);
+        state = state.copyWith(
+          phase: ProcessingPhase.idle,
+          statusMessage: 'Cancelled',
+        );
+      } else {
+        _log('Error: $e');
+        state = state.copyWith(
+          phase: ProcessingPhase.done,
+          error: e.toString(),
+          statusMessage: 'Error: $e',
+        );
+      }
+    } finally {
+      stopwatch.stop();
+      _heartbeat?.cancel();
+      _heartbeat = null;
+    }
   }
 
   /// Run the full pipeline: optionally crop highlights -> vision OCR -> enrich.
@@ -464,6 +681,88 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
         }
 
         // Step 3: Vision OCR on each image/crop.
+        // When there are multiple crops, stitch them into a single montage
+        // to avoid one subprocess launch per crop (each launch reloads the
+        // model, which dominates wall-clock time).
+        if (imagesToProcess.length > 1) {
+          _checkCancelled();
+          _log(
+            'Stitching ${imagesToProcess.length} crops into montage for single OCR pass...',
+            phase: ProcessingPhase.ocr,
+            progress: imgProgress + 0.02,
+          );
+
+          final montage = HighlightDetector.buildMontage(imagesToProcess);
+          final mLabel = '${imagesToProcess.length}-crop montage';
+          final montageProgress = 0.10 +
+              0.45 * (imgIdx + 0.5) / images.length;
+          _log(
+            'Running OCR on $mLabel (single inference call)...',
+            progress: montageProgress,
+          );
+
+          final ocrStopwatch = Stopwatch()..start();
+
+          _heartbeat?.cancel();
+          _heartbeat = Timer.periodic(
+            const Duration(seconds: 15),
+            (timer) {
+              final secs = ocrStopwatch.elapsed.inSeconds;
+              final mins = (secs / 60).toStringAsFixed(1);
+              String hint;
+              if (secs < 15) {
+                hint = 'preparing montage for vision encoder...';
+              } else if (secs < 30) {
+                hint = 'vision encode on GPU...';
+              } else if (secs < 60) {
+                hint = 'prompt eval on iGPU...';
+              } else if (secs < 300) {
+                hint = 'generating text from visual features...';
+              } else {
+                hint = 'still working (montage may be complex)...';
+              }
+              _log(
+                'OCR in progress... $mins min elapsed - $hint',
+                progress: montageProgress + 0.30 * (secs / 300).clamp(0.0, 1.0),
+              );
+            },
+          );
+
+          try {
+            final result = await inference.visionOcr(imageBytes: montage);
+            ocrStopwatch.stop();
+            _heartbeat?.cancel();
+            _heartbeat = null;
+
+            final cropOcrS = ocrStopwatch.elapsedMilliseconds / 1000;
+            bench.perCropOcrS = [cropOcrS];
+            if (result.backend.isNotEmpty) bench.backend = result.backend;
+
+            ocrTexts.add(result.text);
+
+            final words = result.text
+                .split(RegExp(r'[\n,]+'))
+                .map((w) => w
+                    .trim()
+                    .replaceAll(RegExp(r'^[\s*\-\u2022\u00b7]+'), '')
+                    .replaceAll(RegExp(r'^\d+\.\s*'), '')
+                    .trim())
+                .where((w) => w.length > 1 && w.split(RegExp(r'\s+')).length <= 4)
+                .toList();
+            allWords.addAll(words);
+
+            final elapsed = (cropOcrS).toStringAsFixed(1);
+            _log(
+              'OCR on $mLabel complete: ${words.length} word(s) found in ${elapsed}s'
+              '${result.backend.isNotEmpty ? " [${result.backend}]" : ""}',
+            );
+          } catch (e) {
+            _heartbeat?.cancel();
+            _heartbeat = null;
+            rethrow;
+          }
+        } else {
+        // Single image/crop — no montage needed.
         for (var i = 0; i < imagesToProcess.length; i++) {
           _checkCancelled();
           final label = imagesToProcess.length > 1
@@ -546,6 +845,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           rethrow;
         }
         }
+        } // end montage vs single branch
       } // end image loop
 
       bench.cropCount = totalCropCount;
@@ -606,6 +906,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
         state = state.copyWith(
           words: wordsToKeep,
           enrichedWords: stubCards,
+          enrichmentSkipped: true,
         );
       } else {
         // Update the word list with whatever the user confirmed.

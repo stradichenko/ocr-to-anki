@@ -28,6 +28,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   final List<({Uint8List bytes, String name})> _imageQueue = [];
   final ScrollController _queueScrollCtrl = ScrollController();
 
+  /// Optional region-of-interest crop (applied to ALL images before colour
+  /// detection).  Stored in natural-image coordinates.
+  HighlightBBox? _cropRegion;
+
   @override
   void dispose() {
     _queueScrollCtrl.dispose();
@@ -283,16 +287,73 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed:
-                        _canStartProcessing ? _startBatchProcessing : null,
-                    icon: const Icon(Icons.play_arrow),
-                    label: Text(
-                      'Start Processing'
-                      '${_imageQueue.length > 1 ? " (${_imageQueue.length} images)" : ""}',
+                  // -- Crop region indicator ----------------------------------
+                  if (_cropRegion != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.crop, size: 16,
+                              color: theme.colorScheme.primary),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Crop region set: ${_cropRegion!.w}×${_cropRegion!.h} '
+                              'at (${_cropRegion!.x}, ${_cropRegion!.y})',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () =>
+                                setState(() => _cropRegion = null),
+                            child: const Text('Clear'),
+                          ),
+                        ],
+                      ),
                     ),
+                  // -- Action buttons -----------------------------------------
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed:
+                              _canStartProcessing ? _startBatchProcessing : null,
+                          icon: const Icon(Icons.play_arrow),
+                          label: Text(
+                            'Start Processing'
+                            '${_imageQueue.length > 1 ? " (${_imageQueue.length} images)" : ""}',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.crop, size: 18),
+                        label: const Text('Crop'),
+                        onPressed: _imageQueue.isNotEmpty
+                            ? _showCropRegionDialog
+                            : null,
+                      ),
+                    ],
                   ),
                 ],
+                // -- Add Words Directly (always available) --------------------
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.edit_note),
+                  label: const Text('Add Words Directly'),
+                  onPressed: _showManualWordEntry,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Skip images — type words for enrichment.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ),
@@ -358,18 +419,59 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  /// Show the crop-region dialog to let the user draw a sub-region on the
+  /// first queued image.  The crop is applied to every image before colour
+  /// detection.
+  Future<void> _showCropRegionDialog() async {
+    if (_imageQueue.isEmpty) return;
+    final result = await showDialog<HighlightBBox>(
+      context: context,
+      builder: (_) => _CropRegionDialog(imageBytes: _imageQueue.first.bytes),
+    );
+    if (result != null && mounted) {
+      setState(() => _cropRegion = result);
+    }
+  }
+
+  /// Navigate to a word-review screen where the user types words manually,
+  /// then runs enrichment without any image processing.
+  Future<void> _showManualWordEntry() async {
+    final notifier = ref.read(processingProvider.notifier);
+    notifier.reset();
+
+    if (mounted) {
+      Navigator.of(context).pushNamed('/processing');
+    }
+
+    // Start with an empty word list — the word-review UI lets the user add.
+    await notifier.processWordsOnly([]);
+  }
+
   Future<void> _startBatchProcessing() async {
     if (_imageQueue.isEmpty) return;
+
+    // Apply crop region to every image if set.
+    List<({Uint8List bytes, String name})> images;
+    if (_cropRegion != null) {
+      images = _imageQueue.map((img) {
+        final cropped = HighlightDetector.cropRegion(
+          imageBytes: img.bytes,
+          region: _cropRegion!,
+        );
+        return (bytes: cropped, name: img.name);
+      }).toList();
+    } else {
+      images = List<({Uint8List bytes, String name})>.of(_imageQueue);
+    }
 
     // Show bounding-box preview for highlighted mode (first image as sample).
     List<HighlightBBox>? firstImageBoxes;
     if (_context == OcrContext.highlighted && _effectiveHsvRange != null) {
       firstImageBoxes =
-          await _showBoundingBoxPreview(_imageQueue.first.bytes);
+          await _showBoundingBoxPreview(images.first.bytes);
       if (firstImageBoxes == null || !mounted) return;
     }
 
-    final images = List<({Uint8List bytes, String name})>.of(_imageQueue);
     setState(() => _imageQueue.clear());
 
     final notifier = ref.read(processingProvider.notifier);
@@ -904,6 +1006,300 @@ class _BoundingBoxPainter extends CustomPainter {
       boxes != old.boxes ||
       color != old.color ||
       toggleVersion != old.toggleVersion;
+}
+
+// ---------------------------------------------------------------------------
+// Crop region dialog — draw a rectangle to crop all images before processing
+// ---------------------------------------------------------------------------
+
+class _CropRegionDialog extends StatefulWidget {
+  const _CropRegionDialog({required this.imageBytes});
+  final Uint8List imageBytes;
+
+  @override
+  State<_CropRegionDialog> createState() => _CropRegionDialogState();
+}
+
+class _CropRegionDialogState extends State<_CropRegionDialog> {
+  Offset? _dragStart;
+  Offset? _dragEnd;
+  double _imageWidth = 0;
+  double _imageHeight = 0;
+
+  // Zoom
+  double _zoomScale = 1.0;
+  static const double _minZoom = 1.0;
+  static const double _maxZoom = 8.0;
+  static const double _zoomStep = 0.5;
+
+  final ScrollController _hScrollCtrl = ScrollController();
+  final ScrollController _vScrollCtrl = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadImageDimensions();
+  }
+
+  @override
+  void dispose() {
+    _hScrollCtrl.dispose();
+    _vScrollCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadImageDimensions() async {
+    final codec = await ui.instantiateImageCodec(widget.imageBytes);
+    final frame = await codec.getNextFrame();
+    if (mounted) {
+      setState(() {
+        _imageWidth = frame.image.width.toDouble();
+        _imageHeight = frame.image.height.toDouble();
+      });
+    }
+    frame.image.dispose();
+  }
+
+  void _zoomIn() =>
+      setState(() => _zoomScale = (_zoomScale + _zoomStep).clamp(_minZoom, _maxZoom));
+  void _zoomOut() =>
+      setState(() => _zoomScale = (_zoomScale - _zoomStep).clamp(_minZoom, _maxZoom));
+  void _zoomReset() => setState(() => _zoomScale = 1.0);
+
+  HighlightBBox? _computeRegion(double displayW, double displayH) {
+    if (_dragStart == null || _dragEnd == null) return null;
+    if (_imageWidth == 0 || _imageHeight == 0) return null;
+
+    final scaleX = _imageWidth / displayW;
+    final scaleY = _imageHeight / displayH;
+
+    final x0 = (min(_dragStart!.dx, _dragEnd!.dx) * scaleX).round();
+    final y0 = (min(_dragStart!.dy, _dragEnd!.dy) * scaleY).round();
+    final x1 = (max(_dragStart!.dx, _dragEnd!.dx) * scaleX).round();
+    final y1 = (max(_dragStart!.dy, _dragEnd!.dy) * scaleY).round();
+
+    if (x1 - x0 < 10 || y1 - y0 < 10) return null;
+    return HighlightBBox(x0, y0, x1 - x0, y1 - y0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Select Crop Region'),
+      content: SizedBox(
+        width: 600,
+        height: 550,
+        child: Column(
+          children: [
+            Text(
+              'Draw a rectangle on the image to select the region of interest.\n'
+              'Only this region will be used for processing.',
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.zoom_out),
+                  tooltip: 'Zoom out',
+                  onPressed: _zoomScale > _minZoom ? _zoomOut : null,
+                ),
+                Text('${(_zoomScale * 100).round()}%',
+                    style: Theme.of(context).textTheme.bodyMedium),
+                IconButton(
+                  icon: const Icon(Icons.zoom_in),
+                  tooltip: 'Zoom in',
+                  onPressed: _zoomScale < _maxZoom ? _zoomIn : null,
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  icon: const Icon(Icons.fit_screen, size: 18),
+                  label: const Text('Reset'),
+                  onPressed: _zoomScale != 1.0 ? _zoomReset : null,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _imageWidth > 0
+                  ? ClipRect(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) =>
+                            _buildScrollableImage(constraints),
+                      ),
+                    )
+                  : const Center(child: CircularProgressIndicator()),
+            ),
+            if (_dragStart != null && _dragEnd != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Region selected — confirm or redraw.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.primary),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: _dragStart != null && _dragEnd != null
+              ? () {
+                  final region = _computeRegion(
+                    _lastDisplayW > 0 ? _lastDisplayW : _imageWidth,
+                    _lastDisplayH > 0 ? _lastDisplayH : _imageHeight,
+                  );
+                  Navigator.pop(context, region);
+                }
+              : null,
+          icon: const Icon(Icons.crop),
+          label: const Text('Set Crop Region'),
+        ),
+      ],
+    );
+  }
+
+  // Track the last display dimensions for region computation.
+  double _lastDisplayW = 0;
+  double _lastDisplayH = 0;
+
+  Widget _buildScrollableImage(BoxConstraints constraints) {
+    final aspect = _imageWidth / _imageHeight;
+    double baseW = constraints.maxWidth;
+    double baseH = baseW / aspect;
+    if (baseH > constraints.maxHeight) {
+      baseH = constraints.maxHeight;
+      baseW = baseH * aspect;
+    }
+
+    final displayW = baseW * _zoomScale;
+    final displayH = baseH * _zoomScale;
+    _lastDisplayW = displayW;
+    _lastDisplayH = displayH;
+
+    return RawScrollbar(
+      controller: _vScrollCtrl,
+      thumbVisibility: true,
+      thumbColor: Colors.grey.shade600,
+      radius: const Radius.circular(4),
+      thickness: 8,
+      child: RawScrollbar(
+        controller: _hScrollCtrl,
+        thumbVisibility: true,
+        thumbColor: Colors.grey.shade600,
+        radius: const Radius.circular(4),
+        thickness: 8,
+        notificationPredicate: (n) => n.depth == 1,
+        child: SingleChildScrollView(
+          controller: _vScrollCtrl,
+          physics: const ClampingScrollPhysics(),
+          child: SingleChildScrollView(
+            controller: _hScrollCtrl,
+            scrollDirection: Axis.horizontal,
+            physics: const ClampingScrollPhysics(),
+            child: SizedBox(
+              width: displayW,
+              height: displayH,
+              child: GestureDetector(
+                onPanStart: (d) {
+                  setState(() {
+                    _dragStart = d.localPosition;
+                    _dragEnd = d.localPosition;
+                  });
+                },
+                onPanUpdate: (d) {
+                  final clamped = Offset(
+                    d.localPosition.dx.clamp(0.0, displayW),
+                    d.localPosition.dy.clamp(0.0, displayH),
+                  );
+                  setState(() => _dragEnd = clamped);
+                },
+                onPanEnd: (_) {},
+                child: Stack(
+                  children: [
+                    Image.memory(
+                      widget.imageBytes,
+                      width: displayW,
+                      height: displayH,
+                      fit: BoxFit.fill,
+                    ),
+                    if (_dragStart != null && _dragEnd != null)
+                      CustomPaint(
+                        size: Size(displayW, displayH),
+                        painter: _CropRegionPainter(
+                          start: _dragStart!,
+                          end: _dragEnd!,
+                          displayW: displayW,
+                          displayH: displayH,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Paints a semi-transparent overlay outside the selected crop region,
+/// with a bright border around the selected area.
+class _CropRegionPainter extends CustomPainter {
+  _CropRegionPainter({
+    required this.start,
+    required this.end,
+    required this.displayW,
+    required this.displayH,
+  });
+
+  final Offset start;
+  final Offset end;
+  final double displayW;
+  final double displayH;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromPoints(start, end);
+
+    // Dim everything outside the selection.
+    final dimPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.5)
+      ..style = PaintingStyle.fill;
+
+    // Top
+    canvas.drawRect(
+        Rect.fromLTRB(0, 0, size.width, rect.top), dimPaint);
+    // Bottom
+    canvas.drawRect(
+        Rect.fromLTRB(0, rect.bottom, size.width, size.height), dimPaint);
+    // Left
+    canvas.drawRect(
+        Rect.fromLTRB(0, rect.top, rect.left, rect.bottom), dimPaint);
+    // Right
+    canvas.drawRect(
+        Rect.fromLTRB(rect.right, rect.top, size.width, rect.bottom), dimPaint);
+
+    // Selection border
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CropRegionPainter old) =>
+      start != old.start || end != old.end;
 }
 
 // ---------------------------------------------------------------------------
