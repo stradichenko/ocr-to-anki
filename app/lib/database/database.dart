@@ -298,6 +298,84 @@ class AppDatabase extends _$AppDatabase {
   Future<int> clearEnrichmentCache() =>
       delete(enrichmentCacheEntries).go();
 
+  /// Delete a single cache entry by its composite key.
+  Future<int> deleteCacheEntry({
+    required String word,
+    required String definitionLanguage,
+    required String examplesLanguage,
+  }) {
+    final lw = word.toLowerCase();
+    return (delete(enrichmentCacheEntries)
+          ..where((t) =>
+              t.word.equals(lw) &
+              t.definitionLanguage.equals(definitionLanguage) &
+              t.examplesLanguage.equals(examplesLanguage)))
+        .go();
+  }
+
+  /// Delete all cache entries for a specific language pair.
+  Future<int> clearCacheByLanguagePair({
+    required String definitionLanguage,
+    required String examplesLanguage,
+  }) {
+    return (delete(enrichmentCacheEntries)
+          ..where((t) =>
+              t.definitionLanguage.equals(definitionLanguage) &
+              t.examplesLanguage.equals(examplesLanguage)))
+        .go();
+  }
+
+  /// List cached entries with optional search and language filter.
+  /// Results are ordered alphabetically by word.
+  Future<List<EnrichmentCacheEntry>> listCachedEntries({
+    String? search,
+    String? definitionLanguage,
+    String? examplesLanguage,
+    int? limit,
+    int? offset,
+  }) {
+    final q = select(enrichmentCacheEntries)
+      ..orderBy([(t) => OrderingTerm.asc(t.word)]);
+
+    q.where((t) {
+      Expression<bool> expr = const Constant(true);
+      if (search != null && search.isNotEmpty) {
+        expr = expr & t.word.like('%${search.toLowerCase()}%');
+      }
+      if (definitionLanguage != null) {
+        expr = expr & t.definitionLanguage.equals(definitionLanguage);
+      }
+      if (examplesLanguage != null) {
+        expr = expr & t.examplesLanguage.equals(examplesLanguage);
+      }
+      return expr;
+    });
+
+    if (limit != null) q.limit(limit, offset: offset);
+    return q.get();
+  }
+
+  /// Get a breakdown of cache entry counts grouped by language pair.
+  Future<List<CacheLanguagePairStat>> getCacheLanguagePairStats() async {
+    final defLang = enrichmentCacheEntries.definitionLanguage;
+    final exLang = enrichmentCacheEntries.examplesLanguage;
+    final cnt = enrichmentCacheEntries.word.count();
+
+    final query = selectOnly(enrichmentCacheEntries)
+      ..addColumns([defLang, exLang, cnt])
+      ..groupBy([defLang, exLang])
+      ..orderBy([OrderingTerm.desc(cnt)]);
+
+    final rows = await query.get();
+    return rows.map((row) {
+      return CacheLanguagePairStat(
+        definitionLanguage: row.read(defLang)!,
+        examplesLanguage: row.read(exLang)!,
+        count: row.read(cnt)!,
+      );
+    }).toList();
+  }
+
   /// Count of cached entries.
   Future<int> enrichmentCacheCount() async {
     final count = enrichmentCacheEntries.word.count();
@@ -315,4 +393,20 @@ LazyDatabase _openConnection() {
     final file = File(p.join(dir.path, 'ocr_to_anki.sqlite'));
     return NativeDatabase.createInBackground(file);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Helper classes
+// ---------------------------------------------------------------------------
+
+class CacheLanguagePairStat {
+  const CacheLanguagePairStat({
+    required this.definitionLanguage,
+    required this.examplesLanguage,
+    required this.count,
+  });
+
+  final String definitionLanguage;
+  final String examplesLanguage;
+  final int count;
 }

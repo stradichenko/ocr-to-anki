@@ -20,11 +20,45 @@ class AnkiExportService {
 
   final AppSettings _settings;
 
+  /// Optional callback fired with status messages during auto-launch.
+  /// Set this before calling methods if you want progress updates.
+  void Function(String message)? onStatusUpdate;
+
+  /// Prevents multiple simultaneous Anki launch attempts across instances.
+  static bool _launching = false;
+
   // ---------------------------------------------------------------------------
   // AnkiConnect helpers
   // ---------------------------------------------------------------------------
 
+  /// Try to auto-launch Anki and wait for AnkiConnect to become reachable.
+  /// Returns `true` if AnkiConnect became reachable, `false` otherwise.
+  Future<bool> _tryLaunchAnki() async {
+    // Only one launch attempt at a time.
+    if (_launching) return false;
+    _launching = true;
+    try {
+      onStatusUpdate?.call('Launching Anki…');
+      await Process.start('anki', [], mode: ProcessStartMode.detached);
+      for (var i = 0; i < 10; i++) {
+        await Future.delayed(const Duration(seconds: 2));
+        if (await checkConnection()) {
+          return true;
+        }
+        onStatusUpdate?.call('Waiting for AnkiConnect… (${i + 1}/10)');
+      }
+      return false;
+    } catch (_) {
+      // `anki` binary not found – nothing we can do.
+      return false;
+    } finally {
+      _launching = false;
+    }
+  }
+
   /// Send a request to the AnkiConnect API.
+  ///
+  /// On connection refused, attempts to auto-launch Anki and retries once.
   Future<dynamic> _invoke(String action,
       [Map<String, dynamic> params = const {}]) async {
     final uri = Uri.parse(_settings.ankiConnectUrl);
@@ -45,8 +79,13 @@ class AnkiExportService {
           .timeout(Duration(seconds: _settings.ankiConnectTimeout));
     } on SocketException catch (e) {
       if (e.osError?.errorCode == 111 || e.message.contains('Connection refused')) {
+        // Try launching Anki automatically.
+        if (await _tryLaunchAnki()) {
+          // Retry the request now that Anki is running.
+          return _invoke(action, params);
+        }
         throw AnkiConnectException(
-          'Connection refused – is Anki running with AnkiConnect installed?\n\n'
+          'Connection refused – could not reach or launch Anki.\n\n'
           'AnkiConnect URL: ${_settings.ankiConnectUrl}\n'
           'Error: $e',
         );

@@ -24,16 +24,18 @@ class AppSettings {
     this.padding = 0,
     this.mergeNearby = true,
     this.mergeDistance = 10,
-    this.inferenceMode = InferenceMode.remote,
     this.serverUrl = 'http://127.0.0.1:8000',
-    this.modelPath = '',
     this.temperature = 0.1,
     this.maxTokens = 512,
     this.contextSize = 4096,
+    this.colorSchemeSeed = 'deepOrange',
+    this.customColorHex = '',
   });
 
   // -- Appearance --
   ThemeMode themeMode;
+  String colorSchemeSeed;
+  String customColorHex;
 
   // -- AnkiConnect settings --
   String ankiConnectUrl;
@@ -62,13 +64,9 @@ class AppSettings {
   int mergeDistance;
 
   // -- Inference --
-  InferenceMode inferenceMode;
 
-  /// URL of the FastAPI backend (when [inferenceMode] is [InferenceMode.remote]).
+  /// URL of the FastAPI backend.
   String serverUrl;
-
-  /// Local path to the GGUF model (when [inferenceMode] is [InferenceMode.embedded]).
-  String modelPath;
 
   double temperature;
   int maxTokens;
@@ -76,6 +74,8 @@ class AppSettings {
 
   Map<String, dynamic> toJson() => {
         'themeMode': themeMode.name,
+        'colorSchemeSeed': colorSchemeSeed,
+        'customColorHex': customColorHex,
         'ankiConnectUrl': ankiConnectUrl,
         'ankiConnectVersion': ankiConnectVersion,
         'ankiConnectTimeout': ankiConnectTimeout,
@@ -95,9 +95,7 @@ class AppSettings {
         'padding': padding,
         'mergeNearby': mergeNearby,
         'mergeDistance': mergeDistance,
-        'inferenceMode': inferenceMode.name,
         'serverUrl': serverUrl,
-        'modelPath': modelPath,
         'temperature': temperature,
         'maxTokens': maxTokens,
         'contextSize': contextSize,
@@ -107,6 +105,10 @@ class AppSettings {
     return AppSettings(
       themeMode: ThemeMode.values.byName(
           json['themeMode'] as String? ?? 'dark'),
+      colorSchemeSeed:
+          json['colorSchemeSeed'] as String? ?? 'deepOrange',
+      customColorHex:
+          json['customColorHex'] as String? ?? '',
       ankiConnectUrl:
           json['ankiConnectUrl'] as String? ?? 'http://localhost:8765',
       ankiConnectVersion: json['ankiConnectVersion'] as int? ?? 6,
@@ -132,25 +134,13 @@ class AppSettings {
       padding: json['padding'] as int? ?? 0,
       mergeNearby: json['mergeNearby'] as bool? ?? true,
       mergeDistance: json['mergeDistance'] as int? ?? 10,
-      inferenceMode: InferenceMode.values.byName(
-          json['inferenceMode'] as String? ?? 'remote'),
       serverUrl:
           json['serverUrl'] as String? ?? 'http://127.0.0.1:8000',
-      modelPath: json['modelPath'] as String? ?? '',
       temperature: (json['temperature'] as num?)?.toDouble() ?? 0.1,
       maxTokens: json['maxTokens'] as int? ?? 512,
       contextSize: json['contextSize'] as int? ?? 4096,
     );
   }
-}
-
-/// Whether the app runs the LLM locally or connects to the Python FastAPI server.
-enum InferenceMode {
-  /// On-device inference via llama.cpp FFI (llamadart).
-  embedded,
-
-  /// Forward requests to the existing Python FastAPI backend.
-  remote,
 }
 
 /// Languages the user can select for definitions / examples.

@@ -40,13 +40,8 @@ class EnrichWordResult {
   final String correctedWord;
 }
 
-/// Unified inference service that can run in two modes:
-///
-///  * **remote** -- forward requests to the existing Python FastAPI backend
-///  * **embedded** -- (future) on-device inference via llama.cpp FFI
-///
-/// The remote mode is fully functional and talks to the API defined in
-/// `src/api/app.py`.
+/// Unified inference service that forwards requests to the Python FastAPI
+/// backend defined in `src/api/app.py`.
 class InferenceService {
   InferenceService({required AppSettings settings}) : _settings = settings;
 
@@ -78,16 +73,9 @@ class InferenceService {
   // Health
   // ---------------------------------------------------------------------------
 
-  /// Check whether the backend is reachable (remote) or model is loaded
-  /// (embedded).
+  /// Check whether the backend is reachable.
   Future<bool> isAvailable() async {
-    switch (_settings.inferenceMode) {
-      case InferenceMode.embedded:
-        debugMessage = 'Embedded mode not yet implemented';
-        return false;
-      case InferenceMode.remote:
-        return _remoteHealthCheck();
-    }
+    return _remoteHealthCheck();
   }
 
   Future<bool> _remoteHealthCheck() async {
@@ -140,18 +128,11 @@ class InferenceService {
         'List every word visible in this image. Output ONLY the words, one per line. No bullet points, no numbering, no descriptions, no commentary.',
     int timeoutSeconds = 2700,
   }) async {
-    switch (_settings.inferenceMode) {
-      case InferenceMode.embedded:
-        throw UnimplementedError(
-          'Embedded inference not yet available -- use remote mode.',
-        );
-      case InferenceMode.remote:
-        return _remoteVisionOcr(
-          imageBytes: imageBytes,
-          prompt: prompt,
-          timeoutSeconds: timeoutSeconds,
-        );
-    }
+    return _remoteVisionOcr(
+      imageBytes: imageBytes,
+      prompt: prompt,
+      timeoutSeconds: timeoutSeconds,
+    );
   }
 
   Future<VisionOcrResult> _remoteVisionOcr({
@@ -218,24 +199,17 @@ class InferenceService {
     void Function(int completedWords, int totalWords,
         List<EnrichWordResult> chunkResults)? onChunkDone,
   }) async {
-    switch (_settings.inferenceMode) {
-      case InferenceMode.embedded:
-        throw UnimplementedError(
-          'Embedded inference not yet available -- use remote mode.',
-        );
-      case InferenceMode.remote:
-        return _remoteEnrichChunked(
-          words: words,
-          definitionLanguage:
-              definitionLanguage ?? _settings.definitionLanguage,
-          examplesLanguage: examplesLanguage ?? _settings.examplesLanguage,
-          maxTokens: maxTokens ?? 256,
-          temperature: temperature ?? _settings.temperature,
-          chunkSize: chunkSize,
-          chunkTimeout: chunkTimeout,
-          onChunkDone: onChunkDone,
-        );
-    }
+    return _remoteEnrichChunked(
+      words: words,
+      definitionLanguage:
+          definitionLanguage ?? _settings.definitionLanguage,
+      examplesLanguage: examplesLanguage ?? _settings.examplesLanguage,
+      maxTokens: maxTokens ?? 256,
+      temperature: temperature ?? _settings.temperature,
+      chunkSize: chunkSize,
+      chunkTimeout: chunkTimeout,
+      onChunkDone: onChunkDone,
+    );
   }
 
   /// Send words in small chunks, each with its own timeout.

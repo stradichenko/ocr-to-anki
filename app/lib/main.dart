@@ -14,18 +14,19 @@ class OcrToAnkiApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
+    final colorSeed = ref.watch(colorSeedProvider);
 
     return MaterialApp(
       title: 'OCR to Anki',
       debugShowCheckedModeBanner: false,
       themeMode: themeMode,
       theme: ThemeData(
-        colorSchemeSeed: Colors.deepOrange,
+        colorSchemeSeed: colorSeed,
         useMaterial3: true,
         brightness: Brightness.light,
       ),
       darkTheme: ThemeData(
-        colorSchemeSeed: Colors.deepOrange,
+        colorSchemeSeed: colorSeed,
         useMaterial3: true,
         brightness: Brightness.dark,
       ),

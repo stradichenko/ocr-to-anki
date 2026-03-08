@@ -29,6 +29,70 @@ final themeModeProvider = Provider<ThemeMode>((ref) {
   return ref.watch(settingsProvider).themeMode;
 });
 
+/// Derived provider for the color scheme seed.
+final colorSeedProvider = Provider<Color>((ref) {
+  final settings = ref.watch(settingsProvider);
+  return resolveColorSeed(settings.colorSchemeSeed, settings.customColorHex);
+});
+
+/// Maps a named scheme or custom hex to a Color.
+Color resolveColorSeed(String schemeName, String customHex) {
+  switch (schemeName) {
+    case 'deepOrange':
+      return Colors.deepOrange;
+    case 'blue':
+      return Colors.blue;
+    case 'teal':
+      return Colors.teal;
+    case 'purple':
+      return Colors.deepPurple;
+    case 'green':
+      return Colors.green;
+    case 'red':
+      return Colors.red;
+    case 'indigo':
+      return Colors.indigo;
+    case 'amber':
+      return Colors.amber;
+    case 'cyan':
+      return Colors.cyan;
+    case 'pink':
+      return Colors.pink;
+    case 'lime':
+      return Colors.lime;
+    case 'brown':
+      return Colors.brown;
+    case 'custom':
+      if (customHex.isNotEmpty) {
+        final hex = customHex.replaceFirst('#', '');
+        if (hex.length == 6) {
+          final value = int.tryParse(hex, radix: 16);
+          if (value != null) return Color(0xFF000000 | value);
+        }
+      }
+      return Colors.deepOrange;
+    default:
+      return Colors.deepOrange;
+  }
+}
+
+/// Named color schemes available in the picker.
+const kColorSchemes = <String, String>{
+  'deepOrange': 'Deep Orange',
+  'blue': 'Blue',
+  'teal': 'Teal',
+  'purple': 'Purple',
+  'green': 'Green',
+  'red': 'Red',
+  'indigo': 'Indigo',
+  'amber': 'Amber',
+  'cyan': 'Cyan',
+  'pink': 'Pink',
+  'lime': 'Lime',
+  'brown': 'Brown',
+  'custom': 'Custom',
+};
+
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
@@ -60,11 +124,6 @@ class SettingsNotifier extends Notifier<AppSettings> {
         if (loaded.serverUrl.contains('://localhost:')) {
           loaded.serverUrl =
               loaded.serverUrl.replaceFirst('://localhost:', '://127.0.0.1:');
-          dirty = true;
-        }
-        // 2) Embedded mode is not yet implemented -- force remote.
-        if (loaded.inferenceMode == InferenceMode.embedded) {
-          loaded.inferenceMode = InferenceMode.remote;
           dirty = true;
         }
         state = loaded; // always assign a fresh object so listeners fire
@@ -277,6 +336,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
 
   /// Request cancellation of the current pipeline.
   void cancel() {
+    if (_cancelled) return; // already requested
     _cancelled = true;
     // Stop the heartbeat timer immediately so no more log noise.
     _heartbeat?.cancel();
@@ -529,13 +589,13 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       if (_cancelled) {
         _log('Processing cancelled.', progress: 0);
         state = state.copyWith(
-          phase: ProcessingPhase.idle,
+          phase: ProcessingPhase.done,
           statusMessage: 'Cancelled',
         );
       } else {
         _log('Error: $e');
         state = state.copyWith(
-          phase: ProcessingPhase.done,
+          phase: ProcessingPhase.error,
           error: e.toString(),
           statusMessage: 'Error: $e',
         );
@@ -1152,13 +1212,22 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       _heartbeat?.cancel();
       _heartbeat = null;
       stopwatch.stop();
-      final log = [...state.activityLog, 'ERROR: $e'];
-      state = state.copyWith(
-        phase: ProcessingPhase.error,
-        error: e.toString(),
-        statusMessage: 'Error: $e',
-        activityLog: log,
-      );
+      if (_cancelled) {
+        final log = [...state.activityLog, 'Processing cancelled.'];
+        state = state.copyWith(
+          phase: ProcessingPhase.done,
+          statusMessage: 'Cancelled',
+          activityLog: log,
+        );
+      } else {
+        final log = [...state.activityLog, 'ERROR: $e'];
+        state = state.copyWith(
+          phase: ProcessingPhase.error,
+          error: e.toString(),
+          statusMessage: 'Error: $e',
+          activityLog: log,
+        );
+      }
     }
   }
 }

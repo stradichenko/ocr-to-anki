@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../database/database.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 
@@ -48,38 +49,79 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
 
+          // -- Color scheme --
+          ListTile(
+            title: const Text('Color Scheme'),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: kColorSchemes.entries.map((entry) {
+                  final isSelected = settings.colorSchemeSeed == entry.key;
+                  final color = resolveColorSeed(entry.key,
+                      entry.key == 'custom' ? settings.customColorHex : '');
+                  return _ColorSchemeChip(
+                    label: entry.value,
+                    color: entry.key == 'custom' && settings.customColorHex.isEmpty
+                        ? null
+                        : color,
+                    selected: isSelected,
+                    onTap: () {
+                      notifier.update((s) => s..colorSchemeSeed = entry.key);
+                    },
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+
+          // -- Custom color hex field (visible when 'custom' is selected) --
+          if (settings.colorSchemeSeed == 'custom')
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: resolveColorSeed('custom', settings.customColorHex),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      initialValue: settings.customColorHex,
+                      decoration: const InputDecoration(
+                        labelText: 'Hex color (e.g. #FF5722)',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        prefixText: '#',
+                      ),
+                      onChanged: (v) {
+                        final hex = v.replaceFirst('#', '');
+                        notifier.update((s) => s..customColorHex = hex);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // ---------------------------------------------------------------
           // Inference
           // ---------------------------------------------------------------
           _SectionHeader('Inference'),
-          ListTile(
-            title: const Text('Mode'),
-            subtitle: Text(settings.inferenceMode == InferenceMode.remote
-                ? 'Remote (FastAPI server)'
-                : 'Embedded (on-device)'),
-            trailing: SegmentedButton<InferenceMode>(
-              segments: const [
-                ButtonSegment(
-                  value: InferenceMode.remote,
-                  label: Text('Remote'),
-                ),
-                ButtonSegment(
-                  value: InferenceMode.embedded,
-                  label: Text('Local'),
-                ),
-              ],
-              selected: {settings.inferenceMode},
-              onSelectionChanged: (v) => notifier.update(
-                (s) => s..inferenceMode = v.first,
-              ),
-            ),
+          _TextFieldTile(
+            label: 'Server URL',
+            value: settings.serverUrl,
+            onChanged: (v) => notifier.update((s) => s..serverUrl = v),
           ),
-          if (settings.inferenceMode == InferenceMode.remote)
-            _TextFieldTile(
-              label: 'Server URL',
-              value: settings.serverUrl,
-              onChanged: (v) => notifier.update((s) => s..serverUrl = v),
-            ),
 
           // ---------------------------------------------------------------
           // Language
@@ -223,11 +265,17 @@ class SettingsScreen extends ConsumerWidget {
           // Enrichment Cache
           // ---------------------------------------------------------------
           _SectionHeader('Enrichment Cache'),
-          _CacheTile(),
+          const _CacheStatsPanel(),
+          const SizedBox(height: 8),
+          const _CacheBrowseButton(),
+
+          const SizedBox(height: 32),
 
           // ---------------------------------------------------------------
           // Connection test
           // ---------------------------------------------------------------
+          _SectionHeader('Connection'),
+          const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: _ConnectionTestButton(),
@@ -257,6 +305,64 @@ class _SectionHeader extends StatelessWidget {
         style: Theme.of(context).textTheme.titleSmall?.copyWith(
               color: Theme.of(context).colorScheme.primary,
             ),
+      ),
+    );
+  }
+}
+
+class _ColorSchemeChip extends StatelessWidget {
+  const _ColorSchemeChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.color,
+  });
+
+  final String label;
+  final Color? color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final chipColor = color ?? theme.colorScheme.outline;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected
+              ? chipColor.withValues(alpha: 0.2)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? chipColor : theme.colorScheme.outlineVariant,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: chipColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -516,46 +622,72 @@ class _ConnectionTestButtonState
       _testing = true;
       _result = null;
     });
-    final ok = await ref.read(ankiExportServiceProvider).checkConnection();
-    setState(() {
-      _testing = false;
-      _result = ok ? '[OK] AnkiConnect reachable' : '[FAIL] Cannot reach AnkiConnect';
-    });
+
+    final service = ref.read(ankiExportServiceProvider);
+    // Hook into status updates so the user sees launch progress.
+    service.onStatusUpdate = (msg) {
+      if (mounted) setState(() => _result = msg);
+    };
+
+    try {
+      // checkConnection calls _invoke which auto-launches Anki on failure.
+      await service.getDecks(); // validates full round-trip, not just ping
+      if (mounted) {
+        setState(() {
+          _testing = false;
+          _result = '[OK] AnkiConnect reachable';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _testing = false;
+          _result = '[FAIL] Cannot reach AnkiConnect – is Anki installed?';
+        });
+      }
+    } finally {
+      service.onStatusUpdate = null;
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Enrichment cache management tile
+// Enrichment cache management widgets
 // ---------------------------------------------------------------------------
 
-class _CacheTile extends ConsumerStatefulWidget {
+/// Shows total count + per-language-pair breakdown with clear buttons.
+class _CacheStatsPanel extends ConsumerStatefulWidget {
+  const _CacheStatsPanel();
+
   @override
-  ConsumerState<_CacheTile> createState() => _CacheTileState();
+  ConsumerState<_CacheStatsPanel> createState() => _CacheStatsPanelState();
 }
 
-class _CacheTileState extends ConsumerState<_CacheTile> {
-  int? _count;
+class _CacheStatsPanelState extends ConsumerState<_CacheStatsPanel> {
+  int? _total;
+  List<CacheLanguagePairStat>? _langStats;
 
   @override
   void initState() {
     super.initState();
-    _loadCount();
+    _reload();
   }
 
-  Future<void> _loadCount() async {
+  Future<void> _reload() async {
     final db = ref.read(databaseProvider);
-    final count = await db.enrichmentCacheCount();
-    if (mounted) setState(() => _count = count);
+    final total = await db.enrichmentCacheCount();
+    final stats = await db.getCacheLanguagePairStats();
+    if (mounted) setState(() { _total = total; _langStats = stats; });
   }
 
-  Future<void> _clearCache() async {
+  Future<void> _clearAll() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Clear enrichment cache?'),
+        title: const Text('Clear entire cache?'),
         content: const Text(
           'All cached word definitions will be deleted. '
-          'Future enrichments will need to call the LLM again.',
+          'Future enrichments will call the LLM again.',
         ),
         actions: [
           TextButton(
@@ -564,6 +696,45 @@ class _CacheTileState extends ConsumerState<_CacheTile> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            child: const Text('Clear All'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final db = ref.read(databaseProvider);
+    final deleted = await db.clearEnrichmentCache();
+    await _reload();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cleared $deleted cached entries')),
+      );
+    }
+  }
+
+  Future<void> _clearLanguagePair(CacheLanguagePairStat stat) async {
+    final label = '${_cap(stat.definitionLanguage)} / ${_cap(stat.examplesLanguage)}';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Clear "$label" cache?'),
+        content: Text(
+          '${stat.count} cached entries for this language pair will be deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
             child: const Text('Clear'),
           ),
         ],
@@ -572,32 +743,440 @@ class _CacheTileState extends ConsumerState<_CacheTile> {
     if (confirmed != true) return;
 
     final db = ref.read(databaseProvider);
-    await db.clearEnrichmentCache();
-    await _loadCount();
-
+    final deleted = await db.clearCacheByLanguagePair(
+      definitionLanguage: stat.definitionLanguage,
+      examplesLanguage: stat.examplesLanguage,
+    );
+    await _reload();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enrichment cache cleared')),
+        SnackBar(content: Text('Cleared $deleted entries for $label')),
       );
     }
   }
 
+  String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // -- Total + Clear All --
+        ListTile(
+          leading: const Icon(Icons.storage),
+          title: Text(
+            _total != null
+                ? '$_total cached definition${_total == 1 ? '' : 's'}'
+                : 'Loading…',
+          ),
+          subtitle: const Text(
+            'Cached definitions are reused instantly, skipping the LLM',
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 18),
+                tooltip: 'Refresh',
+                onPressed: _reload,
+              ),
+              TextButton.icon(
+                onPressed: (_total ?? 0) > 0 ? _clearAll : null,
+                icon: const Icon(Icons.delete_sweep, size: 18),
+                label: const Text('Clear All'),
+              ),
+            ],
+          ),
+        ),
+
+        // -- Per-language breakdown --
+        if (_langStats != null && _langStats!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Text('By language pair',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    )),
+                const SizedBox(height: 4),
+                ..._langStats!.map((stat) {
+                  final label =
+                      '${_cap(stat.definitionLanguage)} → ${_cap(stat.examplesLanguage)}';
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.translate, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text('$label  (${stat.count})',
+                              style: theme.textTheme.bodySmall),
+                        ),
+                        SizedBox(
+                          height: 28,
+                          child: TextButton(
+                            onPressed: () => _clearLanguagePair(stat),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              textStyle: theme.textTheme.labelSmall,
+                            ),
+                            child: const Text('Clear'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Button that opens a full-screen dialog to browse / search / delete cached entries.
+class _CacheBrowseButton extends ConsumerWidget {
+  const _CacheBrowseButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: OutlinedButton.icon(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const _CacheBrowseScreen()),
+          );
+        },
+        icon: const Icon(Icons.search, size: 18),
+        label: const Text('Browse & manage cached entries'),
+      ),
+    );
+  }
+}
+
+/// Full-screen page to browse, search, and delete individual cache entries.
+class _CacheBrowseScreen extends ConsumerStatefulWidget {
+  const _CacheBrowseScreen();
+
+  @override
+  ConsumerState<_CacheBrowseScreen> createState() =>
+      _CacheBrowseScreenState();
+}
+
+class _CacheBrowseScreenState extends ConsumerState<_CacheBrowseScreen> {
+  final _searchController = TextEditingController();
+  List<EnrichmentCacheEntry> _entries = [];
+  List<CacheLanguagePairStat>? _langPairs;
+  String? _filterDefLang;
+  String? _filterExLang;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLangPairs();
+    _search();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadLangPairs() async {
+    final db = ref.read(databaseProvider);
+    final pairs = await db.getCacheLanguagePairStats();
+    if (mounted) setState(() => _langPairs = pairs);
+  }
+
+  Future<void> _search() async {
+    setState(() => _loading = true);
+    final db = ref.read(databaseProvider);
+    final results = await db.listCachedEntries(
+      search: _searchController.text,
+      definitionLanguage: _filterDefLang,
+      examplesLanguage: _filterExLang,
+    );
+    if (mounted) setState(() { _entries = results; _loading = false; });
+  }
+
+  Future<void> _deleteEntry(EnrichmentCacheEntry entry) async {
+    final db = ref.read(databaseProvider);
+    await db.deleteCacheEntry(
+      word: entry.word,
+      definitionLanguage: entry.definitionLanguage,
+      examplesLanguage: entry.examplesLanguage,
+    );
+    _search(); // refresh
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Deleted "${entry.word}"'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    // Build language pair filter chips
+    final filterChips = <Widget>[];
+    if (_langPairs != null) {
+      filterChips.add(
+        FilterChip(
+          label: const Text('All'),
+          selected: _filterDefLang == null && _filterExLang == null,
+          onSelected: (_) {
+            setState(() { _filterDefLang = null; _filterExLang = null; });
+            _search();
+          },
+        ),
+      );
+      for (final pair in _langPairs!) {
+        final selected = _filterDefLang == pair.definitionLanguage &&
+            _filterExLang == pair.examplesLanguage;
+        filterChips.add(
+          FilterChip(
+            label: Text(
+              '${_cap(pair.definitionLanguage)}/${_cap(pair.examplesLanguage)} (${pair.count})',
+            ),
+            selected: selected,
+            onSelected: (_) {
+              setState(() {
+                if (selected) {
+                  _filterDefLang = null;
+                  _filterExLang = null;
+                } else {
+                  _filterDefLang = pair.definitionLanguage;
+                  _filterExLang = pair.examplesLanguage;
+                }
+              });
+              _search();
+            },
+          ),
+        );
+      }
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Enrichment Cache'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Center(
+              child: Text(
+                '${_entries.length} entries',
+                style: theme.textTheme.labelLarge,
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // -- Search bar --
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search words…',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          _search();
+                        },
+                      )
+                    : null,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (_) => _search(),
+            ),
+          ),
+
+          // -- Language filter chips --
+          if (filterChips.isNotEmpty)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Wrap(
+                spacing: 8,
+                children: filterChips,
+              ),
+            ),
+
+          const Divider(height: 1),
+
+          // -- Entry list --
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _entries.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No cached entries found',
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _entries.length,
+                        itemBuilder: (context, index) {
+                          final entry = _entries[index];
+                          return _CacheEntryTile(
+                            entry: entry,
+                            onDelete: () => _deleteEntry(entry),
+                            onTap: () => _showEntryDetail(entry),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEntryDetail(EnrichmentCacheEntry entry) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(entry.word),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DetailSection(
+                label: 'Languages',
+                text:
+                    'Def: ${_cap(entry.definitionLanguage)}  •  Ex: ${_cap(entry.examplesLanguage)}',
+              ),
+              if (entry.warning.isNotEmpty)
+                _DetailSection(label: 'Warning', text: entry.warning),
+              _DetailSection(label: 'Definition', text: entry.definition),
+              _DetailSection(label: 'Examples', text: entry.examples),
+              _DetailSection(
+                label: 'Cached at',
+                text: entry.createdAt.toLocal().toString().split('.').first,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+          TextButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _deleteEntry(entry);
+            },
+            icon: Icon(Icons.delete_outline,
+                size: 18, color: Theme.of(ctx).colorScheme.error),
+            label: Text('Delete',
+                style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailSection extends StatelessWidget {
+  const _DetailSection({required this.label, required this.text});
+  final String label;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.primary,
+              )),
+          const SizedBox(height: 2),
+          SelectableText(
+            text.isEmpty ? '(empty)' : text,
+            style: theme.textTheme.bodyMedium,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CacheEntryTile extends StatelessWidget {
+  const _CacheEntryTile({
+    required this.entry,
+    required this.onDelete,
+    required this.onTap,
+  });
+
+  final EnrichmentCacheEntry entry;
+  final VoidCallback onDelete;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final preview = entry.definition.length > 80
+        ? '${entry.definition.substring(0, 80)}…'
+        : entry.definition;
+
     return ListTile(
-      title: Text(
-        _count != null
-            ? '$_count cached word definition(s)'
-            : 'Loading cache info…',
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(entry.word,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          if (entry.warning.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Icon(Icons.warning_amber,
+                  size: 16, color: theme.colorScheme.error),
+            ),
+        ],
       ),
-      subtitle: const Text(
-        'Cached definitions are reused instantly, skipping the LLM',
+      subtitle: Text(
+        preview.isEmpty ? '(no definition)' : preview,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
       ),
-      trailing: TextButton.icon(
-        onPressed: (_count ?? 0) > 0 ? _clearCache : null,
-        icon: const Icon(Icons.delete_sweep, size: 18),
-        label: const Text('Clear'),
+      trailing: IconButton(
+        icon: Icon(Icons.delete_outline,
+            size: 20, color: theme.colorScheme.error),
+        tooltip: 'Delete entry',
+        onPressed: onDelete,
       ),
+      onTap: onTap,
     );
   }
 }

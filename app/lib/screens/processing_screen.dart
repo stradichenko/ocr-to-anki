@@ -107,9 +107,6 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
               },
               icon: const Icon(Icons.cancel_outlined, size: 18),
               label: const Text('Cancel'),
-              style: TextButton.styleFrom(
-                foregroundColor: theme.colorScheme.error,
-              ),
             ),
           // Live elapsed timer
           if (state.startTime != null)
