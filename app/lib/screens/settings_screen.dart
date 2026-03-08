@@ -163,6 +163,30 @@ class SettingsScreen extends ConsumerWidget {
                   notifier.update((s) => s..minArea = v.round()),
             ),
           ),
+          ListTile(
+            title: const Text('Padding (px)'),
+            subtitle: Slider(
+              value: settings.padding.toDouble(),
+              min: 0,
+              max: 20,
+              divisions: 20,
+              label: settings.padding.toString(),
+              onChanged: (v) =>
+                  notifier.update((s) => s..padding = v.round()),
+            ),
+          ),
+          ListTile(
+            title: const Text('Merge distance (px)'),
+            subtitle: Slider(
+              value: settings.mergeDistance.toDouble(),
+              min: 0,
+              max: 50,
+              divisions: 50,
+              label: settings.mergeDistance.toString(),
+              onChanged: (v) =>
+                  notifier.update((s) => s..mergeDistance = v.round()),
+            ),
+          ),
 
           // ---------------------------------------------------------------
           // LLM parameters

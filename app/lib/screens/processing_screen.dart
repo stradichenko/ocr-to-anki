@@ -16,6 +16,8 @@ class ProcessingScreen extends ConsumerStatefulWidget {
 class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
   Timer? _elapsedTimer;
   Duration _elapsed = Duration.zero;
+  Duration _pausedDuration = Duration.zero;
+  DateTime? _pauseStart;
   final ScrollController _logScroll = ScrollController();
 
   @override
@@ -24,8 +26,22 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
     _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       final state = ref.read(processingProvider);
       final start = state.startTime;
+      final isReview = state.phase == ProcessingPhase.wordReview;
+
+      // Pause tracking: accumulate paused time while in wordReview.
+      if (isReview && _pauseStart == null) {
+        _pauseStart = DateTime.now();
+      } else if (!isReview && _pauseStart != null) {
+        _pausedDuration += DateTime.now().difference(_pauseStart!);
+        _pauseStart = null;
+      }
+
       if (start != null) {
-        setState(() => _elapsed = DateTime.now().difference(start));
+        final raw = DateTime.now().difference(start);
+        final currentPause = _pauseStart != null
+            ? DateTime.now().difference(_pauseStart!)
+            : Duration.zero;
+        setState(() => _elapsed = raw - _pausedDuration - currentPause);
       }
       // Stop the timer once processing finishes.
       if (state.phase == ProcessingPhase.done ||

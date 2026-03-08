@@ -282,6 +282,11 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     _heartbeat?.cancel();
     _heartbeat = null;
     _log('Cancellation requested...', progress: state.progress);
+    // Unblock the word-review gate so the pipeline can reach
+    // _checkCancelled() and throw the cancellation exception.
+    if (_wordReviewCompleter != null && !_wordReviewCompleter!.isCompleted) {
+      _wordReviewCompleter!.complete(null);
+    }
     // Kill the server-side subprocess and abort the HTTP request.
     final inference = ref.read(inferenceServiceProvider);
     inference.cancelOcr();

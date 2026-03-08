@@ -21,9 +21,9 @@ class AppSettings {
     this.adaptiveMode = false,
     this.colorTolerance = 25,
     this.minArea = 200,
-    this.padding = 10,
+    this.padding = 0,
     this.mergeNearby = true,
-    this.mergeDistance = 25,
+    this.mergeDistance = 10,
     this.inferenceMode = InferenceMode.remote,
     this.serverUrl = 'http://127.0.0.1:8000',
     this.modelPath = '',
@@ -129,9 +129,9 @@ class AppSettings {
       adaptiveMode: json['adaptiveMode'] as bool? ?? false,
       colorTolerance: json['colorTolerance'] as int? ?? 25,
       minArea: json['minArea'] as int? ?? 200,
-      padding: json['padding'] as int? ?? 10,
+      padding: json['padding'] as int? ?? 0,
       mergeNearby: json['mergeNearby'] as bool? ?? true,
-      mergeDistance: json['mergeDistance'] as int? ?? 25,
+      mergeDistance: json['mergeDistance'] as int? ?? 10,
       inferenceMode: InferenceMode.values.byName(
           json['inferenceMode'] as String? ?? 'remote'),
       serverUrl:

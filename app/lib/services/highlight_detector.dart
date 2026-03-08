@@ -14,9 +14,9 @@ class HighlightDetector {
   HighlightDetector({
     this.colorTolerance = 25,
     this.minArea = 200,
-    this.padding = 5,
+    this.padding = 0,
     this.mergeNearby = true,
-    this.mergeDistance = 25,
+    this.mergeDistance = 10,
     this.adaptiveMode = false,
   });
 
@@ -248,9 +248,9 @@ class HighlightDetector {
     // Simple morphological open: erode then dilate (3x3 kernel, 2 iterations).
     var cleaned = _erode(mask, w, h, iterations: 2);
     cleaned = _dilate(cleaned, w, h, iterations: 2);
-    // Close: dilate then erode (5x5 kernel, 2 iterations).
-    cleaned = _dilate(cleaned, w, h, kernelSize: 5, iterations: 2);
-    cleaned = _erode(cleaned, w, h, kernelSize: 5, iterations: 2);
+    // Close: dilate then erode (3x3 kernel, 1 iteration).
+    cleaned = _dilate(cleaned, w, h, kernelSize: 3, iterations: 1);
+    cleaned = _erode(cleaned, w, h, kernelSize: 3, iterations: 1);
 
     return cleaned;
   }
