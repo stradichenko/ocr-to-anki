@@ -607,7 +607,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     }
   }
 
-  /// Run the full pipeline: optionally crop highlights -> vision OCR -> enrich.
+  /// Run the full pipeline on a single image.
   Future<void> processImage({
     required Uint8List imageBytes,
     required String filename,
@@ -615,7 +615,12 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     HighlightColor? highlightColor,
   }) =>
       processImages(
-        images: [(bytes: imageBytes, name: filename)],
+        images: [
+          ImageEntry(
+            bytes: imageBytes,
+            name: filename,
+          ),
+        ],
         context: context,
         hsvRange: highlightColor != null
             ? HsvRange.fromPreset(highlightColor)
@@ -627,11 +632,20 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
   /// Each image is optionally cropped and OCR'd; the resulting words from
   /// ALL images are de-duplicated then sent through a single word-review
   /// gate and a single enrichment pass.
+  ///
+  /// [hsvRange] is the global highlight colour; individual images may
+  /// override it via [ImageEntry.hsvOverride].  Similarly, per-image crop
+  /// regions in [ImageEntry.cropRegion] override the global crop that was
+  /// already applied before calling this method.
+  ///
+  /// [confirmedBoxes] maps image indices to user-confirmed bounding boxes
+  /// from the preview dialog.  When present for an image index, those boxes
+  /// are used instead of auto-detecting.
   Future<void> processImages({
-    required List<({Uint8List bytes, String name})> images,
+    required List<ImageEntry> images,
     required OcrContext context,
     HsvRange? hsvRange,
-    List<HighlightBBox>? firstImageBoxes,
+    Map<int, List<HighlightBBox>>? confirmedBoxes,
   }) async {
     final stopwatch = Stopwatch()..start();
 
@@ -684,36 +698,44 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
 
       for (var imgIdx = 0; imgIdx < images.length; imgIdx++) {
         _checkCancelled();
-        final imgBytes = images[imgIdx].bytes;
-        final imgName = images[imgIdx].name;
+        final entry = images[imgIdx];
+        final imgBytes = entry.bytes;
+        final imgName = entry.name;
         final imgProgress = 0.10 + 0.45 * imgIdx / images.length;
+
+        // Per-image colour override takes precedence over global.
+        final effectiveHsv = entry.hsvOverride ?? hsvRange;
 
         if (images.length > 1) {
           _log(
-            '── Image ${imgIdx + 1}/${images.length}: $imgName ──',
+            '── Image ${imgIdx + 1}/${images.length}: $imgName'
+            '${entry.hasColorOverride ? " [custom colour]" : ""}'
+            '${entry.hasCrop ? " [custom crop]" : ""}'
+            ' ──',
             progress: imgProgress,
           );
         }
 
         // Step 2: If highlighted context, crop first.
         List<Uint8List> imagesToProcess = [imgBytes];
-        if (context == OcrContext.highlighted && hsvRange != null) {
+        if (context == OcrContext.highlighted && effectiveHsv != null) {
           _log(
-            'Scanning for ${hsvRange.label} highlights...',
+            'Scanning for ${effectiveHsv.label} highlights...',
             phase: ProcessingPhase.cropping,
             progress: imgProgress,
           );
           final cropWatch = Stopwatch()..start();
           final detector = ref.read(highlightDetectorProvider);
 
-          // Use pre-filtered boxes from the preview for the first image;
-          // auto-detect for subsequent images.
+          // Use user-confirmed boxes from the preview dialog when
+          // available; otherwise auto-detect.
           List<Uint8List> crops;
-          if (imgIdx == 0 && firstImageBoxes != null) {
-            if (firstImageBoxes.isNotEmpty) {
+          final previewBoxes = confirmedBoxes?[imgIdx];
+          if (previewBoxes != null) {
+            if (previewBoxes.isNotEmpty) {
               crops = detector.cropBoxes(
                 imageBytes: imgBytes,
-                boxes: firstImageBoxes,
+                boxes: previewBoxes,
               );
               _log('Using ${crops.length} user-confirmed region(s)');
             } else {
@@ -723,7 +745,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           } else {
             crops = detector.detectAndCrop(
               imageBytes: imgBytes,
-              color: hsvRange,
+              color: effectiveHsv,
             );
           }
 
@@ -732,7 +754,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           if (crops.isNotEmpty) {
             imagesToProcess = crops;
             totalCropCount += crops.length;
-            if (!(imgIdx == 0 && firstImageBoxes != null)) {
+            if (previewBoxes == null) {
               _log('Found ${crops.length} highlighted region(s)');
             }
           } else {

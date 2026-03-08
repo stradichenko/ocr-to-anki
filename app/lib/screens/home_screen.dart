@@ -25,7 +25,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   HighlightColor _selectedPresetColor = HighlightColor.orange;
   bool _useCustomColor = false;
   HsvRange? _customHsvRange;
-  final List<({Uint8List bytes, String name})> _imageQueue = [];
+  final List<ImageEntry> _imageQueue = [];
   final ScrollController _queueScrollCtrl = ScrollController();
 
   /// Optional region-of-interest crop (applied to ALL images before colour
@@ -195,7 +195,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 const SizedBox(height: 8),
                 _ImageDropZone(
                   onImagesSelected: (images) => setState(() {
-                    _imageQueue.addAll(images);
+                    _imageQueue.addAll(
+                      images.map((img) => ImageEntry(
+                        bytes: img.bytes,
+                        name: img.name,
+                      )),
+                    );
                   }),
                 ),
 
@@ -231,56 +236,85 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       separatorBuilder: (_, __) =>
                           const SizedBox(width: 8),
                       itemBuilder: (ctx, i) {
-                        return Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.memory(
-                                _imageQueue[i].bytes,
-                                width: 100,
-                                height: 100,
-                                fit: BoxFit.cover,
+                        final entry = _imageQueue[i];
+                        return GestureDetector(
+                          onTap: () => _showPerImageSettings(i),
+                          child: Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.memory(
+                                  entry.bytes,
+                                  width: 100,
+                                  height: 100,
+                                  fit: BoxFit.cover,
+                                ),
                               ),
-                            ),
-                            Positioned(
-                              top: 2,
-                              right: 2,
-                              child: Material(
-                                color: Colors.black54,
-                                shape: const CircleBorder(),
-                                child: InkWell(
-                                  customBorder: const CircleBorder(),
-                                  onTap: () => setState(
-                                      () => _imageQueue.removeAt(i)),
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(2),
-                                    child: Icon(Icons.close,
-                                        size: 16,
-                                        color: Colors.white),
+                              // -- Per-image badge indicators --
+                              if (entry.hasCrop || entry.hasColorOverride)
+                                Positioned(
+                                  top: 2,
+                                  left: 2,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (entry.hasCrop)
+                                        _badge(
+                                          icon: Icons.crop,
+                                          color: theme.colorScheme.primary,
+                                        ),
+                                      if (entry.hasCrop && entry.hasColorOverride)
+                                        const SizedBox(width: 2),
+                                      if (entry.hasColorOverride)
+                                        _badge(
+                                          icon: Icons.palette,
+                                          color: _hsvRangeToColor(entry.hsvOverride!),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              // -- Close button --
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: Material(
+                                  color: Colors.black54,
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: () => setState(
+                                        () => _imageQueue.removeAt(i)),
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(2),
+                                      child: Icon(Icons.close,
+                                          size: 16,
+                                          color: Colors.white),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                            Positioned(
-                              bottom: 2,
-                              left: 4,
-                              right: 4,
-                              child: Text(
-                                _imageQueue[i].name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.white,
-                                  shadows: [
-                                    Shadow(
-                                        blurRadius: 4,
-                                        color: Colors.black),
-                                  ],
+                              // -- Filename --
+                              Positioned(
+                                bottom: 2,
+                                left: 4,
+                                right: 4,
+                                child: Text(
+                                  entry.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.white,
+                                    shadows: [
+                                      Shadow(
+                                          blurRadius: 4,
+                                          color: Colors.black),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         );
                       },
                     ),
@@ -298,7 +332,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              'Crop region set: ${_cropRegion!.w}×${_cropRegion!.h} '
+                              'Global crop: ${_cropRegion!.w}×${_cropRegion!.h} '
                               'at (${_cropRegion!.x}, ${_cropRegion!.y})',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: theme.colorScheme.primary,
@@ -330,7 +364,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       const SizedBox(width: 8),
                       OutlinedButton.icon(
                         icon: const Icon(Icons.crop, size: 18),
-                        label: const Text('Crop'),
+                        label: const Text('Crop All'),
                         onPressed: _imageQueue.isNotEmpty
                             ? _showCropRegionDialog
                             : null,
@@ -366,6 +400,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   // -----------------------------------------------------------------------
   // Helpers
   // -----------------------------------------------------------------------
+
+  /// Small circular badge shown on a thumbnail to indicate a per-image
+  /// override.
+  Widget _badge({required IconData icon, required Color color}) {
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.85),
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 1),
+      ),
+      child: Icon(icon, size: 12, color: Colors.white),
+    );
+  }
+
+  /// Show a bottom sheet to configure per-image crop and colour for the
+  /// image at [index].
+  Future<void> _showPerImageSettings(int index) async {
+    final entry = _imageQueue[index];
+    final detector = ref.read(highlightDetectorProvider);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return _PerImageSettingsSheet(
+          entry: entry,
+          globalColor: _effectiveHsvRange,
+          isHighlightedMode: _context == OcrContext.highlighted,
+          detector: detector,
+          onCropSet: (box) {
+            setState(() => _imageQueue[index].cropRegion = box);
+            Navigator.of(ctx).pop();
+          },
+          onCropCleared: () {
+            setState(() => _imageQueue[index].cropRegion = null);
+            Navigator.of(ctx).pop();
+          },
+          onColorSet: (hsv) {
+            setState(() => _imageQueue[index].hsvOverride = hsv);
+            Navigator.of(ctx).pop();
+          },
+          onColorCleared: () {
+            setState(() => _imageQueue[index].hsvOverride = null);
+            Navigator.of(ctx).pop();
+          },
+        );
+      },
+    );
+  }
 
   Color _chipColor(HighlightColor c) {
     const map = {
@@ -450,26 +534,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Future<void> _startBatchProcessing() async {
     if (_imageQueue.isEmpty) return;
 
-    // Apply crop region to every image if set.
-    List<({Uint8List bytes, String name})> images;
-    if (_cropRegion != null) {
-      images = _imageQueue.map((img) {
+    // Build ImageEntry list. Apply the global crop region to images that
+    // don't have their own per-image crop, and per-image crop to those that
+    // do.  Per-image colour overrides are already set on each entry.
+    final images = _imageQueue.map((entry) {
+      final crop = entry.cropRegion ?? _cropRegion;
+      if (crop != null) {
         final cropped = HighlightDetector.cropRegion(
-          imageBytes: img.bytes,
-          region: _cropRegion!,
+          imageBytes: entry.bytes,
+          region: crop,
         );
-        return (bytes: cropped, name: img.name);
-      }).toList();
-    } else {
-      images = List<({Uint8List bytes, String name})>.of(_imageQueue);
-    }
+        return ImageEntry(
+          bytes: cropped,
+          name: entry.name,
+          // Crop already applied — don't carry the region forward.
+          hsvOverride: entry.hsvOverride,
+        );
+      }
+      return entry;
+    }).toList();
 
-    // Show bounding-box preview for highlighted mode (first image as sample).
-    List<HighlightBBox>? firstImageBoxes;
+    // Show bounding-box preview for highlighted mode (ALL images).
+    Map<int, List<HighlightBBox>>? confirmedBoxes;
     if (_context == OcrContext.highlighted && _effectiveHsvRange != null) {
-      firstImageBoxes =
-          await _showBoundingBoxPreview(images.first.bytes);
-      if (firstImageBoxes == null || !mounted) return;
+      confirmedBoxes = await _showBatchBoundingBoxPreview(images);
+      if (confirmedBoxes == null || !mounted) return;
     }
 
     setState(() => _imageQueue.clear());
@@ -485,31 +574,81 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       images: images,
       context: _context,
       hsvRange: _effectiveHsvRange,
-      firstImageBoxes: firstImageBoxes,
+      confirmedBoxes: confirmedBoxes,
     );
   }
 
-  /// Run highlight detection and show a preview dialog with bounding-box
-  /// overlays.  Returns the (possibly user-filtered) list of boxes to
-  /// process, or `null` if the user cancelled.
-  Future<List<HighlightBBox>?> _showBoundingBoxPreview(Uint8List bytes) async {
+  /// Detect highlights on ALL images and show a paginated preview dialog.
+  ///
+  /// Returns a map of image-index → confirmed bounding boxes, or `null`
+  /// if the user cancelled.
+  Future<Map<int, List<HighlightBBox>>?> _showBatchBoundingBoxPreview(
+    List<ImageEntry> images,
+  ) async {
     final detector = ref.read(highlightDetectorProvider);
-    final range = _effectiveHsvRange;
-    if (range == null) return <HighlightBBox>[];
-    final rawBoxes = detector.detectBoxes(
-      imageBytes: bytes,
-      color: range,
-    );
+    final pad = detector.padding;
+    final previewImages = <_PreviewImageData>[];
 
-    if (rawBoxes.isEmpty) {
+    // Detect boxes for every image.
+    var totalBoxes = 0;
+    for (final entry in images) {
+      final range = entry.hsvOverride ?? _effectiveHsvRange;
+      if (range == null) {
+        // Shouldn't happen — we already checked _effectiveHsvRange != null.
+        continue;
+      }
+
+      final rawBoxes = detector.detectBoxes(
+        imageBytes: entry.bytes,
+        color: range,
+      );
+
+      // Decode to get natural dimensions.
+      final codec = await ui.instantiateImageCodec(entry.bytes);
+      final frame = await codec.getNextFrame();
+      final natW = frame.image.width.toDouble();
+      final natH = frame.image.height.toDouble();
+      frame.image.dispose();
+
+      // Apply padding to match what detectAndCrop produces.
+      final boxes = rawBoxes.map((b) {
+        final x = (b.x - pad).clamp(0, natW.toInt() - 1);
+        final y = (b.y - pad).clamp(0, natH.toInt() - 1);
+        final x2 = (b.x + b.w + pad).clamp(0, natW.toInt());
+        final y2 = (b.y + b.h + pad).clamp(0, natH.toInt());
+        return HighlightBBox(x, y, x2 - x, y2 - y);
+      }).toList();
+
+      totalBoxes += boxes.length;
+
+      // Resolve overlay colour for this image.
+      final overlayColor = entry.hsvOverride != null
+          ? _hsvRangeToColor(entry.hsvOverride!)
+          : _overlayColor;
+
+      previewImages.add(_PreviewImageData(
+        imageBytes: entry.bytes,
+        boxes: boxes,
+        naturalWidth: natW,
+        naturalHeight: natH,
+        overlayColor: overlayColor,
+        name: entry.name,
+      ));
+    }
+
+    // If NO image has any boxes, ask whether to process full images.
+    if (totalBoxes == 0) {
       if (!mounted) return null;
       final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('No highlights detected'),
-          content: const Text(
-            'No highlighted regions were found for the selected colour. '
-            'Process the full image instead?',
+          content: Text(
+            images.length == 1
+                ? 'No highlighted regions were found for the selected colour. '
+                  'Process the full image instead?'
+                : 'No highlighted regions were found in any of the '
+                  '${images.length} images. Process full images instead?',
           ),
           actions: [
             TextButton(
@@ -518,48 +657,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Process Full Image'),
+              child: const Text('Process Full Image(s)'),
             ),
           ],
         ),
       );
-      return (proceed ?? false) ? <HighlightBBox>[] : null;
+      if (proceed != true) return null;
+      // Return empty lists — signals "use full image" for each.
+      return {
+        for (var i = 0; i < images.length; i++) i: <HighlightBBox>[],
+      };
     }
-
-    // Decode to get natural dimensions for overlay scaling.
-    final codec = await ui.instantiateImageCodec(bytes);
-    final frame = await codec.getNextFrame();
-    final naturalWidth = frame.image.width.toDouble();
-    final naturalHeight = frame.image.height.toDouble();
-    frame.image.dispose();
-
-    // Apply the same padding that detectAndCrop uses so the preview
-    // accurately shows what the OCR will actually receive.
-    final pad = detector.padding;
-    final boxes = rawBoxes.map((b) {
-      final x = (b.x - pad).clamp(0, naturalWidth.toInt() - 1);
-      final y = (b.y - pad).clamp(0, naturalHeight.toInt() - 1);
-      final x2 = (b.x + b.w + pad).clamp(0, naturalWidth.toInt());
-      final y2 = (b.y + b.h + pad).clamp(0, naturalHeight.toInt());
-      return HighlightBBox(x, y, x2 - x, y2 - y);
-    }).toList();
 
     if (!mounted) return null;
 
-    final moreImages = _imageQueue.length > 1
-        ? ' (showing preview for first image; '
-          '${_imageQueue.length - 1} more queued)'
-        : '';
-
-    return await showDialog<List<HighlightBBox>>(
+    return await showDialog<Map<int, List<HighlightBBox>>>(
       context: context,
       builder: (ctx) => _BoundingBoxPreviewDialog(
-        imageBytes: bytes,
-        boxes: boxes,
-        naturalWidth: naturalWidth,
-        naturalHeight: naturalHeight,
-        overlayColor: _overlayColor,
-        moreImagesText: moreImages,
+        images: previewImages,
       ),
     );
   }
@@ -702,18 +817,15 @@ class _ImageDropZoneState extends State<_ImageDropZone> {
 // Bounding-box overlay preview
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Bounding-box preview dialog (zoom, scrollbars, tap-to-remove regions)
-// ---------------------------------------------------------------------------
-
-class _BoundingBoxPreviewDialog extends StatefulWidget {
-  const _BoundingBoxPreviewDialog({
+/// Data for a single image in the batch bounding-box preview.
+class _PreviewImageData {
+  _PreviewImageData({
     required this.imageBytes,
     required this.boxes,
     required this.naturalWidth,
     required this.naturalHeight,
     required this.overlayColor,
-    required this.moreImagesText,
+    required this.name,
   });
 
   final Uint8List imageBytes;
@@ -721,7 +833,19 @@ class _BoundingBoxPreviewDialog extends StatefulWidget {
   final double naturalWidth;
   final double naturalHeight;
   final Color overlayColor;
-  final String moreImagesText;
+  final String name;
+}
+
+// ---------------------------------------------------------------------------
+// Batch bounding-box preview dialog (multi-image, prev/next navigation)
+// ---------------------------------------------------------------------------
+
+class _BoundingBoxPreviewDialog extends StatefulWidget {
+  const _BoundingBoxPreviewDialog({
+    required this.images,
+  });
+
+  final List<_PreviewImageData> images;
 
   @override
   State<_BoundingBoxPreviewDialog> createState() =>
@@ -729,19 +853,29 @@ class _BoundingBoxPreviewDialog extends StatefulWidget {
 }
 
 class _BoundingBoxPreviewDialogState extends State<_BoundingBoxPreviewDialog> {
-  // Zoom
-  double _zoomScale = 1.0;
+  int _currentIndex = 0;
+
+  // Zoom — per-image
+  final List<double> _zoomScales = [];
   static const double _minZoom = 1.0;
   static const double _maxZoom = 8.0;
   static const double _zoomStep = 0.5;
 
-  // Scroll controllers
+  // Scroll controllers (shared, reset on page change)
   final ScrollController _hScrollCtrl = ScrollController();
   final ScrollController _vScrollCtrl = ScrollController();
 
-  // Box removal tracking
-  final Set<int> _removedIndices = {};
-  int _toggleVersion = 0; // for painter repaint
+  // Box removal tracking — per image
+  late final List<Set<int>> _removedIndices;
+  int _toggleVersion = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _zoomScales.addAll(List.filled(widget.images.length, 1.0));
+    _removedIndices =
+        List.generate(widget.images.length, (_) => <int>{});
+  }
 
   @override
   void dispose() {
@@ -750,42 +884,71 @@ class _BoundingBoxPreviewDialogState extends State<_BoundingBoxPreviewDialog> {
     super.dispose();
   }
 
-  void _zoomIn() =>
-      setState(() => _zoomScale = (_zoomScale + _zoomStep).clamp(_minZoom, _maxZoom));
+  _PreviewImageData get _current => widget.images[_currentIndex];
+  double get _zoom => _zoomScales[_currentIndex];
 
-  void _zoomOut() =>
-      setState(() => _zoomScale = (_zoomScale - _zoomStep).clamp(_minZoom, _maxZoom));
+  void _zoomIn() => setState(() =>
+      _zoomScales[_currentIndex] =
+          (_zoom + _zoomStep).clamp(_minZoom, _maxZoom));
 
-  void _zoomReset() => setState(() => _zoomScale = 1.0);
+  void _zoomOut() => setState(() =>
+      _zoomScales[_currentIndex] =
+          (_zoom - _zoomStep).clamp(_minZoom, _maxZoom));
+
+  void _zoomReset() =>
+      setState(() => _zoomScales[_currentIndex] = 1.0);
 
   void _restoreAll() => setState(() {
-        _removedIndices.clear();
+        _removedIndices[_currentIndex].clear();
         _toggleVersion++;
       });
 
-  List<HighlightBBox> get _activeBoxes => [
-        for (var i = 0; i < widget.boxes.length; i++)
-          if (!_removedIndices.contains(i)) widget.boxes[i],
+  void _goTo(int idx) {
+    if (idx < 0 || idx >= widget.images.length) return;
+    setState(() => _currentIndex = idx);
+    // Reset scroll position when switching images.
+    _hScrollCtrl.jumpTo(0);
+    _vScrollCtrl.jumpTo(0);
+  }
+
+  int _activeCountFor(int idx) =>
+      widget.images[idx].boxes.length - _removedIndices[idx].length;
+
+  int get _totalActive {
+    var c = 0;
+    for (var i = 0; i < widget.images.length; i++) {
+      c += _activeCountFor(i);
+    }
+    return c;
+  }
+
+  List<HighlightBBox> _activeBoxesFor(int idx) => [
+        for (var i = 0; i < widget.images[idx].boxes.length; i++)
+          if (!_removedIndices[idx].contains(i))
+            widget.images[idx].boxes[i],
       ];
 
-  int get _activeCount => widget.boxes.length - _removedIndices.length;
+  Map<int, List<HighlightBBox>> get _result => {
+        for (var i = 0; i < widget.images.length; i++)
+          i: _activeBoxesFor(i),
+      };
 
   void _handleTap(Offset localPos, double displayW, double displayH) {
-    final scaleX = widget.naturalWidth / displayW;
-    final scaleY = widget.naturalHeight / displayH;
+    final img = _current;
+    final scaleX = img.naturalWidth / displayW;
+    final scaleY = img.naturalHeight / displayH;
     final natX = localPos.dx * scaleX;
     final natY = localPos.dy * scaleY;
 
-    // Toggle the topmost box under the tap.
-    for (var i = widget.boxes.length - 1; i >= 0; i--) {
-      final b = widget.boxes[i];
+    for (var i = img.boxes.length - 1; i >= 0; i--) {
+      final b = img.boxes[i];
       if (natX >= b.x && natX <= b.x + b.w &&
           natY >= b.y && natY <= b.y + b.h) {
         setState(() {
-          if (_removedIndices.contains(i)) {
-            _removedIndices.remove(i);
+          if (_removedIndices[_currentIndex].contains(i)) {
+            _removedIndices[_currentIndex].remove(i);
           } else {
-            _removedIndices.add(i);
+            _removedIndices[_currentIndex].add(i);
           }
           _toggleVersion++;
         });
@@ -796,46 +959,110 @@ class _BoundingBoxPreviewDialogState extends State<_BoundingBoxPreviewDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final titleText =
-        '$_activeCount/${widget.boxes.length} region(s)${widget.moreImagesText}';
+    final theme = Theme.of(context);
+    final img = _current;
+    final activeHere = _activeCountFor(_currentIndex);
+    final totalHere = img.boxes.length;
+    final multi = widget.images.length > 1;
+
+    final titleText = multi
+        ? 'Image ${_currentIndex + 1}/${widget.images.length}: '
+          '$activeHere/$totalHere region(s)'
+        : '$activeHere/$totalHere region(s)';
 
     return AlertDialog(
       title: Text(titleText),
       content: SizedBox(
         width: 600,
-        height: 500,
+        height: 520,
         child: Column(
           children: [
+            // -- Image name + navigation --
+            if (multi)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left),
+                      tooltip: 'Previous image',
+                      onPressed: _currentIndex > 0
+                          ? () => _goTo(_currentIndex - 1)
+                          : null,
+                    ),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          Text(
+                            img.name,
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          // Dot indicators
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(
+                              widget.images.length,
+                              (i) => Container(
+                                width: i == _currentIndex ? 10 : 6,
+                                height: i == _currentIndex ? 10 : 6,
+                                margin:
+                                    const EdgeInsets.symmetric(horizontal: 2),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: i == _currentIndex
+                                      ? theme.colorScheme.primary
+                                      : theme.colorScheme.outlineVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right),
+                      tooltip: 'Next image',
+                      onPressed:
+                          _currentIndex < widget.images.length - 1
+                              ? () => _goTo(_currentIndex + 1)
+                              : null,
+                    ),
+                  ],
+                ),
+              ),
             Text(
               'Tap a region to remove/restore it.\n'
               'Use zoom to inspect details; scroll to navigate.',
-              style: Theme.of(context).textTheme.bodySmall,
+              style: theme.textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
-            // -- Zoom controls -------------------------------------------------
+            // -- Zoom controls --
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 IconButton(
                   icon: const Icon(Icons.zoom_out),
                   tooltip: 'Zoom out',
-                  onPressed: _zoomScale > _minZoom ? _zoomOut : null,
+                  onPressed: _zoom > _minZoom ? _zoomOut : null,
                 ),
-                Text('${(_zoomScale * 100).round()}%',
-                    style: Theme.of(context).textTheme.bodyMedium),
+                Text('${(_zoom * 100).round()}%',
+                    style: theme.textTheme.bodyMedium),
                 IconButton(
                   icon: const Icon(Icons.zoom_in),
                   tooltip: 'Zoom in',
-                  onPressed: _zoomScale < _maxZoom ? _zoomIn : null,
+                  onPressed: _zoom < _maxZoom ? _zoomIn : null,
                 ),
                 const SizedBox(width: 8),
                 TextButton.icon(
                   icon: const Icon(Icons.fit_screen, size: 18),
                   label: const Text('Reset'),
-                  onPressed: _zoomScale != 1.0 ? _zoomReset : null,
+                  onPressed: _zoom != 1.0 ? _zoomReset : null,
                 ),
-                if (_removedIndices.isNotEmpty) ...[
+                if (_removedIndices[_currentIndex].isNotEmpty) ...[
                   const SizedBox(width: 12),
                   TextButton.icon(
                     icon: const Icon(Icons.restore, size: 18),
@@ -863,18 +1090,21 @@ class _BoundingBoxPreviewDialogState extends State<_BoundingBoxPreviewDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton.icon(
-          onPressed: _activeCount > 0
-              ? () => Navigator.pop(context, _activeBoxes)
+          onPressed: _totalActive > 0
+              ? () => Navigator.pop(context, _result)
               : null,
           icon: const Icon(Icons.play_arrow),
-          label: Text('Process $_activeCount region(s)'),
+          label: Text(multi
+              ? 'Process $_totalActive region(s) across ${widget.images.length} images'
+              : 'Process $_totalActive region(s)'),
         ),
       ],
     );
   }
 
   Widget _buildScrollableImage(BoxConstraints constraints) {
-    final aspect = widget.naturalWidth / widget.naturalHeight;
+    final img = _current;
+    final aspect = img.naturalWidth / img.naturalHeight;
     double baseW = constraints.maxWidth;
     double baseH = baseW / aspect;
     if (baseH > constraints.maxHeight) {
@@ -882,8 +1112,8 @@ class _BoundingBoxPreviewDialogState extends State<_BoundingBoxPreviewDialog> {
       baseW = baseH * aspect;
     }
 
-    final displayW = baseW * _zoomScale;
-    final displayH = baseH * _zoomScale;
+    final displayW = baseW * _zoom;
+    final displayH = baseH * _zoom;
 
     return RawScrollbar(
       controller: _vScrollCtrl,
@@ -914,7 +1144,7 @@ class _BoundingBoxPreviewDialogState extends State<_BoundingBoxPreviewDialog> {
                 child: Stack(
                   children: [
                     Image.memory(
-                      widget.imageBytes,
+                      img.imageBytes,
                       width: displayW,
                       height: displayH,
                       fit: BoxFit.fill,
@@ -922,11 +1152,11 @@ class _BoundingBoxPreviewDialogState extends State<_BoundingBoxPreviewDialog> {
                     CustomPaint(
                       size: Size(displayW, displayH),
                       painter: _BoundingBoxPainter(
-                        boxes: widget.boxes,
-                        color: widget.overlayColor,
-                        removedIndices: _removedIndices,
-                        naturalWidth: widget.naturalWidth,
-                        naturalHeight: widget.naturalHeight,
+                        boxes: img.boxes,
+                        color: img.overlayColor,
+                        removedIndices: _removedIndices[_currentIndex],
+                        naturalWidth: img.naturalWidth,
+                        naturalHeight: img.naturalHeight,
                         toggleVersion: _toggleVersion,
                       ),
                     ),
@@ -1635,6 +1865,149 @@ class _SampledColorInfo extends StatelessWidget {
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-image settings bottom sheet
+// ---------------------------------------------------------------------------
+
+class _PerImageSettingsSheet extends StatelessWidget {
+  const _PerImageSettingsSheet({
+    required this.entry,
+    required this.globalColor,
+    required this.isHighlightedMode,
+    required this.detector,
+    required this.onCropSet,
+    required this.onCropCleared,
+    required this.onColorSet,
+    required this.onColorCleared,
+  });
+
+  final ImageEntry entry;
+  final HsvRange? globalColor;
+  final bool isHighlightedMode;
+  final HighlightDetector detector;
+  final void Function(HighlightBBox) onCropSet;
+  final VoidCallback onCropCleared;
+  final void Function(HsvRange) onColorSet;
+  final VoidCallback onColorCleared;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        left: 16,
+        right: 16,
+        top: 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // -- Header with thumbnail --
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.memory(
+                  entry.bytes,
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  entry.name,
+                  style: theme.textTheme.titleMedium,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(),
+
+          // -- Per-image crop --
+          ListTile(
+            leading: Icon(
+              Icons.crop,
+              color: entry.hasCrop ? theme.colorScheme.primary : null,
+            ),
+            title: Text(entry.hasCrop
+                ? 'Crop: ${entry.cropRegion!.w}\u00d7${entry.cropRegion!.h}'
+                : 'Set Crop Region'),
+            subtitle: entry.hasCrop
+                ? Text(
+                    'at (${entry.cropRegion!.x}, ${entry.cropRegion!.y})',
+                    style: theme.textTheme.bodySmall,
+                  )
+                : const Text('Draw a region on this image'),
+            trailing: entry.hasCrop
+                ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    tooltip: 'Clear crop',
+                    onPressed: onCropCleared,
+                  )
+                : null,
+            onTap: () async {
+              final result = await showDialog<HighlightBBox>(
+                context: context,
+                builder: (_) =>
+                    _CropRegionDialog(imageBytes: entry.bytes),
+              );
+              if (result != null) onCropSet(result);
+            },
+          ),
+
+          // -- Per-image colour (only in highlighted mode) --
+          if (isHighlightedMode) ...[
+            const Divider(),
+            ListTile(
+              leading: Icon(
+                Icons.palette,
+                color: entry.hasColorOverride
+                    ? _HomeScreenState._hsvRangeToColor(entry.hsvOverride!)
+                    : null,
+              ),
+              title: Text(entry.hasColorOverride
+                  ? 'Custom Colour: ${entry.hsvOverride!.label}'
+                  : 'Set Custom Colour'),
+              subtitle: entry.hasColorOverride
+                  ? null
+                  : Text(
+                      globalColor != null
+                          ? 'Using global: ${globalColor!.label}'
+                          : 'No colour set',
+                      style: theme.textTheme.bodySmall,
+                    ),
+              trailing: entry.hasColorOverride
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      tooltip: 'Use global colour',
+                      onPressed: onColorCleared,
+                    )
+                  : null,
+              onTap: () async {
+                final result = await showDialog<HsvRange>(
+                  context: context,
+                  builder: (_) => _ColorSamplerDialog(
+                    imageBytes: entry.bytes,
+                    detector: detector,
+                  ),
+                );
+                if (result != null) onColorSet(result);
+              },
+            ),
+          ],
+          const SizedBox(height: 8),
+        ],
+      ),
     );
   }
 }
