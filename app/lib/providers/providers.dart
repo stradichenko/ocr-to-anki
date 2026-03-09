@@ -306,12 +306,16 @@ final processingProvider =
     NotifierProvider<ProcessingNotifier, ProcessingState>(
         ProcessingNotifier.new);
 
+/// Result from the word-review gate: confirmed words + optional per-word
+/// language overrides (keyed by lowercase word).
+typedef WordReviewResult = ({List<String> words, Map<String, String> wordLanguages});
+
 class ProcessingNotifier extends Notifier<ProcessingState> {
   bool _cancelled = false;
   Timer? _heartbeat;
 
   /// Completer that the pipeline awaits during word review.
-  Completer<List<String>?>? _wordReviewCompleter;
+  Completer<WordReviewResult?>? _wordReviewCompleter;
 
   @override
   ProcessingState build() => const ProcessingState();
@@ -325,8 +329,11 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
   }
 
   /// User confirmed the edited word list — resume enrichment.
-  void confirmWords(List<String> words) {
-    _wordReviewCompleter?.complete(words);
+  ///
+  /// [wordLanguages] maps lowercase word → language code for words
+  /// whose source language was explicitly tagged by the user.
+  void confirmWords(List<String> words, {Map<String, String> wordLanguages = const {}}) {
+    _wordReviewCompleter?.complete((words: words, wordLanguages: wordLanguages));
   }
 
   /// User chose to skip enrichment entirely.
@@ -429,11 +436,14 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
 
       // Reuse the same word-review gate and enrichment pipeline as
       // processImages (everything from the Completer onwards).
-      _wordReviewCompleter = Completer<List<String>?>();
-      final confirmedWords = await _wordReviewCompleter!.future;
+      _wordReviewCompleter = Completer<WordReviewResult?>();
+      final reviewResult = await _wordReviewCompleter!.future;
       _wordReviewCompleter = null;
 
       _checkCancelled();
+
+      final confirmedWords = reviewResult?.words;
+      final wordLanguages = reviewResult?.wordLanguages ?? {};
 
       if (confirmedWords == null || confirmedWords.isEmpty) {
         _log('Enrichment skipped by user.', progress: 0.95);
@@ -514,6 +524,8 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
               words: uncachedWords,
               definitionLanguage: settings.definitionLanguage,
               examplesLanguage: settings.examplesLanguage,
+              termLanguage: settings.termLanguage,
+              wordLanguages: wordLanguages,
               chunkSize: 1,
               chunkTimeout: const Duration(minutes: 10),
               onChunkDone: (completed, total, chunkResults) {
@@ -979,11 +991,14 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
         progress: 0.62,
       );
 
-      _wordReviewCompleter = Completer<List<String>?>();
-      final confirmedWords = await _wordReviewCompleter!.future;
+      _wordReviewCompleter = Completer<WordReviewResult?>();
+      final reviewResult = await _wordReviewCompleter!.future;
       _wordReviewCompleter = null;
 
       _checkCancelled();
+
+      final confirmedWords = reviewResult?.words;
+      final wordLanguages = reviewResult?.wordLanguages ?? {};
 
       // null = user chose to skip enrichment entirely.
       if (confirmedWords == null || confirmedWords.isEmpty) {
@@ -1086,6 +1101,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           definitionLanguage: settings.definitionLanguage,
           examplesLanguage: settings.examplesLanguage,
           termLanguage: effectiveTermLang,
+          wordLanguages: wordLanguages,
           chunkSize: 1,
           chunkTimeout: const Duration(minutes: 10),
           onChunkDone: (completed, total, chunkResults) {

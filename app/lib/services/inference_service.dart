@@ -197,6 +197,7 @@ class InferenceService {
     String? definitionLanguage,
     String? examplesLanguage,
     String? termLanguage,
+    Map<String, String> wordLanguages = const {},
     int? maxTokens,
     double? temperature,
     int chunkSize = 6,
@@ -210,6 +211,7 @@ class InferenceService {
           definitionLanguage ?? _settings.definitionLanguage,
       examplesLanguage: examplesLanguage ?? _settings.examplesLanguage,
       termLanguage: termLanguage ?? _settings.termLanguage,
+      wordLanguages: wordLanguages,
       maxTokens: maxTokens ?? 256,
       temperature: temperature ?? _settings.temperature,
       chunkSize: chunkSize,
@@ -224,6 +226,7 @@ class InferenceService {
     required String definitionLanguage,
     required String examplesLanguage,
     required String termLanguage,
+    required Map<String, String> wordLanguages,
     required int maxTokens,
     required double temperature,
     required int chunkSize,
@@ -243,6 +246,17 @@ class InferenceService {
       final uri = Uri.parse('${_settings.serverUrl}/enrich');
       final prevCount = allResults.length;
 
+      // Resolve per-chunk term_language: if every word in the chunk
+      // has the same explicit language override, use it; otherwise
+      // fall back to the global termLanguage.
+      final chunkLangs = chunk
+          .map((w) => wordLanguages[w.toLowerCase()])
+          .whereType<String>()
+          .toSet();
+      final effectiveLang = chunkLangs.length == 1
+          ? chunkLangs.first
+          : termLanguage;
+
       try {
         final response = await http
             .post(
@@ -252,7 +266,7 @@ class InferenceService {
                 'words': chunk,
                 'definition_language': definitionLanguage,
                 'examples_language': examplesLanguage,
-                'term_language': termLanguage,
+                'term_language': effectiveLang,
                 'max_tokens': maxTokens,
                 'temperature': temperature,
               }),

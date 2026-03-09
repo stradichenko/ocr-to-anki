@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/app_settings.dart' show kSupportedLanguages;
 import '../providers/providers.dart';
 
 class ProcessingScreen extends ConsumerStatefulWidget {
@@ -177,9 +178,9 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
                   Expanded(
                     child: _WordReviewPanel(
                       words: state.words,
-                      onConfirm: (words) => ref
+                      onConfirm: (words, {wordLanguages = const {}}) => ref
                           .read(processingProvider.notifier)
-                          .confirmWords(words),
+                          .confirmWords(words, wordLanguages: wordLanguages),
                       onSkip: () => ref
                           .read(processingProvider.notifier)
                           .skipEnrichment(),
@@ -387,17 +388,40 @@ class _WordReviewPanel extends StatefulWidget {
   });
 
   final List<String> words;
-  final void Function(List<String>) onConfirm;
+  final void Function(List<String>, {Map<String, String> wordLanguages}) onConfirm;
   final VoidCallback onSkip;
 
   @override
   State<_WordReviewPanel> createState() => _WordReviewPanelState();
 }
 
+/// Two-letter codes for compact display on chips.
+const _langCodes = <String, String>{
+  'english': 'EN',
+  'spanish': 'ES',
+  'french': 'FR',
+  'german': 'DE',
+  'portuguese': 'PT',
+  'italian': 'IT',
+  'japanese': 'JA',
+  'chinese': 'ZH',
+  'korean': 'KO',
+  'russian': 'RU',
+  'arabic': 'AR',
+  'dutch': 'NL',
+  'swedish': 'SV',
+  'polish': 'PL',
+  'turkish': 'TR',
+  'hindi': 'HI',
+};
+
 class _WordReviewPanelState extends State<_WordReviewPanel> {
   late List<String> _words;
   final _addController = TextEditingController();
   final _addFocusNode = FocusNode();
+
+  /// Per-word language overrides, keyed by lowercase word.
+  final _wordLanguages = <String, String>{};
 
   @override
   void initState() {
@@ -412,7 +436,11 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
     super.dispose();
   }
 
-  void _removeWord(int index) => setState(() => _words.removeAt(index));
+  void _removeWord(int index) {
+    final removed = _words[index];
+    _wordLanguages.remove(removed.toLowerCase());
+    setState(() => _words.removeAt(index));
+  }
 
   void _editWord(int index) {
     final controller = TextEditingController(text: _words[index]);
@@ -447,6 +475,10 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
       if (result != null && mounted) {
         final trimmed = result.trim();
         if (trimmed.isNotEmpty) {
+          // Migrate language tag if the word changed.
+          final oldKey = _words[index].toLowerCase();
+          final lang = _wordLanguages.remove(oldKey);
+          if (lang != null) _wordLanguages[trimmed.toLowerCase()] = lang;
           setState(() => _words[index] = trimmed);
         }
       }
@@ -461,6 +493,63 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
     }
     // Keep focus in the text field so the user can keep typing.
     _addFocusNode.requestFocus();
+  }
+
+  /// Show a popup to tag a word with its source language.
+  void _pickLanguage(int index) {
+    final word = _words[index];
+    final currentLang = _wordLanguages[word.toLowerCase()];
+    showDialog<String?>(
+      context: context,
+      builder: (ctx) {
+        return SimpleDialog(
+          title: Text('Language for "$word"'),
+          children: [
+            // "Auto" option to clear the override.
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(ctx).pop('__clear__'),
+              child: Row(
+                children: [
+                  if (currentLang == null)
+                    const Icon(Icons.check, size: 18)
+                  else
+                    const SizedBox(width: 18),
+                  const SizedBox(width: 8),
+                  const Text('Auto-detect'),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ...kSupportedLanguages.map((lang) {
+              final code = _langCodes[lang] ?? lang.substring(0, 2).toUpperCase();
+              final selected = currentLang == lang;
+              return SimpleDialogOption(
+                onPressed: () => Navigator.of(ctx).pop(lang),
+                child: Row(
+                  children: [
+                    if (selected)
+                      const Icon(Icons.check, size: 18)
+                    else
+                      const SizedBox(width: 18),
+                    const SizedBox(width: 8),
+                    Text('$code  ${lang[0].toUpperCase()}${lang.substring(1)}'),
+                  ],
+                ),
+              );
+            }),
+          ],
+        );
+      },
+    ).then((result) {
+      if (result == null || !mounted) return;
+      setState(() {
+        if (result == '__clear__') {
+          _wordLanguages.remove(word.toLowerCase());
+        } else {
+          _wordLanguages[word.toLowerCase()] = result;
+        }
+      });
+    });
   }
 
   @override
@@ -487,8 +576,8 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Remove any OCR errors or add missing words before enrichment.\n'
-              'Tap a word to edit it.',
+              'Tap a word to edit. '
+              'Long-press to set its language (for ambiguous words like "chat").',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -530,17 +619,71 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
                   spacing: 6,
                   runSpacing: 6,
                   children: List.generate(_words.length, (i) {
-                    return InputChip(
-                      label: Text(_words[i]),
-                      onPressed: () => _editWord(i),
-                      onDeleted: () => _removeWord(i),
-                      deleteIcon: const Icon(Icons.close, size: 16),
+                    final word = _words[i];
+                    final lang = _wordLanguages[word.toLowerCase()];
+                    final code = lang != null
+                        ? (_langCodes[lang] ?? lang.substring(0, 2).toUpperCase())
+                        : null;
+                    return GestureDetector(
+                      onLongPress: () => _pickLanguage(i),
+                      child: InputChip(
+                        label: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(word),
+                            if (code != null) ...[
+                              const SizedBox(width: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primaryContainer,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  code,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: theme.colorScheme.onPrimaryContainer,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        onPressed: () => _editWord(i),
+                        deleteIcon: const Icon(Icons.close, size: 16),
+                        onDeleted: () => _removeWord(i),
+                        avatar: lang != null
+                            ? Icon(Icons.translate, size: 16,
+                                color: theme.colorScheme.primary)
+                            : null,
+                      ),
                     );
                   }),
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 4),
+
+            // "Set language" hint + bulk action
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _words.isEmpty ? null : () {
+                  // Open language picker that applies to ALL untagged words.
+                  _pickBulkLanguage();
+                },
+                icon: const Icon(Icons.translate, size: 16),
+                label: Text(
+                  _wordLanguages.isEmpty
+                      ? 'Tag language for ambiguous words'
+                      : '${_wordLanguages.length} word(s) tagged',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ),
 
             // Action buttons
             Row(
@@ -556,7 +699,10 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
                   flex: 2,
                   child: FilledButton.icon(
                     onPressed: _words.isNotEmpty
-                        ? () => widget.onConfirm(_words)
+                        ? () => widget.onConfirm(
+                              _words,
+                              wordLanguages: Map<String, String>.from(_wordLanguages),
+                            )
                         : null,
                     icon: const Icon(Icons.auto_awesome),
                     label: Text('Enrich ${_words.length} Word(s)'),
@@ -568,6 +714,43 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
         ),
       ),
     );
+  }
+
+  /// Bulk-tag all currently untagged words with a chosen language.
+  void _pickBulkLanguage() {
+    showDialog<String?>(
+      context: context,
+      builder: (ctx) {
+        return SimpleDialog(
+          title: const Text('Set language for all untagged words'),
+          children: [
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(ctx).pop('__clear__'),
+              child: const Text('Clear all tags'),
+            ),
+            const Divider(height: 1),
+            ...kSupportedLanguages.map((lang) {
+              final code = _langCodes[lang] ?? lang.substring(0, 2).toUpperCase();
+              return SimpleDialogOption(
+                onPressed: () => Navigator.of(ctx).pop(lang),
+                child: Text('$code  ${lang[0].toUpperCase()}${lang.substring(1)}'),
+              );
+            }),
+          ],
+        );
+      },
+    ).then((result) {
+      if (result == null || !mounted) return;
+      setState(() {
+        if (result == '__clear__') {
+          _wordLanguages.clear();
+        } else {
+          for (final w in _words) {
+            _wordLanguages.putIfAbsent(w.toLowerCase(), () => result);
+          }
+        }
+      });
+    });
   }
 }
 
