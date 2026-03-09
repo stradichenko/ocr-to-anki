@@ -444,41 +444,140 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
 
   void _editWord(int index) {
     final controller = TextEditingController(text: _words[index]);
-    showDialog<String>(
+    final wordKey = _words[index].toLowerCase();
+    var selectedLang = _wordLanguages[wordKey];
+
+    showDialog<({String word, String? lang})?>(
       context: context,
       builder: (ctx) {
-        return AlertDialog(
-          title: const Text('Edit word'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              isDense: true,
-            ),
-            onSubmitted: (value) => Navigator.of(ctx).pop(value),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(controller.text),
-              child: const Text('Save'),
-            ),
-          ],
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            final theme = Theme.of(ctx);
+            final langLabel = selectedLang != null
+                ? '${_langCodes[selectedLang] ?? selectedLang!.substring(0, 2).toUpperCase()}  '
+                  '${selectedLang![0].toUpperCase()}${selectedLang!.substring(1)}'
+                : 'Auto-detect';
+            return AlertDialog(
+              title: const Text('Edit word'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      labelText: 'Word',
+                    ),
+                    onSubmitted: (value) => Navigator.of(ctx).pop(
+                      (word: value, lang: selectedLang),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () async {
+                      final picked = await showDialog<String?>(
+                        context: ctx,
+                        builder: (langCtx) => SimpleDialog(
+                          title: const Text('Word language'),
+                          children: [
+                            SimpleDialogOption(
+                              onPressed: () =>
+                                  Navigator.of(langCtx).pop('__clear__'),
+                              child: Row(
+                                children: [
+                                  if (selectedLang == null)
+                                    Icon(Icons.check, size: 18,
+                                        color: theme.colorScheme.primary)
+                                  else
+                                    const SizedBox(width: 18),
+                                  const SizedBox(width: 8),
+                                  const Text('Auto-detect'),
+                                ],
+                              ),
+                            ),
+                            const Divider(height: 1),
+                            ...kSupportedLanguages.map((lang) {
+                              final code = _langCodes[lang] ??
+                                  lang.substring(0, 2).toUpperCase();
+                              final sel = selectedLang == lang;
+                              return SimpleDialogOption(
+                                onPressed: () =>
+                                    Navigator.of(langCtx).pop(lang),
+                                child: Row(
+                                  children: [
+                                    if (sel)
+                                      Icon(Icons.check, size: 18,
+                                          color: theme.colorScheme.primary)
+                                    else
+                                      const SizedBox(width: 18),
+                                    const SizedBox(width: 8),
+                                    Text('$code  ${lang[0].toUpperCase()}'
+                                        '${lang.substring(1)}'),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
+                      );
+                      if (picked != null) {
+                        setDialogState(() {
+                          selectedLang =
+                              picked == '__clear__' ? null : picked;
+                        });
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        labelText: 'Language',
+                        suffixIcon: Icon(Icons.arrow_drop_down, size: 20),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.translate, size: 16,
+                              color: selectedLang != null
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 8),
+                          Text(langLabel),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(
+                    (word: controller.text, lang: selectedLang),
+                  ),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
         );
       },
     ).then((result) {
       controller.dispose();
       if (result != null && mounted) {
-        final trimmed = result.trim();
+        final trimmed = result.word.trim();
         if (trimmed.isNotEmpty) {
-          // Migrate language tag if the word changed.
           final oldKey = _words[index].toLowerCase();
-          final lang = _wordLanguages.remove(oldKey);
-          if (lang != null) _wordLanguages[trimmed.toLowerCase()] = lang;
+          _wordLanguages.remove(oldKey);
+          if (result.lang != null) {
+            _wordLanguages[trimmed.toLowerCase()] = result.lang!;
+          }
           setState(() => _words[index] = trimmed);
         }
       }
@@ -493,63 +592,6 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
     }
     // Keep focus in the text field so the user can keep typing.
     _addFocusNode.requestFocus();
-  }
-
-  /// Show a popup to tag a word with its source language.
-  void _pickLanguage(int index) {
-    final word = _words[index];
-    final currentLang = _wordLanguages[word.toLowerCase()];
-    showDialog<String?>(
-      context: context,
-      builder: (ctx) {
-        return SimpleDialog(
-          title: Text('Language for "$word"'),
-          children: [
-            // "Auto" option to clear the override.
-            SimpleDialogOption(
-              onPressed: () => Navigator.of(ctx).pop('__clear__'),
-              child: Row(
-                children: [
-                  if (currentLang == null)
-                    const Icon(Icons.check, size: 18)
-                  else
-                    const SizedBox(width: 18),
-                  const SizedBox(width: 8),
-                  const Text('Auto-detect'),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            ...kSupportedLanguages.map((lang) {
-              final code = _langCodes[lang] ?? lang.substring(0, 2).toUpperCase();
-              final selected = currentLang == lang;
-              return SimpleDialogOption(
-                onPressed: () => Navigator.of(ctx).pop(lang),
-                child: Row(
-                  children: [
-                    if (selected)
-                      const Icon(Icons.check, size: 18)
-                    else
-                      const SizedBox(width: 18),
-                    const SizedBox(width: 8),
-                    Text('$code  ${lang[0].toUpperCase()}${lang.substring(1)}'),
-                  ],
-                ),
-              );
-            }),
-          ],
-        );
-      },
-    ).then((result) {
-      if (result == null || !mounted) return;
-      setState(() {
-        if (result == '__clear__') {
-          _wordLanguages.remove(word.toLowerCase());
-        } else {
-          _wordLanguages[word.toLowerCase()] = result;
-        }
-      });
-    });
   }
 
   @override
@@ -576,8 +618,7 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Tap a word to edit. '
-              'Long-press to set its language (for ambiguous words like "chat").',
+              'Tap a word to edit it or set its language.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -624,66 +665,45 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
                     final code = lang != null
                         ? (_langCodes[lang] ?? lang.substring(0, 2).toUpperCase())
                         : null;
-                    return GestureDetector(
-                      onLongPress: () => _pickLanguage(i),
-                      child: InputChip(
-                        label: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(word),
-                            if (code != null) ...[
-                              const SizedBox(width: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 4, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  code,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: theme.colorScheme.onPrimaryContainer,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 10,
-                                  ),
+                    return InputChip(
+                      label: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(word),
+                          if (code != null) ...[
+                            const SizedBox(width: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primaryContainer,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                code,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
                                 ),
                               ),
-                            ],
+                            ),
                           ],
-                        ),
-                        onPressed: () => _editWord(i),
-                        deleteIcon: const Icon(Icons.close, size: 16),
-                        onDeleted: () => _removeWord(i),
-                        avatar: lang != null
-                            ? Icon(Icons.translate, size: 16,
-                                color: theme.colorScheme.primary)
-                            : null,
+                        ],
                       ),
+                      onPressed: () => _editWord(i),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                      onDeleted: () => _removeWord(i),
+                      avatar: lang != null
+                          ? Icon(Icons.translate, size: 16,
+                              color: theme.colorScheme.primary)
+                          : null,
                     );
                   }),
                 ),
               ),
             ),
-            const SizedBox(height: 4),
-
-            // "Set language" hint + bulk action
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: _words.isEmpty ? null : () {
-                  // Open language picker that applies to ALL untagged words.
-                  _pickBulkLanguage();
-                },
-                icon: const Icon(Icons.translate, size: 16),
-                label: Text(
-                  _wordLanguages.isEmpty
-                      ? 'Tag language for ambiguous words'
-                      : '${_wordLanguages.length} word(s) tagged',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ),
-            ),
+            const SizedBox(height: 12),
 
             // Action buttons
             Row(
@@ -716,42 +736,6 @@ class _WordReviewPanelState extends State<_WordReviewPanel> {
     );
   }
 
-  /// Bulk-tag all currently untagged words with a chosen language.
-  void _pickBulkLanguage() {
-    showDialog<String?>(
-      context: context,
-      builder: (ctx) {
-        return SimpleDialog(
-          title: const Text('Set language for all untagged words'),
-          children: [
-            SimpleDialogOption(
-              onPressed: () => Navigator.of(ctx).pop('__clear__'),
-              child: const Text('Clear all tags'),
-            ),
-            const Divider(height: 1),
-            ...kSupportedLanguages.map((lang) {
-              final code = _langCodes[lang] ?? lang.substring(0, 2).toUpperCase();
-              return SimpleDialogOption(
-                onPressed: () => Navigator.of(ctx).pop(lang),
-                child: Text('$code  ${lang[0].toUpperCase()}${lang.substring(1)}'),
-              );
-            }),
-          ],
-        );
-      },
-    ).then((result) {
-      if (result == null || !mounted) return;
-      setState(() {
-        if (result == '__clear__') {
-          _wordLanguages.clear();
-        } else {
-          for (final w in _words) {
-            _wordLanguages.putIfAbsent(w.toLowerCase(), () => result);
-          }
-        }
-      });
-    });
-  }
 }
 
 class _CopyableErrorCard extends StatelessWidget {
