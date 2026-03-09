@@ -139,6 +139,13 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: (v) =>
                 notifier.update((s) => s..examplesLanguage = v),
           ),
+          _LanguagePicker(
+            label: 'Term language',
+            value: settings.termLanguage,
+            includeAuto: true,
+            onChanged: (v) =>
+                notifier.update((s) => s..termLanguage = v),
+          ),
 
           // ---------------------------------------------------------------
           // Anki
@@ -527,26 +534,38 @@ class _LanguagePicker extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onChanged,
+    this.includeAuto = false,
   });
 
   final String label;
   final String value;
   final ValueChanged<String> onChanged;
 
+  /// When true, an "Auto-detect" entry is prepended to the language list.
+  final bool includeAuto;
+
   @override
   Widget build(BuildContext context) {
+    final langs = [
+      if (includeAuto) 'auto',
+      ...kSupportedLanguages,
+    ];
     return ListTile(
       title: DropdownButtonFormField<String>(
-        initialValue: kSupportedLanguages.contains(value) ? value : kSupportedLanguages.first,
+        initialValue: langs.contains(value) ? value : langs.first,
         decoration: InputDecoration(
           labelText: label,
           border: const OutlineInputBorder(),
           isDense: true,
         ),
-        items: kSupportedLanguages.map((lang) {
+        items: langs.map((lang) {
           return DropdownMenuItem(
             value: lang,
-            child: Text(lang[0].toUpperCase() + lang.substring(1)),
+            child: Text(
+              lang == 'auto'
+                  ? 'Auto-detect'
+                  : lang[0].toUpperCase() + lang.substring(1),
+            ),
           );
         }).toList(),
         onChanged: (v) {

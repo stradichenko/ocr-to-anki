@@ -52,6 +52,13 @@ class EnrichRequest(BaseModel):
     words: list[str] = Field(..., min_length=1, max_length=50)
     definition_language: str = Field(default="english")
     examples_language: str = Field(default="english")
+    term_language: str = Field(
+        default="auto",
+        description=(
+            "Language the words are in (e.g. 'french', 'spanish'). "
+            "'auto' = let the model detect automatically."
+        ),
+    )
     max_tokens: int = Field(default=256, ge=32, le=2048)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
 

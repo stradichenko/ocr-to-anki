@@ -237,7 +237,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 ),
                               ),
                               // -- Per-image badge indicators --
-                              if (entry.hasCrop || entry.hasColorOverride)
+                              if (entry.hasCrop || entry.hasColorOverride || entry.hasLanguageOverride)
                                 Positioned(
                                   top: 2,
                                   left: 2,
@@ -249,12 +249,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                           icon: Icons.crop,
                                           color: theme.colorScheme.primary,
                                         ),
-                                      if (entry.hasCrop && entry.hasColorOverride)
+                                      if (entry.hasCrop && (entry.hasColorOverride || entry.hasLanguageOverride))
                                         const SizedBox(width: 2),
                                       if (entry.hasColorOverride)
                                         _badge(
                                           icon: Icons.palette,
                                           color: _hsvRangeToColor(entry.hsvOverride!),
+                                        ),
+                                      if (entry.hasColorOverride && entry.hasLanguageOverride)
+                                        const SizedBox(width: 2),
+                                      if (entry.hasLanguageOverride)
+                                        _badge(
+                                          icon: Icons.translate,
+                                          color: theme.colorScheme.tertiary,
                                         ),
                                     ],
                                   ),
@@ -429,6 +436,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           },
           onColorCleared: () {
             setState(() => _imageQueue[index].hsvOverride = null);
+            Navigator.of(ctx).pop();
+          },
+          onLanguageSet: (lang) {
+            setState(() => _imageQueue[index].termLanguage = lang);
+            Navigator.of(ctx).pop();
+          },
+          onLanguageCleared: () {
+            setState(() => _imageQueue[index].termLanguage = null);
             Navigator.of(ctx).pop();
           },
         );
@@ -1881,6 +1896,8 @@ class _PerImageSettingsSheet extends StatelessWidget {
     required this.onCropCleared,
     required this.onColorSet,
     required this.onColorCleared,
+    required this.onLanguageSet,
+    required this.onLanguageCleared,
   });
 
   final ImageEntry entry;
@@ -1890,6 +1907,8 @@ class _PerImageSettingsSheet extends StatelessWidget {
   final VoidCallback onCropCleared;
   final void Function(HsvRange) onColorSet;
   final VoidCallback onColorCleared;
+  final void Function(String) onLanguageSet;
+  final VoidCallback onLanguageCleared;
 
   @override
   Widget build(BuildContext context) {
@@ -2000,6 +2019,63 @@ class _PerImageSettingsSheet extends StatelessWidget {
                 if (result != null) onColorSet(result);
               },
             ),
+
+          // -- Per-image term language --
+          const Divider(),
+          ListTile(
+            leading: Icon(
+              Icons.translate,
+              color: entry.hasLanguageOverride
+                  ? theme.colorScheme.primary
+                  : null,
+            ),
+            title: Text(entry.hasLanguageOverride
+                ? 'Term Language: ${entry.termLanguage![0].toUpperCase()}${entry.termLanguage!.substring(1)}'
+                : 'Set Term Language'),
+            subtitle: entry.hasLanguageOverride
+                ? null
+                : Text(
+                    'Using global default',
+                    style: theme.textTheme.bodySmall,
+                  ),
+            trailing: entry.hasLanguageOverride
+                ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    tooltip: 'Use global default',
+                    onPressed: onLanguageCleared,
+                  )
+                : null,
+            onTap: () async {
+              final langs = kSupportedLanguages;
+              final current = entry.termLanguage;
+              final result = await showDialog<String>(
+                context: context,
+                builder: (ctx) => SimpleDialog(
+                  title: const Text('Term Language'),
+                  children: langs.map((lang) {
+                    return SimpleDialogOption(
+                      onPressed: () => Navigator.pop(ctx, lang),
+                      child: Row(
+                        children: [
+                          if (lang == current)
+                            Icon(Icons.check,
+                                size: 18,
+                                color: theme.colorScheme.primary)
+                          else
+                            const SizedBox(width: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            lang[0].toUpperCase() + lang.substring(1),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              );
+              if (result != null) onLanguageSet(result);
+            },
+          ),
           const SizedBox(height: 8),
         ],
       ),

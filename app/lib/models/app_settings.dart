@@ -16,6 +16,7 @@ class AppSettings {
     this.duplicateScope = 'deck',
     this.definitionLanguage = 'english',
     this.examplesLanguage = 'english',
+    this.termLanguage = 'auto',
     this.ocrLanguage = 'eng',
     this.enabledColors = const {HighlightColor.orange},
     this.adaptiveMode = false,
@@ -52,6 +53,7 @@ class AppSettings {
   // -- Language preferences --
   String definitionLanguage;
   String examplesLanguage;
+  String termLanguage;
   String ocrLanguage;
 
   // -- Highlight detection --
@@ -86,6 +88,7 @@ class AppSettings {
         'duplicateScope': duplicateScope,
         'definitionLanguage': definitionLanguage,
         'examplesLanguage': examplesLanguage,
+        'termLanguage': termLanguage,
         'ocrLanguage': ocrLanguage,
         'enabledColors':
             enabledColors.map((c) => c.name).toList(),
@@ -123,6 +126,8 @@ class AppSettings {
           json['definitionLanguage'] as String? ?? 'english',
       examplesLanguage:
           json['examplesLanguage'] as String? ?? 'english',
+      termLanguage:
+          json['termLanguage'] as String? ?? 'auto',
       ocrLanguage: json['ocrLanguage'] as String? ?? 'eng',
       enabledColors: (json['enabledColors'] as List<dynamic>?)
               ?.map((e) => HighlightColor.values.byName(e as String))

@@ -374,38 +374,61 @@ async def generate(req: GenerateRequest):
     )
 
 
-def _build_enrich_prompt(words: list[str], def_lang: str, ex_lang: str) -> str:
+def _build_enrich_prompt(
+    words: list[str],
+    def_lang: str,
+    ex_lang: str,
+    term_lang: str = "auto",
+) -> str:
     """Build a single batched prompt for all words."""
     word_list = "\n".join(f"- {w}" for w in words)
+    lang_hint = (
+        f"The word is in {term_lang}. "
+        if term_lang and term_lang.lower() != "auto"
+        else ""
+    )
     return (
-        f"For each word, give a definition in {def_lang} and 2 examples in {ex_lang}.\n"
-        f"TRANSLATE the word first. NEVER put the original word in DEF/EX lines.\n"
+        f"{lang_hint}"
+        f"For each word, give a definition in {def_lang} and 2 example sentences in {ex_lang}.\n"
+        f"KEEP the original word on the WORD: line exactly as given. Do NOT translate it.\n"
         f"No asterisks, no bold, no markdown. Plain text only.\n\n"
-        f"If the word is misspelled (OCR error), add CORRECTED: with the fix.\n"
+        f"CORRECTED: is ONLY for fixing OCR spelling errors in the SAME language.\n"
+        f"Do NOT use CORRECTED: to translate the word into another language.\n"
         f"If unrecognizable, write DEF: UNKNOWN and skip examples.\n\n"
         f"Format (labels must be in English):\n"
-        f"WORD: <as given>\n"
-        f"CORRECTED: <fix>  (only if misspelled)\n"
-        f"DEF: <{def_lang} definition using the {def_lang} equivalent>\n"
-        f"EX1: <{ex_lang} sentence using the {ex_lang} equivalent>\n"
-        f"EX2: <{ex_lang} sentence using the {ex_lang} equivalent>\n\n"
-        f"Example — word: 'amigo', def_lang={def_lang}, ex_lang={ex_lang}:\n"
+        f"WORD: <original word, unchanged>\n"
+        f"CORRECTED: <fix>  (only if misspelled in the same language)\n"
+        f"DEF: <{def_lang} definition>\n"
+        f"EX1: <{ex_lang} sentence>\n"
+        f"EX2: <{ex_lang} sentence>\n\n"
+        f"Example — word: 'amigo' (spanish), def_lang={def_lang}, ex_lang={ex_lang}:\n"
         f"WORD: amigo\n"
-        f"DEF: A friend is someone you trust and share experiences with.\n"
-        f"EX1: I have many friends in my neighborhood.\n"
-        f"EX2: She is my best friend and we support each other.\n\n"
+        f"DEF: A friend; a person with whom one has a bond of mutual affection.\n"
+        f"EX1: I met a new friend at school today.\n"
+        f"EX2: She is my best friend and we always help each other.\n\n"
         f"Words:\n{word_list}"
     )
 
 
-def _build_enrich_system(def_lang: str, ex_lang: str) -> str:
+def _build_enrich_system(
+    def_lang: str,
+    ex_lang: str,
+    term_lang: str = "auto",
+) -> str:
     """Build a system prompt for enrichment to reinforce language and formatting rules."""
+    lang_hint = (
+        f"The words are in {term_lang}. "
+        if term_lang and term_lang.lower() != "auto"
+        else ""
+    )
     return (
-        f"You are a dictionary. For each word, output its definition in "
+        f"You are a dictionary. {lang_hint}"
+        f"For each word, output its definition in "
         f"{def_lang} and two example sentences in {ex_lang}. "
-        f"ALWAYS translate the word into the target language first. "
-        f"The original word must ONLY appear on the WORD: line, never in "
-        f"DEF:, EX1:, or EX2: lines. No markdown, no asterisks. "
+        f"KEEP the original word unchanged on the WORD: line. "
+        f"Do NOT translate or replace the word itself. "
+        f"CORRECTED: is ONLY for OCR spelling fixes in the same language. "
+        f"No markdown, no asterisks. "
         f"Use labels: WORD:, CORRECTED:, DEF:, EX1:, EX2:."
     )
 
@@ -580,9 +603,11 @@ async def enrich(req: EnrichRequest):
             batch_idx, len(batches), len(batch), ", ".join(batch),
         )
         prompt = _build_enrich_prompt(
-            batch, req.definition_language, req.examples_language,
+            batch, req.definition_language, req.examples_language, req.term_language,
         )
-        system = _build_enrich_system(req.definition_language, req.examples_language)
+        system = _build_enrich_system(
+            req.definition_language, req.examples_language, req.term_language,
+        )
         max_tok = TOKENS_PER_WORD * len(batch)
         # Timeout: iGPU needs ~200s prompt eval + ~200s/word generation.
         # First batch may also include server restart overhead (~90s).
@@ -649,7 +674,7 @@ async def enrich(req: EnrichRequest):
         retry_lookup: dict[str, dict] = {}
         for rb_idx, rb in enumerate(retry_batches, 1):
             prompt = _build_enrich_prompt(
-                rb, req.definition_language, req.examples_language,
+                rb, req.definition_language, req.examples_language, req.term_language,
             )
             try:
                 result = await asyncio.to_thread(
@@ -710,6 +735,7 @@ async def pipeline_image_to_cards(
     file: UploadFile = File(...),
     definition_language: str = Form(default="english"),
     examples_language: str = Form(default="english"),
+    term_language: str = Form(default="auto"),
     ocr_prompt: str = Form(
         default="Extract all visible text from this image. List each word or phrase, one per line."
     ),
@@ -766,8 +792,8 @@ async def pipeline_image_to_cards(
         batches = [capped[i : i + BATCH_SIZE] for i in range(0, len(capped), BATCH_SIZE)]
         try:
             for batch in batches:
-                prompt = _build_enrich_prompt(batch, definition_language, examples_language)
-                sys_prompt = _build_enrich_system(definition_language, examples_language)
+                prompt = _build_enrich_prompt(batch, definition_language, examples_language, term_language)
+                sys_prompt = _build_enrich_system(definition_language, examples_language, term_language)
                 max_tok = 60 * len(batch)
                 result = await asyncio.to_thread(
                     _text.generate,

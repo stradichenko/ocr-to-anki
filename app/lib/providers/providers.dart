@@ -670,6 +670,16 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       bench.definitionLanguage = settings.definitionLanguage;
       bench.examplesLanguage = settings.examplesLanguage;
 
+      // Resolve the effective term language: if every image agrees on a
+      // per-image override, use that; otherwise fall back to global default.
+      final perImageLangs = images
+          .map((e) => e.termLanguage)
+          .whereType<String>()
+          .toSet();
+      final effectiveTermLang = perImageLangs.length == 1
+          ? perImageLangs.first
+          : settings.termLanguage;
+
       _log(
         '${images.length} image(s) loaded (${_formatBytes(totalBytes)})',
         progress: 0.05,
@@ -1075,6 +1085,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           words: uncachedWords,
           definitionLanguage: settings.definitionLanguage,
           examplesLanguage: settings.examplesLanguage,
+          termLanguage: effectiveTermLang,
           chunkSize: 1,
           chunkTimeout: const Duration(minutes: 10),
           onChunkDone: (completed, total, chunkResults) {
