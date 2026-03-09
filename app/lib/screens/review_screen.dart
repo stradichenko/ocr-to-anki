@@ -37,12 +37,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
             // Strip stray asterisks/markdown the LLM may have emitted.
             cleanDef = cleanDef.replaceAll('*', '');
             cleanEx = cleanEx.replaceAll('*', '');
-            // Auto-apply OCR correction if the LLM suggested one.
-            final corrected = e.correctedWord;
-            final word = (corrected.isNotEmpty &&
-                    corrected.toLowerCase() != e.word.toLowerCase())
-                ? corrected
-                : e.word;
+            final word = e.word;
             return _EditableCard(
               word: word,
               definition: cleanDef,

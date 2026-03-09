@@ -390,14 +390,11 @@ def _build_enrich_prompt(
     return (
         f"{lang_hint}"
         f"For each word, give a definition in {def_lang} and 2 example sentences in {ex_lang}.\n"
-        f"KEEP the original word on the WORD: line exactly as given. Do NOT translate it.\n"
+        f"WORD: must contain the EXACT original word, unchanged. Do NOT translate, correct, or modify it.\n"
         f"No asterisks, no bold, no markdown. Plain text only.\n\n"
-        f"CORRECTED: is ONLY for fixing OCR spelling errors in the SAME language.\n"
-        f"Do NOT use CORRECTED: to translate the word into another language.\n"
         f"If unrecognizable, write DEF: UNKNOWN and skip examples.\n\n"
         f"Format (labels must be in English):\n"
         f"WORD: <original word, unchanged>\n"
-        f"CORRECTED: <fix>  (only if misspelled in the same language)\n"
         f"DEF: <{def_lang} definition>\n"
         f"EX1: <{ex_lang} sentence>\n"
         f"EX2: <{ex_lang} sentence>\n\n"
@@ -425,11 +422,10 @@ def _build_enrich_system(
         f"You are a dictionary. {lang_hint}"
         f"For each word, output its definition in "
         f"{def_lang} and two example sentences in {ex_lang}. "
-        f"KEEP the original word unchanged on the WORD: line. "
-        f"Do NOT translate or replace the word itself. "
-        f"CORRECTED: is ONLY for OCR spelling fixes in the same language. "
+        f"The WORD: line must contain the EXACT original word, unchanged. "
+        f"Do NOT translate, correct, or replace the word itself. "
         f"No markdown, no asterisks. "
-        f"Use labels: WORD:, CORRECTED:, DEF:, EX1:, EX2:."
+        f"Use labels: WORD:, DEF:, EX1:, EX2:."
     )
 
 
@@ -474,11 +470,10 @@ def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
         body = lines[1] if len(lines) > 1 else ""
         defn = ""
         examples = ""
-        corrected = ""
         for line in body.split("\n"):
             line = line.strip()
             if _CORRECTED_RE.match(line):
-                corrected = _CORRECTED_RE.sub("", line).strip()
+                pass  # Ignore any CORRECTED: the model emits
             elif _DEF_RE.match(line):
                 defn = _DEF_RE.sub("", line).strip()
             elif _EX1_RE.match(line):
@@ -487,7 +482,7 @@ def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
                 ex2 = _EX2_RE.sub("", line).strip()
                 if ex2:
                     examples += "\n" + ex2
-        data = {"definition": defn, "examples": examples, "corrected_word": corrected}
+        data = {"definition": defn, "examples": examples}
         # Strip markdown-style asterisks the LLM may insert despite instructions.
         for key in ("definition", "examples"):
             data[key] = data[key].replace("*", "")
@@ -525,11 +520,6 @@ def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
         else:
             warning = ""
 
-        corrected = entry.get("corrected_word", "")
-        # Only keep correction if it actually differs from the original word.
-        if corrected and corrected.lower() == w.lower():
-            corrected = ""
-
         # Detect untranslated: original word appears verbatim in examples.
         # Skip very short words (<=2 chars) to avoid false positives.
         if not warning and len(w) > 2 and examples:
@@ -544,7 +534,7 @@ def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
             "definition": defn,
             "examples": examples,
             "warning": warning,
-            "corrected_word": corrected,
+            "corrected_word": "",
         })
     return results
 
