@@ -30,10 +30,13 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
       _cards = state.enrichedWords
           .map((e) {
             // Clean up any leftover DEF: UNKNOWN text from the LLM.
-            final cleanDef = (e.definition.toUpperCase().contains('UNKNOWN'))
+            var cleanDef = (e.definition.toUpperCase().contains('UNKNOWN'))
                 ? ''
                 : e.definition;
-            final cleanEx = (e.warning == 'not_found') ? '' : e.examples;
+            var cleanEx = (e.warning == 'not_found') ? '' : e.examples;
+            // Strip stray asterisks/markdown the LLM may have emitted.
+            cleanDef = cleanDef.replaceAll('*', '');
+            cleanEx = cleanEx.replaceAll('*', '');
             // Auto-apply OCR correction if the LLM suggested one.
             final corrected = e.correctedWord;
             final word = (corrected.isNotEmpty &&
@@ -46,6 +49,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
               examples: cleanEx,
               warning: e.warning,
               selected: e.warning != 'not_found', // deselect unknowns
+              fromCache: e.fromCache,
             );
           })
           .toList();
@@ -633,6 +637,7 @@ class _EditableCard {
     required this.selected,
     this.warning = '',
     this.version = 0,
+    this.fromCache = false,
   });
 
   String word;
@@ -640,6 +645,9 @@ class _EditableCard {
   String examples;
   bool selected;
   String warning;
+
+  /// Whether this card's enrichment came from the local cache.
+  bool fromCache;
 
   /// Incremented on re-enrich to force TextFormField rebuild via Key.
   int version;
@@ -651,6 +659,7 @@ class _EditableCard {
     bool? selected,
     String? warning,
     int? version,
+    bool? fromCache,
   }) =>
       _EditableCard(
         word: word ?? this.word,
@@ -659,6 +668,7 @@ class _EditableCard {
         selected: selected ?? this.selected,
         warning: warning ?? this.warning,
         version: version ?? this.version,
+        fromCache: fromCache ?? this.fromCache,
       );
 }
 
@@ -686,12 +696,15 @@ class _CardTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasWarning = card.warning.isNotEmpty;
+    final isUntranslated = card.warning == 'untranslated';
+    final warningColor = isUntranslated ? Colors.blue : Colors.orange;
+    final warningIcon = isUntranslated ? Icons.translate : Icons.warning_amber;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: hasWarning
           ? RoundedRectangleBorder(
-              side: BorderSide(color: Colors.orange.shade300, width: 1.5),
+              side: BorderSide(color: warningColor.shade300, width: 1.5),
               borderRadius: BorderRadius.circular(12),
             )
           : null,
@@ -722,11 +735,19 @@ class _CardTile extends StatelessWidget {
                     onChanged: (v) => onChanged(card.copyWith(word: v)),
                   ),
                 ),
+                if (card.fromCache) ...[
+                  Tooltip(
+                    message: 'Loaded from enrichment cache',
+                    child: Icon(Icons.cached,
+                        size: 18, color: theme.colorScheme.tertiary),
+                  ),
+                  const SizedBox(width: 4),
+                ],
                 if (hasWarning) ...[
                   Tooltip(
                     message: _warningLabel(card.warning),
-                    child: Icon(Icons.warning_amber,
-                        size: 20, color: Colors.orange[700]),
+                    child: Icon(warningIcon,
+                        size: 20, color: warningColor[700]),
                   ),
                   const SizedBox(width: 4),
                 ],
@@ -760,13 +781,13 @@ class _CardTile extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(left: 48, bottom: 8),
                 child: Chip(
-                  avatar: Icon(Icons.warning_amber,
-                      size: 16, color: Colors.orange[700]),
+                  avatar: Icon(warningIcon,
+                      size: 16, color: warningColor[700]),
                   label: Text(
                     _warningLabel(card.warning),
                     style: theme.textTheme.labelSmall,
                   ),
-                  backgroundColor: Colors.orange.withValues(alpha: 0.12),
+                  backgroundColor: warningColor.withValues(alpha: 0.12),
                   visualDensity: VisualDensity.compact,
                 ),
               ),
@@ -812,6 +833,8 @@ class _CardTile extends StatelessWidget {
         return 'Word not recognized – definition may be hallucinated or missing';
       case 'truncated':
         return 'Definition appears truncated (generation cut off)';
+      case 'untranslated':
+        return 'Original word may not have been translated in examples';
       default:
         return 'Unknown warning';
     }

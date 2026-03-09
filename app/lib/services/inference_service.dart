@@ -26,6 +26,7 @@ class EnrichWordResult {
     required this.examples,
     this.warning = '',
     this.correctedWord = '',
+    this.fromCache = false,
   });
 
   final String word;
@@ -38,6 +39,9 @@ class EnrichWordResult {
   /// LLM-suggested correct spelling when OCR produced a misspelling.
   /// Empty if the word is already correct.
   final String correctedWord;
+
+  /// Whether this result was served from the local enrichment cache.
+  final bool fromCache;
 }
 
 /// Unified inference service that forwards requests to the Python FastAPI
@@ -265,8 +269,8 @@ class InferenceService {
           final m = r as Map<String, dynamic>;
           return EnrichWordResult(
             word: m['word'] as String? ?? '',
-            definition: m['definition'] as String? ?? '',
-            examples: m['examples'] as String? ?? '',
+            definition: (m['definition'] as String? ?? '').replaceAll('*', ''),
+            examples: (m['examples'] as String? ?? '').replaceAll('*', ''),
             warning: m['warning'] as String? ?? '',
             correctedWord: m['corrected_word'] as String? ?? '',
           );

@@ -378,51 +378,35 @@ def _build_enrich_prompt(words: list[str], def_lang: str, ex_lang: str) -> str:
     """Build a single batched prompt for all words."""
     word_list = "\n".join(f"- {w}" for w in words)
     return (
-        f"For each word below, provide:\n"
-        f"1) A concise definition (1-2 sentences) written in {def_lang}\n"
-        f"2) Two short example sentences written in {ex_lang}\n\n"
-        f"FORMATTING RULE: Output ONLY plain text. Do NOT use asterisks (*),\n"
-        f"bold, italic, markdown, or any other formatting in definitions or\n"
-        f"examples. Never wrap words in asterisks like *word*.\n\n"
-        f"LANGUAGE RULE: The words may be in a different language than the\n"
-        f"definition or examples language.\n"
-        f"- The definition MUST be written entirely in {def_lang}, using the\n"
-        f"  {def_lang} translation of the word — NOT the original word.\n"
-        f"- The example sentences MUST be written entirely in {ex_lang}, using\n"
-        f"  the {ex_lang} translation of the word — NOT the original word.\n"
-        f"- NEVER insert the original foreign word into {def_lang} or {ex_lang}\n"
-        f"  sentences. Always translate it first.\n"
-        f"Example: if the word is Spanish 'calor' and definition language is\n"
-        f"English, write the definition about 'heat', NOT 'calor'.\n"
-        f"If examples language is English, write: 'The heat was unbearable.'\n"
-        f"NOT: 'The calor was unbearable.'\n"
-        f"Another example: if the word is French 'tantôt' and definition language\n"
-        f"is German, write the definition using the German equivalent.\n"
-        f"If examples language is Portuguese, use the Portuguese equivalent\n"
-        f"in the example sentences.\n\n"
-        f"IMPORTANT: These words come from OCR and very likely contain spelling errors!\n"
-        f"Common OCR errors include:\n"
-        f"  - Wrong diacritics/accents: côta→cota, naçao→nação, über→uber\n"
-        f"  - Character confusion: rn→m, l→I, 0→O, cl→d\n"
-        f"  - Extra or missing letters: teh→the, woird→word\n"
-        f"If the word looks like a misspelling, you MUST add a CORRECTED: line\n"
-        f"with the real word. Then use ONLY the corrected spelling in DEF: and EX: lines.\n"
-        f"NEVER repeat the misspelled OCR form in definitions or examples.\n"
-        f"If the word is already correctly spelled, omit the CORRECTED: line.\n\n"
-        f"CRITICAL: You MUST use these EXACT English labels for formatting:\n"
-        f"WORD:, CORRECTED:, DEF:, EX1:, EX2:\n"
-        f"Do NOT translate the labels into {def_lang} or any other language.\n"
-        f"Only the definition text and example sentences should be in the "
-        f"requested language.\n\n"
-        f"If you do not recognize a word or it is not a real word, "
-        f"write DEF: UNKNOWN and leave the examples empty.\n\n"
-        f"Use EXACTLY this format for each word (no extra text):\n\n"
-        f"WORD: <word as given>\n"
-        f"CORRECTED: <correct spelling>  (only if different from WORD)\n"
-        f"DEF: <plain text definition in {def_lang}, using {def_lang} equivalent of the word>\n"
-        f"EX1: <plain text example in {ex_lang}, using {ex_lang} equivalent of the word>\n"
-        f"EX2: <plain text example in {ex_lang}, using {ex_lang} equivalent of the word>\n\n"
+        f"For each word, give a definition in {def_lang} and 2 examples in {ex_lang}.\n"
+        f"TRANSLATE the word first. NEVER put the original word in DEF/EX lines.\n"
+        f"No asterisks, no bold, no markdown. Plain text only.\n\n"
+        f"If the word is misspelled (OCR error), add CORRECTED: with the fix.\n"
+        f"If unrecognizable, write DEF: UNKNOWN and skip examples.\n\n"
+        f"Format (labels must be in English):\n"
+        f"WORD: <as given>\n"
+        f"CORRECTED: <fix>  (only if misspelled)\n"
+        f"DEF: <{def_lang} definition using the {def_lang} equivalent>\n"
+        f"EX1: <{ex_lang} sentence using the {ex_lang} equivalent>\n"
+        f"EX2: <{ex_lang} sentence using the {ex_lang} equivalent>\n\n"
+        f"Example — word: 'amigo', def_lang={def_lang}, ex_lang={ex_lang}:\n"
+        f"WORD: amigo\n"
+        f"DEF: A friend is someone you trust and share experiences with.\n"
+        f"EX1: I have many friends in my neighborhood.\n"
+        f"EX2: She is my best friend and we support each other.\n\n"
         f"Words:\n{word_list}"
+    )
+
+
+def _build_enrich_system(def_lang: str, ex_lang: str) -> str:
+    """Build a system prompt for enrichment to reinforce language and formatting rules."""
+    return (
+        f"You are a dictionary. For each word, output its definition in "
+        f"{def_lang} and two example sentences in {ex_lang}. "
+        f"ALWAYS translate the word into the target language first. "
+        f"The original word must ONLY appear on the WORD: line, never in "
+        f"DEF:, EX1:, or EX2: lines. No markdown, no asterisks. "
+        f"Use labels: WORD:, CORRECTED:, DEF:, EX1:, EX2:."
     )
 
 
@@ -523,6 +507,15 @@ def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
         if corrected and corrected.lower() == w.lower():
             corrected = ""
 
+        # Detect untranslated: original word appears verbatim in examples.
+        # Skip very short words (<=2 chars) to avoid false positives.
+        if not warning and len(w) > 2 and examples:
+            w_lower = w.lower()
+            ex_lower = examples.lower()
+            # Check if the original word (or a close variant) leaked into examples.
+            if re.search(r'\b' + re.escape(w_lower) + r'\w{0,2}\b', ex_lower):
+                warning = "untranslated"
+
         results.append({
             "word": w,
             "definition": defn,
@@ -589,6 +582,7 @@ async def enrich(req: EnrichRequest):
         prompt = _build_enrich_prompt(
             batch, req.definition_language, req.examples_language,
         )
+        system = _build_enrich_system(req.definition_language, req.examples_language)
         max_tok = TOKENS_PER_WORD * len(batch)
         # Timeout: iGPU needs ~200s prompt eval + ~200s/word generation.
         # First batch may also include server restart overhead (~90s).
@@ -600,6 +594,7 @@ async def enrich(req: EnrichRequest):
                 result = await asyncio.to_thread(
                     _text.generate,
                     prompt=prompt,
+                    system=system,
                     max_tokens=max_tok,
                     temperature=req.temperature,
                     timeout=batch_timeout,
@@ -660,6 +655,7 @@ async def enrich(req: EnrichRequest):
                 result = await asyncio.to_thread(
                     _text.generate,
                     prompt=prompt,
+                    system=system,
                     max_tokens=TOKENS_PER_WORD * len(rb),
                     temperature=req.temperature,
                     timeout=batch_timeout,
@@ -681,11 +677,15 @@ async def enrich(req: EnrichRequest):
         if recovered:
             log.info("Retry recovered %d/%d word(s)", recovered, len(not_found_words))
 
+    # Final sanitisation: strip any stray asterisks the LLM may have emitted.
+    def _strip_md(s: str) -> str:
+        return s.replace("*", "")
+
     results = [
         EnrichWordResult(
             word=p["word"],
-            definition=p["definition"],
-            examples=p["examples"],
+            definition=_strip_md(p["definition"]),
+            examples=_strip_md(p["examples"]),
             warning=p.get("warning", ""),
             corrected_word=p.get("corrected_word", ""),
         )
@@ -767,10 +767,12 @@ async def pipeline_image_to_cards(
         try:
             for batch in batches:
                 prompt = _build_enrich_prompt(batch, definition_language, examples_language)
+                sys_prompt = _build_enrich_system(definition_language, examples_language)
                 max_tok = 60 * len(batch)
                 result = await asyncio.to_thread(
                     _text.generate,
                     prompt=prompt,
+                    system=sys_prompt,
                     max_tokens=max_tok,
                     temperature=0.1,
                     timeout=len(batch) * 60 + 60,

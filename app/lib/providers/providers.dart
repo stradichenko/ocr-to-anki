@@ -480,9 +480,10 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
             if (hit != null && hit.warning != 'not_found') {
               cachedResults.add(EnrichWordResult(
                 word: w,
-                definition: hit.definition,
-                examples: hit.examples,
+                definition: hit.definition.replaceAll('*', ''),
+                examples: hit.examples.replaceAll('*', ''),
                 warning: hit.warning,
+                fromCache: true,
               ));
             } else {
               uncachedWords.add(w);
