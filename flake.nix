@@ -327,16 +327,17 @@
         };
         
         # Flutter development shell (for building the GUI app)
+        # Works on Linux (GTK3) and macOS (Cocoa) via platform detection
         devShells.flutter = pkgs.mkShell {
           packages = [
             pkgs.flutter
-            
-            # Flutter Linux desktop build dependencies
             pkgs.cmake
             pkgs.ninja
             pkgs.pkg-config
             pkgs.clang
-            
+            pkgs.sqlite
+            pkgs.zlib
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             # GTK3 and its dependencies (Flutter Linux uses GTK3)
             pkgs.gtk3
             pkgs.glib
@@ -364,13 +365,24 @@
             # GL
             pkgs.libGL
             pkgs.mesa
-            
-            # Other
-            pkgs.sqlite
-            pkgs.zlib
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.darwin.apple_sdk.frameworks.Cocoa
+            pkgs.darwin.apple_sdk.frameworks.CoreVideo
+            pkgs.darwin.apple_sdk.frameworks.IOKit
           ];
           
           shellHook = ''
+            # Prevent Nix cmake wrapper from interfering with Flutter's cmake
+            unset cmakeFlags
+            unset CMAKE_INSTALL_PREFIX
+            
+            # Use clang as the C/C++ compiler (Flutter expects it)
+            export CC=clang
+            export CXX=clang++
+            
+            # Disable Flutter analytics
+            flutter config --no-analytics 2>/dev/null || true
+          '' + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
             # Clear system paths to prevent NixOS library mixing
             unset LD_LIBRARY_PATH
             
@@ -390,19 +402,27 @@
             export LD_LIBRARY_PATH="${pkgs.atk}/lib:$LD_LIBRARY_PATH"
             export LD_LIBRARY_PATH="${pkgs.wayland}/lib:$LD_LIBRARY_PATH"
             export LD_LIBRARY_PATH="${pkgs.libxkbcommon}/lib:$LD_LIBRARY_PATH"
+          '' + ''
             
-            # Prevent Nix cmake wrapper from interfering with Flutter's cmake
-            unset cmakeFlags
-            unset CMAKE_INSTALL_PREFIX
+            PLATFORM="unknown"
+            BUILD_CMD="flutter build linux --release"
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+              PLATFORM="macOS"
+              BUILD_CMD="flutter build macos --release"
+            elif [[ "$OSTYPE" == "linux"* ]]; then
+              PLATFORM="Linux"
+              BUILD_CMD="flutter build linux --release"
+            fi
             
-            # Use clang as the C/C++ compiler (Flutter expects it)
-            export CC=clang
-            export CXX=clang++
-            
-            echo "Flutter Dev Shell"
-            echo "  Flutter: $(flutter --version | head -1)"
+            echo "╔══════════════════════════════════════════════════╗"
+            echo "║       Flutter Dev Shell ($PLATFORM)               ║"
+            echo "╚══════════════════════════════════════════════════╝"
             echo ""
-            echo "  cd app && flutter run -d linux"
+            echo "  Flutter: $(flutter --version 2>/dev/null | head -1)"
+            echo ""
+            echo "  Run app:       cd app && flutter run -d $([[ "$OSTYPE" == "darwin"* ]] && echo "macos" || echo "linux")"
+            echo "  Build release: cd app && $BUILD_CMD"
+            echo "  Bundle:        ./scripts/build-flutter.sh"
             echo ""
           '';
         };
@@ -763,6 +783,220 @@ EOF
             license = licenses.mit;
             platforms = platforms.linux;
             maintainers = [];
+          };
+        };
+        
+        # ── Bundled Python backend (PyInstaller-free, Nix-wrapped) ──
+        # Creates a self-contained backend binary that bundles Python + deps
+        packages.backend = pkgs.stdenv.mkDerivation {
+          pname = "ocr-to-anki-backend";
+          version = "0.1.0";
+          src = ./.;
+          
+          buildInputs = [ pythonEnv ];
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          
+          installPhase = ''
+            mkdir -p $out/lib/ocr-to-anki $out/bin
+            
+            # Copy the Python source and config
+            cp -r src $out/lib/ocr-to-anki/
+            cp -r config $out/lib/ocr-to-anki/
+            cp requirements.txt $out/lib/ocr-to-anki/
+            
+            # Create a wrapper script that launches the FastAPI backend
+            makeWrapper ${pythonEnv}/bin/python $out/bin/ocr-to-anki-backend \
+              --add-flags "-m uvicorn src.api.app:app --host 0.0.0.0 --port 8000" \
+              --chdir "$out/lib/ocr-to-anki" \
+              --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.llama-cpp ]}" \
+              --set PYTHONPATH "$out/lib/ocr-to-anki"
+          '';
+          
+          meta = with pkgs.lib; {
+            description = "Bundled FastAPI backend for OCR to Anki";
+            license = licenses.mit;
+            platforms = platforms.unix;
+          };
+        };
+        
+        # ── Flutter Linux desktop build ─────────────────────────────
+        # Builds the Flutter app as a release Linux bundle.
+        # Usage: nix build .#flutter-app
+        packages.flutter-app = pkgs.stdenv.mkDerivation {
+          pname = "ocr-to-anki-flutter";
+          version = "0.1.0";
+          src = ./app;
+          
+          nativeBuildInputs = with pkgs; [
+            flutter
+            cmake
+            ninja
+            pkg-config
+            clang
+            makeWrapper
+            wrapGAppsHook3
+          ];
+          
+          buildInputs = with pkgs; [
+            # GTK3 (Flutter Linux uses GTK3)
+            gtk3
+            glib
+            pcre2
+            libepoxy
+            harfbuzz
+            pango
+            cairo
+            gdk-pixbuf
+            atk
+            
+            # X11 / Wayland
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXrandr
+            xorg.libXi
+            xorg.libXext
+            xorg.libXfixes
+            xorg.libXinerama
+            xorg.libXdamage
+            xorg.libXcomposite
+            wayland
+            libxkbcommon
+            
+            # GL
+            libGL
+            mesa
+            
+            # Other
+            sqlite
+            zlib
+          ];
+          
+          # Flutter needs HOME and a writable pub cache
+          FLUTTER_ROOT = "${pkgs.flutter}";
+          
+          configurePhase = ''
+            runHook preConfigure
+            
+            export HOME=$TMPDIR
+            export PUB_CACHE=$TMPDIR/.pub-cache
+            export CC=clang
+            export CXX=clang++
+            
+            # Prevent Nix cmake wrapper from interfering with Flutter's cmake
+            unset cmakeFlags
+            unset CMAKE_INSTALL_PREFIX
+            
+            # Disable Flutter analytics
+            flutter config --no-analytics 2>/dev/null || true
+            flutter pub get --offline 2>/dev/null || flutter pub get
+            
+            runHook postConfigure
+          '';
+          
+          buildPhase = ''
+            runHook preBuild
+            flutter build linux --release
+            runHook postBuild
+          '';
+          
+          installPhase = ''
+            runHook preInstall
+            
+            mkdir -p $out/opt/ocr-to-anki
+            cp -r build/linux/*/release/bundle/* $out/opt/ocr-to-anki/
+            
+            mkdir -p $out/bin
+            makeWrapper $out/opt/ocr-to-anki/ocr_to_anki $out/bin/ocr-to-anki \
+              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath [
+                pkgs.gtk3
+                pkgs.glib
+                pkgs.libepoxy
+                pkgs.libGL
+                pkgs.mesa
+                pkgs.sqlite
+                pkgs.harfbuzz
+                pkgs.pango
+                pkgs.cairo
+                pkgs.gdk-pixbuf
+                pkgs.wayland
+                pkgs.libxkbcommon
+              ]}"
+            
+            # Install desktop entry
+            mkdir -p $out/share/applications
+            cat > $out/share/applications/ocr-to-anki.desktop <<EOF
+[Desktop Entry]
+Name=OCR to Anki
+Comment=Cross-platform OCR to Anki flashcard generator
+Exec=$out/bin/ocr-to-anki
+Icon=ocr-to-anki
+Type=Application
+Categories=Education;Utility;
+EOF
+            
+            runHook postInstall
+          '';
+          
+          meta = with pkgs.lib; {
+            description = "OCR to Anki – Flutter desktop app for Linux";
+            homepage = "https://github.com/stradichenko/anki-ocr-vocab-collector";
+            license = licenses.mit;
+            platforms = platforms.linux;
+          };
+        };
+        
+        # ── Full distribution bundle (Flutter app + Python backend) ──
+        # Usage: nix build .#bundle
+        packages.bundle = pkgs.stdenv.mkDerivation {
+          pname = "ocr-to-anki-bundle";
+          version = "0.1.0";
+          
+          dontUnpack = true;
+          
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          
+          installPhase = ''
+            mkdir -p $out/bin $out/opt/ocr-to-anki
+            
+            # Link Flutter app
+            ln -s ${self.packages.${system}.flutter-app}/opt/ocr-to-anki/* $out/opt/ocr-to-anki/
+            
+            # Link backend
+            ln -s ${self.packages.${system}.backend}/lib $out/opt/ocr-to-anki/backend-lib
+            ln -s ${self.packages.${system}.backend}/bin/ocr-to-anki-backend $out/opt/ocr-to-anki/
+            
+            # Create a launcher that starts backend then opens the GUI
+            cat > $out/bin/ocr-to-anki <<'LAUNCHER'
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "''${BASH_SOURCE[0]}")/.." && pwd)"
+BACKEND="$SCRIPT_DIR/opt/ocr-to-anki/ocr-to-anki-backend"
+GUI="$SCRIPT_DIR/opt/ocr-to-anki/ocr_to_anki"
+
+cleanup() { kill "$BACKEND_PID" 2>/dev/null || true; }
+trap cleanup EXIT INT TERM
+
+# Start backend in background
+"$BACKEND" &
+BACKEND_PID=$!
+
+# Wait for backend health
+for i in $(seq 1 60); do
+  if curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1; then break; fi
+  sleep 0.5
+done
+
+# Launch Flutter GUI (foreground)
+exec "$GUI" "$@"
+LAUNCHER
+            chmod +x $out/bin/ocr-to-anki
+          '';
+          
+          meta = with pkgs.lib; {
+            description = "OCR to Anki – complete bundle (GUI + backend)";
+            license = licenses.mit;
+            platforms = platforms.linux;
           };
         };
         
