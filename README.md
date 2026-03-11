@@ -6,12 +6,28 @@
 
 ![Build Status](https://github.com/stradichenko/ocr-to-anki/actions/workflows/build.yml/badge.svg)
 ![GitHub License](https://img.shields.io/github/license/stradichenko/ocr-to-anki)
-![GitHub Release](https://img.shields.io/github/v/release/stradichenko/ocr-to-anki)
+![GitHub Release](https://img.shields.io/github/v/release/stradichenko/ocr-to-anki?include_prereleases)
 
 </h3>
 
 <h4 align="center">
   <a href="https://github.com/stradichenko/ocr-to-anki/releases">Download</a>
+</h4>
+
+<h4 align="center">
+  Consider supporting:<br><br>
+  <a href="https://www.patreon.com/8153512/join">
+    <img src="https://img.shields.io/badge/Patreon-F96854?style=for-the-badge&logo=patreon&logoColor=white" alt="Patreon">
+  </a>
+  <a href="https://github.com/sponsors/stradichenko">
+    <img src="https://img.shields.io/badge/sponsor-30363D?style=for-the-badge&logo=GitHub-Sponsors&logoColor=#EA4AAA" alt="GitHub Sponsors">
+  </a>
+</h4>
+
+<h4 align="center">
+
+[![Share on X](https://img.shields.io/badge/-Share%20on%20X-gray?style=flat&logo=x)](https://x.com/intent/tweet?text=OCR%20to%20Anki!%20Extract%20vocabulary%20from%20images%20and%20create%20flashcards%20offline%20with%20local%20AI.&url=https://github.com/stradichenko/ocr-to-anki&hashtags=Anki,OCR,LLM,llama)
+
 </h4>
 
 ## About

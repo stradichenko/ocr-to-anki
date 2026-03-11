@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'providers/providers.dart';
@@ -88,15 +89,48 @@ class _ServerStartupGate extends ConsumerWidget {
                   Text('Backend failed to start',
                       style: theme.textTheme.titleLarge),
                   const SizedBox(height: 12),
-                  Text(startup.message,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium),
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    onPressed: () =>
-                        ref.read(serverStartupProvider.notifier).retry(),
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Retry'),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 260),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: SingleChildScrollView(
+                      child: SelectableText(
+                        startup.message,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: () =>
+                            ref.read(serverStartupProvider.notifier).retry(),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Retry'),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Clipboard.setData(
+                              ClipboardData(text: startup.message));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Error copied to clipboard'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.copy),
+                        label: const Text('Copy'),
+                      ),
+                    ],
                   ),
                 ],
               ),

@@ -198,7 +198,7 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
         status: ServerStatus.starting,
         message: 'Starting backend server…',
       );
-      await server.start(timeout: const Duration(seconds: 60));
+      await server.start(timeout: const Duration(seconds: 120));
       if (_disposed) return;
       state = const ServerStartupState(
         status: ServerStatus.ready,

@@ -7,6 +7,12 @@ import 'package:http/http.dart' as http;
 ///
 /// Spawns the server as a child process when the app starts and kills it
 /// when the app closes, so the user never has to think about it.
+///
+/// When running from a release bundle the backend source lives in a `backend/`
+/// directory next to the executable.  In that case we create (or reuse) a
+/// Python virtual environment there and install the requirements before
+/// starting uvicorn.  This means users only need a system Python 3 -- they do
+/// not have to install any pip packages by hand.
 class BackendServerService {
   BackendServerService({
     this.host = '0.0.0.0',
@@ -32,7 +38,7 @@ class BackendServerService {
   ///
   /// Resolves `python` from the current PATH (set up by `nix develop`).
   /// Returns once the server responds to `/health`, or throws on timeout.
-  Future<void> start({Duration timeout = const Duration(seconds: 30)}) async {
+  Future<void> start({Duration timeout = const Duration(seconds: 60)}) async {
     if (_process != null) return; // already running
 
     // Find the project root.  The Flutter app lives in <root>/app/, so we
@@ -42,13 +48,27 @@ class BackendServerService {
     final projectRoot = Platform.environment['OCR_TO_ANKI_ROOT'] ??
         _findProjectRoot();
 
-    // Resolve python from PATH (nix develop puts it there).
-    final python = _which('python3') ?? _which('python');
-    if (python == null) {
-      throw StateError(
-        'Cannot find python3 or python in PATH.\n'
-        'Make sure the app is launched inside the nix develop shell.',
-      );
+    // Determine whether we are running from a release bundle.
+    // In a bundle the directory layout is:
+    //   <dir>/ocr_to_anki        (the Flutter binary)
+    //   <dir>/backend/            (Python source + requirements.txt)
+    //   <dir>/run.sh              (launcher, sets OCR_TO_ANKI_ROOT)
+    final isBundled = File('$projectRoot/requirements.txt').existsSync() &&
+        Directory('$projectRoot/src').existsSync();
+
+    String python;
+    if (isBundled) {
+      python = await _ensureVenv(projectRoot);
+    } else {
+      final found = _which('python3') ?? _which('python');
+      if (found == null) {
+        throw StateError(
+          'Cannot find python3 or python in PATH.\n'
+          'Make sure the app is launched inside the nix develop shell,\n'
+          'or run from the release bundle which sets up a venv automatically.',
+        );
+      }
+      python = found;
     }
 
     _logLines.clear();
@@ -159,6 +179,66 @@ class BackendServerService {
   void _log(String message) {
     _logLines.add(message);
     if (_logLines.length > 200) _logLines.removeAt(0);
+  }
+
+  /// Ensure a Python virtual environment exists inside [backendRoot] and
+  /// that the requirements are installed.  Returns the path to the venv
+  /// python binary.
+  Future<String> _ensureVenv(String backendRoot) async {
+    final venvDir = '$backendRoot/.venv';
+    final isWindows = Platform.isWindows;
+    final venvPython = isWindows
+        ? '$venvDir/Scripts/python.exe'
+        : '$venvDir/bin/python';
+
+    // Find system python.
+    final sysPython = _which('python3') ?? _which('python');
+    if (sysPython == null) {
+      throw StateError(
+        'Cannot find python3 or python in PATH.\n'
+        'Please install Python 3.10 or newer.',
+      );
+    }
+
+    // Create venv if it doesn't exist.
+    if (!File(venvPython).existsSync()) {
+      _log('Creating Python virtual environment in $venvDir ...');
+      final createResult = await Process.run(
+        sysPython,
+        ['-m', 'venv', venvDir],
+        workingDirectory: backendRoot,
+      );
+      if (createResult.exitCode != 0) {
+        throw StateError(
+          'Failed to create Python venv:\n${createResult.stderr}',
+        );
+      }
+    }
+
+    // Install / update requirements if the marker is stale or missing.
+    final marker = File('$venvDir/.deps_installed');
+    final reqFile = File('$backendRoot/requirements.txt');
+    final needsInstall = !marker.existsSync() ||
+        marker.lastModifiedSync().isBefore(reqFile.lastModifiedSync());
+
+    if (needsInstall) {
+      _log('Installing Python dependencies (first run may take a moment)...');
+      final pipResult = await Process.run(
+        venvPython,
+        ['-m', 'pip', 'install', '--quiet', '-r', 'requirements.txt'],
+        workingDirectory: backendRoot,
+      );
+      if (pipResult.exitCode != 0) {
+        throw StateError(
+          'pip install failed:\n${pipResult.stderr}',
+        );
+      }
+      // Write marker so we skip next time.
+      marker.writeAsStringSync(DateTime.now().toIso8601String());
+      _log('Dependencies installed.');
+    }
+
+    return venvPython;
   }
 
   /// Walk up from the current working directory looking for `flake.nix`.
