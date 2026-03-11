@@ -4,15 +4,11 @@
 
 <h3 align="center">
 
-![Build Status](https://github.com/stradichenko/ocr-to-anki/actions/workflows/build.yml/badge.svg)
+![Build Status](https://img.shields.io/github/actions/workflow/status/stradichenko/ocr-to-anki/build.yml?branch=master&label=build)
 ![GitHub License](https://img.shields.io/github/license/stradichenko/ocr-to-anki)
-![GitHub Release](https://img.shields.io/github/v/release/stradichenko/ocr-to-anki?include_prereleases)
+![GitHub Release](https://img.shields.io/github/v/release/stradichenko/ocr-to-anki)
 
 </h3>
-
-<h4 align="center">
-  <a href="https://github.com/stradichenko/ocr-to-anki/releases">Download</a>
-</h4>
 
 <h4 align="center">
   Consider supporting:<br><br>
@@ -49,6 +45,10 @@ enrichment through llama.cpp.
 | Vision OCR | llama-mtmd-cli | Extract text from images (GPU accelerated) |
 | Text tasks | llama-server | Definitions, examples, vocabulary enrichment |
 | Model | Gemma 3 4B QAT Q4_0 | Single model for both vision and text |
+
+<h3 align="center">
+  <a href="https://github.com/stradichenko/ocr-to-anki/releases">Download</a>
+</h3>
 
 ## Installation
 
