@@ -41,18 +41,22 @@ class BackendServerService {
   Future<void> start({Duration timeout = const Duration(seconds: 60)}) async {
     if (_process != null) return; // already running
 
-    // Find the project root.  The Flutter app lives in <root>/app/, so we
-    // go one level up from the executable's directory.  When running via
-    // `flutter run -d linux` the working directory is already correct, but
-    // to be safe we also check Platform.environment for an override.
-    final projectRoot = Platform.environment['OCR_TO_ANKI_ROOT'] ??
-        _findProjectRoot();
+    // Resolve the project / backend root using this priority:
+    //
+    //   1. OCR_TO_ANKI_ROOT env var  (set by run.sh or the user)
+    //   2. <exe_dir>/backend/        (release bundle, user ran ./ocr_to_anki)
+    //   3. Walk up from CWD looking for flake.nix  (nix develop / dev mode)
+    //
+    // In a release bundle the layout is:
+    //   <dir>/ocr_to_anki            (Flutter binary)
+    //   <dir>/backend/src/           (Python source)
+    //   <dir>/backend/config/        (settings.yaml)
+    //   <dir>/backend/requirements.txt
+    //   <dir>/run.sh                 (optional launcher)
+    final projectRoot = _resolveProjectRoot();
 
-    // Determine whether we are running from a release bundle.
-    // In a bundle the directory layout is:
-    //   <dir>/ocr_to_anki        (the Flutter binary)
-    //   <dir>/backend/            (Python source + requirements.txt)
-    //   <dir>/run.sh              (launcher, sets OCR_TO_ANKI_ROOT)
+    // Check whether projectRoot contains backend source directly
+    // (OCR_TO_ANKI_ROOT pointed at the backend/ dir, or dev mode repo root).
     final isBundled = File('$projectRoot/requirements.txt').existsSync() &&
         Directory('$projectRoot/src').existsSync();
 
@@ -74,6 +78,7 @@ class BackendServerService {
     _logLines.clear();
     _log('Starting backend: $python -m uvicorn src.api.app:app');
     _log('Project root: $projectRoot');
+    _log('Bundled mode: $isBundled');
 
     final env = <String, String>{
       ...Platform.environment,
@@ -241,17 +246,36 @@ class BackendServerService {
     return venvPython;
   }
 
-  /// Walk up from the current working directory looking for `flake.nix`.
-  String _findProjectRoot() {
+  /// Resolve the backend root directory.
+  ///
+  /// Priority:
+  ///   1. `OCR_TO_ANKI_ROOT` environment variable (set by run.sh or user).
+  ///   2. `backend/` directory next to the running executable (release bundle).
+  ///   3. Walk up from CWD looking for `flake.nix` (development mode).
+  String _resolveProjectRoot() {
+    // 1. Explicit env var.
+    final envRoot = Platform.environment['OCR_TO_ANKI_ROOT'];
+    if (envRoot != null && envRoot.isNotEmpty) return envRoot;
+
+    // 2. Release bundle: look for backend/ next to the executable.
+    //    Platform.resolvedExecutable gives the absolute path to ocr_to_anki.
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final bundleBackend = '$exeDir/backend';
+    if (File('$bundleBackend/requirements.txt').existsSync() &&
+        Directory('$bundleBackend/src').existsSync()) {
+      return bundleBackend;
+    }
+
+    // 3. Dev mode: walk up from CWD looking for flake.nix.
     var dir = Directory.current;
-    // If we're inside the app/ folder, go up.
     if (dir.path.endsWith('/app')) {
       dir = dir.parent;
     }
     for (var d = dir; d.path != d.parent.path; d = d.parent) {
       if (File('${d.path}/flake.nix').existsSync()) return d.path;
     }
-    // Fallback: assume cwd is fine.
+
+    // Fallback: assume CWD is fine.
     return dir.path;
   }
 
