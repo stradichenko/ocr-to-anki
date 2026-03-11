@@ -32,6 +32,7 @@ ENV/
 
 # files created in the pipeline.
 *.json
+!app/macos/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
 
 # IDE
 .vscode/
@@ -55,6 +56,7 @@ data/*
 *.jpg
 *.jpeg
 *.png
+!app/macos/Runner/Assets.xcassets/AppIcon.appiconset/*.png
 *.gif
 *.bmp
 *.tiff
@@ -62,6 +64,7 @@ data/*
 *.webp
 *.svg
 *.ico
+!app/windows/runner/resources/app_icon.ico
 
 # OCR results and processed files
 data/images/*
