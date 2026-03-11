@@ -63,13 +63,11 @@ jobs:
           cp -r src config requirements.txt "output/release/$ARCHIVE/backend/"
 
           # Launcher script
-          cat > "output/release/$ARCHIVE/run.sh" <<'LAUNCHER'
-#!/usr/bin/env bash
-set -euo pipefail
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export OCR_TO_ANKI_ROOT="$DIR/backend"
-exec "$DIR/ocr_to_anki" "$@"
-LAUNCHER
+          printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' \
+            'DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
+            'export OCR_TO_ANKI_ROOT="$DIR/backend"' \
+            'exec "$DIR/ocr_to_anki" "$@"' \
+            > "output/release/$ARCHIVE/run.sh"
           chmod +x "output/release/$ARCHIVE/run.sh"
 
           cd output/release
