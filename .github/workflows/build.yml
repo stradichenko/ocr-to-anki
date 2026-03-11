@@ -80,32 +80,24 @@ jobs:
           path: output/release/${{ env.ARTIFACT }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # macOS: uses Nix for Flutter, native macOS toolchain for Xcode build
+  # macOS: uses subosito/flutter-action (avoids Nix darwin SDK churn)
   # ════════════════════════════════════════════════════════════════════════════
   build-macos:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v27
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          extra_nix_config: |
-            experimental-features = nix-command flakes
+          channel: stable
 
       - name: Build Flutter macOS release
         run: |
-          nix develop .#flutter --command bash -c '
-            export CC=clang
-            export CXX=clang++
-            unset cmakeFlags
-            unset CMAKE_INSTALL_PREFIX
-            cd app
-            flutter config --no-analytics
-            flutter pub get
-            flutter build macos --release
-          '
+          cd app
+          flutter config --no-analytics
+          flutter pub get
+          flutter build macos --release
 
       - name: Assemble release archive
         run: |
