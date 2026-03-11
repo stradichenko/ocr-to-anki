@@ -16,12 +16,9 @@ on:
 permissions:
   contents: write
 
-env:
-  FLUTTER_VERSION: '3.32.0'   # Pin for reproducibility
-
 jobs:
   # ════════════════════════════════════════════════════════════════════════════
-  # Linux — built inside Nix for maximum reproducibility
+  # Linux: built inside Nix for maximum reproducibility
   # ════════════════════════════════════════════════════════════════════════════
   build-linux:
     runs-on: ubuntu-24.04
@@ -35,46 +32,23 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      - name: Cache Nix store
-        uses: cachix/cachix-action@v15
-        with:
-          name: ocr-to-anki
-          skipPush: true
-        continue-on-error: true
-
       - name: Build Flutter Linux release
         run: |
           nix develop .#flutter --command bash -c '
+            export CC=clang
+            export CXX=clang++
+            unset cmakeFlags
+            unset CMAKE_INSTALL_PREFIX
             cd app
+            flutter config --no-analytics
             flutter pub get
             flutter build linux --release
           '
 
-      - name: Bundle Python backend
+      - name: Bundle Python backend source
         run: |
-          nix develop --command bash -c '
-            pip install --user pyinstaller
-            python3 -m PyInstaller \
-              --name ocr-to-anki-backend \
-              --distpath output/backend/dist \
-              --workpath output/backend/build \
-              --specpath output/backend \
-              --noconfirm --clean \
-              --collect-all uvicorn \
-              --collect-all fastapi \
-              --collect-all pydantic \
-              --hidden-import uvicorn.logging \
-              --hidden-import uvicorn.loops.auto \
-              --hidden-import uvicorn.protocols.http.auto \
-              --hidden-import uvicorn.protocols.websockets.auto \
-              --hidden-import uvicorn.lifespan.on \
-              --hidden-import src.api.app \
-              --hidden-import src.api.models \
-              --add-data "src:src" \
-              --add-data "config:config" \
-              --paths src \
-              src/api/app.py
-          '
+          mkdir -p output/backend
+          cp -r src config requirements.txt output/backend/
 
       - name: Assemble release archive
         run: |
@@ -83,28 +57,21 @@ jobs:
           mkdir -p "output/release/$ARCHIVE"
 
           # Flutter bundle
-          cp -r app/build/linux/x64/release/bundle/* "output/release/$ARCHIVE/" \
-            || cp -r $(find app/build/linux -path "*/release/bundle" -type d | head -1)/* "output/release/$ARCHIVE/"
+          BUNDLE_DIR="$(find app/build/linux -path '*/release/bundle' -type d | head -1)"
+          cp -r "$BUNDLE_DIR"/* "output/release/$ARCHIVE/"
 
-          # Backend binary
-          if [ -d output/backend/dist/ocr-to-anki-backend ]; then
-            cp -r output/backend/dist/ocr-to-anki-backend "output/release/$ARCHIVE/backend"
-          else
-            mkdir -p "output/release/$ARCHIVE/backend"
-            cp -r src config requirements.txt "output/release/$ARCHIVE/backend/"
-          fi
+          # Backend source
+          mkdir -p "output/release/$ARCHIVE/backend"
+          cp -r src config requirements.txt "output/release/$ARCHIVE/backend/"
 
           # Launcher script
-          cat > "output/release/$ARCHIVE/run.sh" <<'EOF'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          export OCR_TO_ANKI_ROOT="$DIR/backend"
-          if [ -x "$DIR/backend/ocr-to-anki-backend" ]; then
-            "$DIR/backend/ocr-to-anki-backend" &
-          fi
-          exec "$DIR/ocr_to_anki" "$@"
-          EOF
+          cat > "output/release/$ARCHIVE/run.sh" <<'LAUNCHER'
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export OCR_TO_ANKI_ROOT="$DIR/backend"
+exec "$DIR/ocr_to_anki" "$@"
+LAUNCHER
           chmod +x "output/release/$ARCHIVE/run.sh"
 
           cd output/release
@@ -117,10 +84,10 @@ jobs:
           path: output/release/${{ env.ARTIFACT }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # macOS — uses Nix for Flutter + native macOS toolchain for Xcode build
+  # macOS: uses Nix for Flutter, native macOS toolchain for Xcode build
   # ════════════════════════════════════════════════════════════════════════════
   build-macos:
-    runs-on: macos-14            # Apple Silicon runner
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
@@ -134,35 +101,14 @@ jobs:
       - name: Build Flutter macOS release
         run: |
           nix develop .#flutter --command bash -c '
+            export CC=clang
+            export CXX=clang++
+            unset cmakeFlags
+            unset CMAKE_INSTALL_PREFIX
             cd app
+            flutter config --no-analytics
             flutter pub get
             flutter build macos --release
-          '
-
-      - name: Bundle Python backend
-        run: |
-          nix develop --command bash -c '
-            pip3 install --user pyinstaller
-            python3 -m PyInstaller \
-              --name ocr-to-anki-backend \
-              --distpath output/backend/dist \
-              --workpath output/backend/build \
-              --specpath output/backend \
-              --noconfirm --clean \
-              --collect-all uvicorn \
-              --collect-all fastapi \
-              --collect-all pydantic \
-              --hidden-import uvicorn.logging \
-              --hidden-import uvicorn.loops.auto \
-              --hidden-import uvicorn.protocols.http.auto \
-              --hidden-import uvicorn.protocols.websockets.auto \
-              --hidden-import uvicorn.lifespan.on \
-              --hidden-import src.api.app \
-              --hidden-import src.api.models \
-              --add-data "src:src" \
-              --add-data "config:config" \
-              --paths src \
-              src/api/app.py
           '
 
       - name: Assemble release archive
@@ -171,16 +117,10 @@ jobs:
           ARCHIVE="ocr-to-anki-${VERSION}-macos-arm64"
           mkdir -p "output/release/$ARCHIVE"
 
-          # Flutter .app bundle
           cp -R app/build/macos/Build/Products/Release/*.app "output/release/$ARCHIVE/"
 
-          # Backend
-          if [ -d output/backend/dist/ocr-to-anki-backend ]; then
-            cp -R output/backend/dist/ocr-to-anki-backend "output/release/$ARCHIVE/backend"
-          else
-            mkdir -p "output/release/$ARCHIVE/backend"
-            cp -r src config requirements.txt "output/release/$ARCHIVE/backend/"
-          fi
+          mkdir -p "output/release/$ARCHIVE/backend"
+          cp -r src config requirements.txt "output/release/$ARCHIVE/backend/"
 
           cd output/release
           zip -qr "${ARCHIVE}.zip" "$ARCHIVE"
@@ -192,7 +132,7 @@ jobs:
           path: output/release/${{ env.ARTIFACT }}
 
   # ════════════════════════════════════════════════════════════════════════════
-  # Windows — uses subosito/flutter-action (Nix isn't practical on Windows)
+  # Windows: uses subosito/flutter-action (Nix is not practical on Windows)
   # ════════════════════════════════════════════════════════════════════════════
   build-windows:
     runs-on: windows-latest
@@ -202,44 +142,13 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
       - name: Build Flutter Windows release
         run: |
           cd app
           flutter pub get
           flutter build windows --release
-
-      - name: Bundle Python backend
-        run: |
-          pip install pyinstaller
-          pip install -r requirements.txt
-          python -m PyInstaller `
-            --name ocr-to-anki-backend `
-            --distpath output/backend/dist `
-            --workpath output/backend/build `
-            --specpath output/backend `
-            --noconfirm --clean `
-            --collect-all uvicorn `
-            --collect-all fastapi `
-            --collect-all pydantic `
-            --hidden-import uvicorn.logging `
-            --hidden-import uvicorn.loops.auto `
-            --hidden-import uvicorn.protocols.http.auto `
-            --hidden-import uvicorn.protocols.websockets.auto `
-            --hidden-import uvicorn.lifespan.on `
-            --hidden-import src.api.app `
-            --hidden-import src.api.models `
-            --add-data "src;src" `
-            --add-data "config;config" `
-            --paths src `
-            src/api/app.py
 
       - name: Assemble release archive
         shell: bash
@@ -248,17 +157,11 @@ jobs:
           ARCHIVE="ocr-to-anki-${VERSION}-windows-x86_64"
           mkdir -p "output/release/$ARCHIVE"
 
-          # Flutter build output
-          cp -r app/build/windows/x64/runner/Release/* "output/release/$ARCHIVE/" \
-            || cp -r $(find app/build/windows -path "*/runner/Release" -type d | head -1)/* "output/release/$ARCHIVE/"
+          BUNDLE_DIR="$(find app/build/windows -path '*/runner/Release' -type d | head -1)"
+          cp -r "$BUNDLE_DIR"/* "output/release/$ARCHIVE/"
 
-          # Backend
-          if [ -d output/backend/dist/ocr-to-anki-backend ]; then
-            cp -r output/backend/dist/ocr-to-anki-backend "output/release/$ARCHIVE/backend"
-          else
-            mkdir -p "output/release/$ARCHIVE/backend"
-            cp -r src config requirements.txt "output/release/$ARCHIVE/backend/"
-          fi
+          mkdir -p "output/release/$ARCHIVE/backend"
+          cp -r src config requirements.txt "output/release/$ARCHIVE/backend/"
 
           cd output/release
           7z a "${ARCHIVE}.zip" "$ARCHIVE"
