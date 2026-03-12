@@ -88,6 +88,11 @@ class BackendServerService {
       // Ensure ~/.local/bin is in PATH so llama-server-vulkan is found.
       'PATH': '${Platform.environment['HOME']}/.local/bin:'
           '${Platform.environment['PATH'] ?? ''}',
+      // The app uses bare `from api.models import …` and
+      // `from backends.… import …` (without the `src.` prefix).
+      // In dev mode the Nix shell adds src/ to PYTHONPATH; replicate that here.
+      'PYTHONPATH': '$projectRoot/src:'
+          '${Platform.environment['PYTHONPATH'] ?? ''}',
       // Include bundled shared libs (libstdc++ etc.) so pip-installed native
       // extensions (numpy, etc.) work on systems without FHS layout (NixOS).
       if (isBundled)
