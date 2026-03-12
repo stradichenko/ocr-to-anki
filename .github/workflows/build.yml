@@ -44,6 +44,21 @@ jobs:
             flutter build linux --release
           '
 
+      - name: Bundle native libraries
+        run: |
+          BUNDLE_DIR="$(find app/build/linux -path '*/release/bundle' -type d | head -1)"
+          # Try ldconfig first (works on Ubuntu CI runners), then fall back to a find.
+          LIBSTDCXX="$(ldconfig -p 2>/dev/null | grep 'libstdc++.so.6 ' | grep x86-64 | head -1 | awk '{print $NF}')"
+          if [ ! -f "$LIBSTDCXX" ]; then
+            LIBSTDCXX="$(find /usr/lib /nix/store -name 'libstdc++.so.6' 2>/dev/null | head -1)"
+          fi
+          if [ -f "$LIBSTDCXX" ]; then
+            cp -L "$LIBSTDCXX" "$BUNDLE_DIR/lib/libstdc++.so.6"
+            echo "Bundled libstdc++ from: $LIBSTDCXX"
+          else
+            echo "WARNING: could not find libstdc++.so.6 to bundle"
+          fi
+
       - name: Bundle Python backend source
         run: |
           mkdir -p output/backend

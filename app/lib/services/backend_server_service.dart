@@ -80,11 +80,19 @@ class BackendServerService {
     _log('Project root: $projectRoot');
     _log('Bundled mode: $isBundled');
 
+    // Resolve the executable's directory for bundled shared libraries.
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+
     final env = <String, String>{
       ...Platform.environment,
       // Ensure ~/.local/bin is in PATH so llama-server-vulkan is found.
       'PATH': '${Platform.environment['HOME']}/.local/bin:'
           '${Platform.environment['PATH'] ?? ''}',
+      // Include bundled shared libs (libstdc++ etc.) so pip-installed native
+      // extensions (numpy, etc.) work on systems without FHS layout (NixOS).
+      if (isBundled)
+        'LD_LIBRARY_PATH': '$exeDir/lib:'
+            '${Platform.environment['LD_LIBRARY_PATH'] ?? ''}',
     };
 
     _process = await Process.start(
