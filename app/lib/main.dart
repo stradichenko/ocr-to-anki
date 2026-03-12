@@ -76,46 +76,7 @@ class _ServerStartupGate extends ConsumerWidget {
             ),
           ),
         ),
-      // ---- Python not found ----
-      ServerStatus.pythonNeeded => Scaffold(
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.terminal_rounded,
-                      size: 56, color: theme.colorScheme.primary),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Python runtime needed',
-                    style: theme.textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'OCR‑to‑Anki requires a Python runtime to power '
-                    'the AI backend.\n'
-                    'A portable copy (~30 MB) will be downloaded and '
-                    'cached locally — no system install needed.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    onPressed: () => ref
-                        .read(serverStartupProvider.notifier)
-                        .acceptPythonDownload(),
-                    icon: const Icon(Icons.download),
-                    label: const Text('Download Python'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      // ---- Python downloading ----
+      // ---- Python downloading (silent, automatic) ----
       ServerStatus.downloadingPython => Scaffold(
           body: Center(
             child: Padding(
@@ -141,7 +102,7 @@ class _ServerStartupGate extends ConsumerWidget {
                   ],
                   const SizedBox(height: 8),
                   Text(
-                    startup.message,
+                    'Setting up — downloading Python runtime…',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,

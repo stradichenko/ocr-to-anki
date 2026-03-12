@@ -170,7 +170,6 @@ enum ServerStatus {
   starting,
   ready,
   error,
-  pythonNeeded,
   downloadingPython,
   modelsNeeded,
   downloading,
@@ -245,20 +244,25 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
     } catch (e) {
       if (_disposed) return;
 
-      // Detect "Python not found" specifically so we can offer a download
-      // of the portable runtime instead of just showing an error.
+      // Python not found — silently download a portable runtime and retry.
       final msg = e.toString();
       if (e is StateError &&
           (msg.contains('Cannot find python') ||
               msg.contains('Portable Python not found'))) {
-        state = const ServerStartupState(
-          status: ServerStatus.pythonNeeded,
-          message:
-              'Python was not found on this computer.\n'
-              'A portable Python runtime (~30 MB) can be downloaded '
-              'automatically.',
-        );
-        return;
+        try {
+          await _downloadPython();
+          if (_disposed) return;
+          // Python is now available — restart the full boot sequence.
+          await _boot();
+          return;
+        } catch (dlErr) {
+          if (_disposed) return;
+          state = ServerStartupState(
+            status: ServerStatus.error,
+            message: 'Failed to set up Python: $dlErr',
+          );
+          return;
+        }
       }
 
       state = ServerStartupState(
@@ -268,40 +272,26 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
     }
   }
 
-  /// Called when the user accepts the Python download prompt.
-  Future<void> acceptPythonDownload() async {
+  /// Download portable Python silently, showing progress.
+  Future<void> _downloadPython() async {
     state = const ServerStartupState(
       status: ServerStatus.downloadingPython,
-      message: 'Downloading Python runtime…',
+      message: 'Setting up — downloading Python runtime…',
     );
 
-    try {
-      await BackendServerService.downloadPortablePython(
-        onProgress: (downloaded, total) {
-          if (_disposed) return;
-          state = ServerStartupState(
-            status: ServerStatus.downloadingPython,
-            message: 'Downloading Python…',
-            downloadFile: 'Python $_pythonLabel',
-            downloadedBytes: downloaded,
-            totalBytes: total,
-          );
-        },
-      );
-      if (_disposed) return;
-
-      // Python is now available — restart the full boot sequence.
-      await _boot();
-    } catch (e) {
-      if (_disposed) return;
-      state = ServerStartupState(
-        status: ServerStatus.error,
-        message: 'Python download failed: $e',
-      );
-    }
+    await BackendServerService.downloadPortablePython(
+      onProgress: (downloaded, total) {
+        if (_disposed) return;
+        state = ServerStartupState(
+          status: ServerStatus.downloadingPython,
+          message: 'Setting up — downloading Python runtime…',
+          downloadFile: 'Python',
+          downloadedBytes: downloaded,
+          totalBytes: total,
+        );
+      },
+    );
   }
-
-  static const _pythonLabel = '3.12';
 
   /// Called when the user accepts the model download prompt.
   Future<void> acceptDownload() async {
