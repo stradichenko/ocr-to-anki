@@ -406,6 +406,25 @@ class BackendServerService {
       return bundleBackend;
     }
 
+    // 2b. macOS .app bundle: the executable is at
+    //     <archive>/Foo.app/Contents/MacOS/foo
+    //     and backend/ sits alongside the .app at <archive>/backend/.
+    if (Platform.isMacOS) {
+      final sep = Platform.pathSeparator;
+      final parts = exeDir.split(sep);
+      final macosIdx = parts.lastIndexOf('MacOS');
+      if (macosIdx >= 2 &&
+          parts[macosIdx - 1] == 'Contents' &&
+          parts[macosIdx - 2].endsWith('.app')) {
+        final appParent = parts.sublist(0, macosIdx - 2).join(sep);
+        final macBackend = '$appParent${sep}backend';
+        if (File('$macBackend${sep}requirements.txt').existsSync() &&
+            Directory('$macBackend${sep}src').existsSync()) {
+          return macBackend;
+        }
+      }
+    }
+
     // 3. Dev mode: walk up from CWD looking for flake.nix.
     var dir = Directory.current;
     if (dir.path.endsWith('/app')) {
