@@ -1371,6 +1371,11 @@ class _CropRegionDialogState extends State<_CropRegionDialog> {
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.primary),
               ),
+            ] else ...[
+              // Reserve the same vertical space so the image area doesn't
+              // resize when the status text appears.
+              const SizedBox(height: 8),
+              const SizedBox(height: 14),
             ],
           ],
         ),

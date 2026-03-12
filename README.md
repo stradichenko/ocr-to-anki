@@ -75,6 +75,20 @@ cd ocr-to-anki-v0.1.0-linux-x86_64
 ./run.sh
 ```
 
+> **First run: model download required (~3.2 GB, one time)**
+>
+> The release binary does not include the AI model. On first launch the app
+> will show a degraded status until the model files are present.
+>
+> Run the setup script to download them:
+>
+> ```bash
+> ./scripts/setup-llama-cpp.sh
+> ```
+>
+> Files are saved to `~/.cache/llama.cpp/models/` and only need to be
+> downloaded once. See [Model files](#model-files) below for details.
+
 ### Build from source
 
 ```bash

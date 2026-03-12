@@ -78,6 +78,11 @@ jobs:
           mkdir -p "output/release/$ARCHIVE/backend"
           cp -r src config requirements.txt "output/release/$ARCHIVE/backend/"
 
+          # Model setup script
+          mkdir -p "output/release/$ARCHIVE/scripts"
+          cp scripts/setup-llama-cpp.sh "output/release/$ARCHIVE/scripts/"
+          chmod +x "output/release/$ARCHIVE/scripts/setup-llama-cpp.sh"
+
           # Launcher script
           printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' \
             'DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
@@ -126,6 +131,10 @@ jobs:
           mkdir -p "output/release/$ARCHIVE/backend"
           cp -r src config requirements.txt "output/release/$ARCHIVE/backend/"
 
+          mkdir -p "output/release/$ARCHIVE/scripts"
+          cp scripts/setup-llama-cpp.sh "output/release/$ARCHIVE/scripts/"
+          chmod +x "output/release/$ARCHIVE/scripts/setup-llama-cpp.sh"
+
           cd output/release
           zip -qr "${ARCHIVE}.zip" "$ARCHIVE"
           echo "ARTIFACT=${ARCHIVE}.zip" >> "$GITHUB_ENV"
@@ -166,6 +175,9 @@ jobs:
 
           mkdir -p "output/release/$ARCHIVE/backend"
           cp -r src config requirements.txt "output/release/$ARCHIVE/backend/"
+
+          mkdir -p "output/release/$ARCHIVE/scripts"
+          cp scripts/setup-llama-cpp.sh "output/release/$ARCHIVE/scripts/"
 
           cd output/release
           7z a "${ARCHIVE}.zip" "$ARCHIVE"
