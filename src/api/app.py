@@ -531,14 +531,19 @@ async def ocr_vision(req: VisionOCRRequest):
     # Free the GPU -- stop text server if it's occupying the iGPU.
     await asyncio.to_thread(_pause_text_server)
 
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
+    # delete=False + manual cleanup: on Windows the subprocess cannot
+    # open a NamedTemporaryFile that is still held open by Python.
+    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    tmp_path = tmp.name
+    try:
         tmp.write(raw)
         tmp.flush()
+        tmp.close()
 
         try:
             result = await asyncio.to_thread(
                 _vision.run_vision,
-                image_path=tmp.name,
+                image_path=tmp_path,
                 prompt=req.prompt,
                 timeout=req.timeout,
             )
@@ -547,6 +552,11 @@ async def ocr_vision(req: VisionOCRRequest):
         except Exception as e:
             log.exception("Vision OCR failed")
             raise HTTPException(500, str(e))
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
     return VisionOCRResponse(
         text=result["text"],
@@ -594,14 +604,17 @@ async def ocr_vision_upload(
     # Free the GPU -- stop text server if it's occupying the iGPU.
     await asyncio.to_thread(_pause_text_server)
 
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp_path = tmp.name
+    try:
         tmp.write(raw)
         tmp.flush()
+        tmp.close()
 
         try:
             result = await asyncio.to_thread(
                 _vision.run_vision,
-                image_path=tmp.name,
+                image_path=tmp_path,
                 prompt=prompt,
                 timeout=timeout,
             )
@@ -610,6 +623,11 @@ async def ocr_vision_upload(
         except Exception as e:
             log.exception("Vision OCR failed")
             raise HTTPException(500, str(e))
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
     return VisionOCRResponse(
         text=result["text"],
@@ -1038,12 +1056,20 @@ async def pipeline_image_to_cards(
     # Free the GPU -- stop text server if it's occupying the iGPU.
     await asyncio.to_thread(_pause_text_server)
 
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp_path = tmp.name
+    try:
         tmp.write(raw)
         tmp.flush()
+        tmp.close()
         ocr_result = await asyncio.to_thread(
-            _vision.run_vision, tmp.name, prompt=ocr_prompt, timeout=2700,
+            _vision.run_vision, tmp_path, prompt=ocr_prompt, timeout=2700,
         )
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
     ocr_text = ocr_result["text"]
 
