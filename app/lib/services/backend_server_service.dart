@@ -11,8 +11,8 @@ import 'package:http/http.dart' as http;
 /// When running from a release bundle the backend source lives in a `backend/`
 /// directory next to the executable.  In that case we create (or reuse) a
 /// Python virtual environment there and install the requirements before
-/// starting uvicorn.  This means users only need a system Python 3 -- they do
-/// not have to install any pip packages by hand.
+/// starting uvicorn.  This means users don't need Python installed at all —
+/// a portable Python runtime is downloaded automatically on first launch.
 class BackendServerService {
   BackendServerService({
     this.host = '0.0.0.0',
@@ -33,6 +33,127 @@ class BackendServerService {
 
   /// The URL of the running backend.
   String get url => 'http://127.0.0.1:$port';
+
+  // ---------------------------------------------------------------------------
+  // Portable Python (python-build-standalone)
+  // ---------------------------------------------------------------------------
+
+  static const _pythonTag = '20241016';
+  static const _pythonVersion = '3.12.7';
+  static const _pbsBase =
+      'https://github.com/indygreg/python-build-standalone/releases/download';
+
+  /// Directory where the portable Python cache lives.
+  static String get pythonCacheDir {
+    if (Platform.isWindows) {
+      final localAppData = Platform.environment['LOCALAPPDATA'];
+      if (localAppData != null) return '$localAppData\\ocr-to-anki';
+      return '${Platform.environment['USERPROFILE']}\\.cache\\ocr-to-anki';
+    }
+    return '${Platform.environment['HOME']}/.cache/ocr-to-anki';
+  }
+
+  /// Path to the portable Python binary (may not exist yet).
+  static String get _portablePythonBinary {
+    if (Platform.isWindows) {
+      return '$pythonCacheDir\\python\\python.exe';
+    }
+    return '$pythonCacheDir/python/bin/python3';
+  }
+
+  /// Whether a portable Python has already been downloaded.
+  static bool get hasPortablePython => File(_portablePythonBinary).existsSync();
+
+  /// Return the portable Python path if it exists, otherwise `null`.
+  String? _portablePython() {
+    final binary = _portablePythonBinary;
+    return File(binary).existsSync() ? binary : null;
+  }
+
+  /// Determine the download URL for this platform + architecture.
+  static Future<String> _portablePythonUrl() async {
+    final arch = await _arch();
+    if (Platform.isWindows) {
+      return '$_pbsBase/$_pythonTag/cpython-$_pythonVersion+$_pythonTag'
+          '-x86_64-pc-windows-msvc-install_only_stripped.tar.gz';
+    } else if (Platform.isMacOS) {
+      return '$_pbsBase/$_pythonTag/cpython-$_pythonVersion+$_pythonTag'
+          '-$arch-apple-darwin-install_only_stripped.tar.gz';
+    }
+    return '$_pbsBase/$_pythonTag/cpython-$_pythonVersion+$_pythonTag'
+        '-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz';
+  }
+
+  static Future<String> _arch() async {
+    if (Platform.isWindows) return 'x86_64';
+    final result = await Process.run('uname', ['-m']);
+    final arch = (result.stdout as String).trim();
+    // macOS reports 'arm64', python-build-standalone uses 'aarch64'
+    return arch == 'arm64' ? 'aarch64' : arch;
+  }
+
+  /// Download and extract a portable Python runtime.
+  ///
+  /// [onProgress] is called with `(downloadedBytes, totalBytes)`.
+  /// The archive is ~15–30 MB depending on platform.
+  static Future<void> downloadPortablePython({
+    required void Function(int downloaded, int total) onProgress,
+  }) async {
+    final url = await _portablePythonUrl();
+    final cacheDir = pythonCacheDir;
+
+    // Ensure cache directory exists.
+    final dir = Directory(cacheDir);
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+
+    final sep = Platform.isWindows ? '\\' : '/';
+    final archivePath = '$cacheDir${sep}python.tar.gz';
+
+    // Stream-download with progress.
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', Uri.parse(url));
+      final response = await client.send(request);
+      if (response.statusCode != 200 && response.statusCode != 302) {
+        throw StateError('Download failed: HTTP ${response.statusCode}');
+      }
+      final total = response.contentLength ?? 0;
+      var downloaded = 0;
+
+      final sink = File(archivePath).openWrite();
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        downloaded += chunk.length;
+        onProgress(downloaded, total);
+      }
+      await sink.close();
+    } finally {
+      client.close();
+    }
+
+    // Extract — `tar` is available on Windows 10+, Linux, and macOS.
+    final extractResult = await Process.run(
+      'tar',
+      ['-xzf', archivePath, '-C', cacheDir],
+    );
+    if (extractResult.exitCode != 0) {
+      throw StateError(
+        'Failed to extract Python archive:\n${extractResult.stderr}',
+      );
+    }
+
+    // Clean up the archive.
+    try {
+      File(archivePath).deleteSync();
+    } catch (_) {}
+
+    // Verify.
+    if (!File(_portablePythonBinary).existsSync()) {
+      throw StateError(
+        'Python binary not found after extraction at $_portablePythonBinary',
+      );
+    }
+  }
 
   /// Start the backend server.
   ///
@@ -64,13 +185,15 @@ class BackendServerService {
     if (isBundled) {
       python = await _ensureVenv(projectRoot);
     } else {
-      final found =
-          _which('python3') ?? _which('python') ?? _which('py');
+      final found = _which('python3') ??
+          _which('python') ??
+          _which('py') ??
+          _portablePython();
       if (found == null) {
         throw StateError(
           'Cannot find python3, python, or py in PATH.\n'
-          'Make sure the app is launched inside the nix develop shell,\n'
-          'or run from the release bundle which sets up a venv automatically.',
+          'Portable Python not found either.\n'
+          'A portable Python runtime can be downloaded automatically.',
         );
       }
       python = found;
@@ -212,12 +335,16 @@ class BackendServerService {
 
     // Find system python.  On Windows the Python Launcher (`py`) is
     // common when python3 / python aren't on the PATH.
-    final sysPython =
-        _which('python3') ?? _which('python') ?? _which('py');
+    // Falls back to the auto-downloaded portable Python.
+    final sysPython = _which('python3') ??
+        _which('python') ??
+        _which('py') ??
+        _portablePython();
     if (sysPython == null) {
       throw StateError(
         'Cannot find python3, python, or py in PATH.\n'
-        'Please install Python 3.10 or newer.',
+        'Portable Python not found either.\n'
+        'A portable Python runtime can be downloaded automatically.',
       );
     }
 

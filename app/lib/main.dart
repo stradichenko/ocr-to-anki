@@ -76,6 +76,82 @@ class _ServerStartupGate extends ConsumerWidget {
             ),
           ),
         ),
+      // ---- Python not found ----
+      ServerStatus.pythonNeeded => Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.terminal_rounded,
+                      size: 56, color: theme.colorScheme.primary),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Python runtime needed',
+                    style: theme.textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'OCR‑to‑Anki requires a Python runtime to power '
+                    'the AI backend.\n'
+                    'A portable copy (~30 MB) will be downloaded and '
+                    'cached locally — no system install needed.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  FilledButton.icon(
+                    onPressed: () => ref
+                        .read(serverStartupProvider.notifier)
+                        .acceptPythonDownload(),
+                    icon: const Icon(Icons.download),
+                    label: const Text('Download Python'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      // ---- Python downloading ----
+      ServerStatus.downloadingPython => Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 48),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (startup.totalBytes > 0) ...[
+                    LinearProgressIndicator(
+                      value: startup.downloadProgress,
+                      minHeight: 8,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '${_megabytes(startup.downloadedBytes)} / '
+                      '${_megabytes(startup.totalBytes)} MB',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                  ] else ...[
+                    const LinearProgressIndicator(minHeight: 8),
+                    const SizedBox(height: 16),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(
+                    startup.message,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       // ---- Model download prompt ----
       ServerStatus.modelsNeeded => Scaffold(
           body: Center(

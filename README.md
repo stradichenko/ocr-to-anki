@@ -54,8 +54,16 @@ enrichment through llama.cpp.
 
 ### Prerequisites
 
-Have [Nix](https://zero-to-nix.com/start/install) installed with flakes enabled
-(`experimental-features = nix-command flakes` in your Nix configuration).
+**Release binaries require no pre-installed dependencies.**
+On first launch the app will automatically download:
+
+1. **Python runtime** (~30 MB) — a portable copy, cached locally
+2. **AI model** (~3.2 GB) — Gemma 3 4B, one-time download
+
+The only system requirement is **GTK 3** on Linux.
+
+> For building from source, have [Nix](https://zero-to-nix.com/start/install)
+> installed with flakes enabled.
 
 ### Download a release (Linux)
 
@@ -64,8 +72,8 @@ Grab the latest tarball from the
 extract, and run:
 
 ```bash
-tar xzf ocr-to-anki-v0.1.0-linux-x86_64.tar.gz
-cd ocr-to-anki-v0.1.0-linux-x86_64
+tar xzf ocr-to-anki-v0.2.0-linux-x86_64.tar.gz
+cd ocr-to-anki-v0.2.0-linux-x86_64
 
 # GTK3 is required at runtime.
 # On Ubuntu/Debian: sudo apt install libgtk-3-0
@@ -75,18 +83,19 @@ cd ocr-to-anki-v0.1.0-linux-x86_64
 ./run.sh
 ```
 
-> **First run: automatic model download (~3.2 GB, one time)**
+> **First launch — fully automatic setup**
 >
-> The release binary does not include the AI model. On first launch the app
-> will detect the missing files and prompt you:
+> On first run the app detects what's missing and guides you through two
+> one-click downloads:
 >
-> *"Model download required — Download now?"*
+> 1. *"Python runtime needed — Download Python"* (~30 MB, if Python is not
+>    already installed)
+> 2. *"Model download required — Download now"* (~3.2 GB)
 >
-> Click **Download now** and the app will fetch the model automatically.
-> Files are saved to `~/.cache/llama.cpp/models/` and only need to be
-> downloaded once. See [Model files](#model-files) below for details.
+> Both downloads are cached locally and only happen once. After that the
+> app starts instantly.
 >
-> You can also download manually with the bundled script:
+> You can also download the model manually with the bundled script:
 >
 > ```bash
 > ./scripts/setup-llama-cpp.sh
