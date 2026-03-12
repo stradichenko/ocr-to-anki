@@ -237,6 +237,58 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
 
+          const SizedBox(height: 32),
+
+          // ---------------------------------------------------------------
+          // OCR Performance
+          // ---------------------------------------------------------------
+          _SectionHeader('OCR Performance'),
+          SwitchListTile(
+            title: const Text('Prefer discrete GPU'),
+            subtitle: const Text(
+              'When available, use a discrete GPU (e.g. NVIDIA, AMD, Arc) '
+              'instead of the integrated one.',
+            ),
+            value: settings.preferDiscreteGpu,
+            onChanged: (v) =>
+                notifier.update((s) => s..preferDiscreteGpu = v),
+          ),
+          SwitchListTile(
+            title: const Text('Parallel crop processing'),
+            subtitle: const Text(
+              'OCR each crop concurrently instead of stitching a montage. '
+              'Faster with a discrete GPU; disable on iGPU-only systems.',
+            ),
+            value: settings.parallelCrops,
+            onChanged: (v) =>
+                notifier.update((s) => s..parallelCrops = v),
+          ),
+          ListTile(
+            title: const Text('Montage max width (px)'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  settings.montageMaxWidth == 0
+                      ? 'No limit (original resolution)'
+                      : '${settings.montageMaxWidth} px',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                Slider(
+                  value: settings.montageMaxWidth.toDouble(),
+                  min: 0,
+                  max: 2048,
+                  divisions: 16,
+                  label: settings.montageMaxWidth == 0
+                      ? 'Off'
+                      : '${settings.montageMaxWidth}',
+                  onChanged: (v) =>
+                      notifier.update((s) => s..montageMaxWidth = v.round()),
+                ),
+              ],
+            ),
+          ),
+
           // ---------------------------------------------------------------
           // LLM parameters
           // ---------------------------------------------------------------

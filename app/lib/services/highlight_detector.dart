@@ -98,14 +98,36 @@ class HighlightDetector {
   /// clearly sees the boundary.  Returns the montage as PNG bytes.
   /// This lets us OCR all crops in a single inference call instead of
   /// launching a new subprocess per crop.
-  static Uint8List buildMontage(List<Uint8List> crops) {
-    if (crops.length == 1) return crops.first;
+  ///
+  /// When [maxWidth] is > 0 each crop is downscaled so its width does
+  /// not exceed that value.  This dramatically reduces the number of
+  /// vision tokens and speeds up prompt eval on iGPUs.
+  static Uint8List buildMontage(List<Uint8List> crops, {int maxWidth = 0}) {
+    if (crops.length == 1 && maxWidth <= 0) return crops.first;
 
-    final images = crops
+    var images = crops
         .map((b) => img.decodeImage(b))
         .whereType<img.Image>()
         .toList();
     if (images.isEmpty) return crops.first;
+
+    // Downscale each crop if requested.
+    if (maxWidth > 0) {
+      images = images.map((im) {
+        if (im.width <= maxWidth) return im;
+        final scale = maxWidth / im.width;
+        return img.copyResize(
+          im,
+          width: maxWidth,
+          height: (im.height * scale).round(),
+          interpolation: img.Interpolation.average,
+        );
+      }).toList();
+    }
+
+    if (images.length == 1) {
+      return Uint8List.fromList(img.encodePng(images.first));
+    }
 
     const sep = 4;
     final totalW = images.map((i) => i.width).reduce(max);

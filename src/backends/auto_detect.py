@@ -40,6 +40,39 @@ class GPUDevice:
     compute_capability: str = ""
     driver_version: str = ""
 
+    @property
+    def is_discrete(self) -> bool:
+        """Heuristic: return True if the device appears to be a discrete GPU.
+
+        Integrated GPUs typically contain keywords like UHD, Iris, HD Graphics,
+        Intel(R) Graphics, etc.  Discrete GPUs from NVIDIA, AMD, and Intel Arc
+        are identified by brand-specific keywords or by exclusion of known
+        integrated patterns.
+        """
+        n = self.name.lower()
+        # Known integrated GPU patterns
+        _INTEGRATED = (
+            "uhd", "iris", "hd graphics", "intel(r) graphics",
+            "vega 3", "vega 5", "vega 6", "vega 7", "vega 8",
+            "radeon(tm) graphics",  # AMD APU
+            "apple m",              # Apple Silicon (unified, but powerful)
+        )
+        if any(kw in n for kw in _INTEGRATED):
+            return False
+        # Known discrete GPU patterns
+        _DISCRETE = (
+            "geforce", "rtx", "gtx", "quadro", "tesla",  # NVIDIA
+            "radeon rx", "radeon pro",                     # AMD discrete
+            "arc a", "arc b",                              # Intel Arc
+        )
+        if any(kw in n for kw in _DISCRETE):
+            return True
+        # If VRAM > 2 GB, very likely discrete
+        if self.vram_mb > 2048:
+            return True
+        # Default: unknown — treat as integrated to be conservative
+        return False
+
 
 @dataclass
 class DetectionResult:
@@ -359,7 +392,7 @@ _BACKEND_PRIORITY = {
 }
 
 
-def detect(*, prefer: Optional[Backend] = None) -> DetectionResult:
+def detect(*, prefer: Optional[Backend] = None, prefer_discrete: bool = True) -> DetectionResult:
     """
     Probe the system and return a :class:`DetectionResult`.
 
@@ -367,6 +400,11 @@ def detect(*, prefer: Optional[Backend] = None) -> DetectionResult:
     ----------
     prefer : Backend, optional
         Force a specific backend.  If the backend has no binary, falls back.
+    prefer_discrete : bool
+        When True (default), favour discrete GPUs over integrated ones
+        within the same backend priority tier.  A discrete GPU on a
+        lower-priority backend can also win if no discrete GPU exists on
+        the higher-priority backend.
     """
     result = DetectionResult(
         os_name=platform.system(),
@@ -390,29 +428,36 @@ def detect(*, prefer: Optional[Backend] = None) -> DetectionResult:
         except Exception as e:
             log.warning("Probe %s failed: %s", backend.value, e)
 
-    # Determine which backends have both devices AND binaries
-    viable: list[tuple[Backend, Path]] = []
+    # Determine which backends have both devices AND binaries.
+    # Track whether a backend has a discrete GPU available.
+    viable: list[tuple[Backend, Path, bool]] = []     # (backend, binary, has_discrete)
+    backend_has_discrete: dict[Backend, bool] = {}
     for dev in result.devices:
         binary = _find_binary(dev.backend)
         if binary:
-            viable.append((dev.backend, binary))
+            is_disc = dev.is_discrete
+            if dev.backend not in backend_has_discrete:
+                backend_has_discrete[dev.backend] = is_disc
+            else:
+                backend_has_discrete[dev.backend] = backend_has_discrete[dev.backend] or is_disc
+            viable.append((dev.backend, binary, is_disc))
 
-    # Deduplicate by backend
+    # Deduplicate by backend (prefer discrete device when deduplicating)
     seen = set()
     unique_viable = []
-    for b, p in viable:
+    for b, p, disc in viable:
         if b not in seen:
             seen.add(b)
-            unique_viable.append((b, p))
+            unique_viable.append((b, p, backend_has_discrete.get(b, False)))
 
     # CPU always viable
     cpu_binary = _find_binary(Backend.CPU)
     if cpu_binary and Backend.CPU not in seen:
-        unique_viable.append((Backend.CPU, cpu_binary))
+        unique_viable.append((Backend.CPU, cpu_binary, False))
 
     if prefer and prefer != Backend.CPU:
         # User override
-        for b, p in unique_viable:
+        for b, p, _ in unique_viable:
             if b == prefer:
                 result.recommended_backend = b
                 result.binary_path = str(p)
@@ -424,11 +469,26 @@ def detect(*, prefer: Optional[Backend] = None) -> DetectionResult:
         result.binary_path = str(cpu_binary) if cpu_binary else None
         return result
 
-    # Pick the highest-priority viable backend
-    unique_viable.sort(key=lambda bp: _BACKEND_PRIORITY.get(bp[0], 0), reverse=True)
-    best_backend, best_binary = unique_viable[0]
+    # Sort by (backend_priority, has_discrete_gpu).  When prefer_discrete
+    # is True a discrete GPU on a lower-priority backend can beat an
+    # integrated-only higher-priority backend (bonus +50 keeps it within
+    # the same ballpark).
+    def _sort_key(entry: tuple[Backend, Path, bool]) -> int:
+        b, _, has_disc = entry
+        base = _BACKEND_PRIORITY.get(b, 0)
+        if prefer_discrete and has_disc:
+            base += 50
+        return base
+
+    unique_viable.sort(key=_sort_key, reverse=True)
+    best_backend, best_binary, best_disc = unique_viable[0]
     result.recommended_backend = best_backend
     result.binary_path = str(best_binary)
+
+    if best_disc:
+        discrete_names = [d.name for d in result.devices
+                          if d.backend == best_backend and d.is_discrete]
+        log.info("Preferring discrete GPU: %s (%s)", discrete_names, best_backend.value)
 
     return result
 
@@ -449,7 +509,8 @@ def print_report(result: DetectionResult) -> None:
         print("  Detected GPUs:")
         for i, d in enumerate(result.devices):
             vram = f"  ({d.vram_mb} MB)" if d.vram_mb else ""
-            print(f"    [{d.backend.value:>6}] {d.name}{vram}")
+            tag = " [discrete]" if d.is_discrete else " [integrated]"
+            print(f"    [{d.backend.value:>6}] {d.name}{vram}{tag}")
     else:
         print("  No GPUs detected -- CPU-only mode")
 

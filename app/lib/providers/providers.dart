@@ -788,10 +788,96 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
         }
 
         // Step 3: Vision OCR on each image/crop.
-        // When there are multiple crops, stitch them into a single montage
-        // to avoid one subprocess launch per crop (each launch reloads the
-        // model, which dominates wall-clock time).
-        if (imagesToProcess.length > 1) {
+        //
+        // Three modes:
+        //   a) Parallel crops   – send each crop individually, concurrently.
+        //   b) Montage          – stitch crops into one image, single OCR call.
+        //   c) Single image     – one crop or full image, one OCR call.
+        //
+        // Parallel mode is faster when a discrete GPU is available and the
+        // model is kept loaded between calls (llama-server).  Montage is
+        // better on iGPUs where each subprocess launch reloads the model.
+        final useParallel = settings.parallelCrops && imagesToProcess.length > 1;
+        final useMontage = !useParallel && imagesToProcess.length > 1;
+
+        if (useParallel) {
+          // ── Parallel crop OCR ──────────────────────────────────────
+          _checkCancelled();
+          final n = imagesToProcess.length;
+          _log(
+            'Processing $n crops in parallel...',
+            phase: ProcessingPhase.ocr,
+            progress: imgProgress + 0.02,
+          );
+
+          // Downscale each crop before sending if montageMaxWidth > 0.
+          final mw = settings.montageMaxWidth;
+          final cropsToSend = mw > 0
+              ? imagesToProcess
+                    .map((c) => HighlightDetector.buildMontage([c], maxWidth: mw))
+                    .toList()
+              : imagesToProcess;
+
+          final parallelProgress = 0.10 + 0.45 * (imgIdx + 0.5) / images.length;
+          final ocrStopwatch = Stopwatch()..start();
+
+          _heartbeat?.cancel();
+          var completed = 0;
+          _heartbeat = Timer.periodic(
+            const Duration(seconds: 15),
+            (timer) {
+              final secs = ocrStopwatch.elapsed.inSeconds;
+              final mins = (secs / 60).toStringAsFixed(1);
+              _log(
+                'OCR in progress... $mins min elapsed - $completed/$n crops done',
+                progress: parallelProgress +
+                    0.30 * (completed / n).clamp(0.0, 1.0),
+              );
+            },
+          );
+
+          try {
+            final futures = cropsToSend.map((crop) async {
+              final result = await inference.visionOcr(imageBytes: crop);
+              completed++;
+              return result;
+            });
+            final results = await Future.wait(futures);
+            ocrStopwatch.stop();
+            _heartbeat?.cancel();
+            _heartbeat = null;
+
+            final totalS = ocrStopwatch.elapsedMilliseconds / 1000;
+            bench.perCropOcrS = [totalS];
+
+            for (final result in results) {
+              if (result.backend.isNotEmpty) bench.backend = result.backend;
+              ocrTexts.add(result.text);
+
+              final words = result.text
+                  .split(RegExp(r'[\n,]+'))
+                  .map((w) => w
+                      .trim()
+                      .replaceAll(RegExp(r'^[\s*\-\u2022\u00b7]+'), '')
+                      .replaceAll(RegExp(r'^\d+\.\s*'), '')
+                      .trim())
+                  .where(
+                      (w) => w.length > 1 && w.split(RegExp(r'\s+')).length <= 4)
+                  .toList();
+              allWords.addAll(words);
+            }
+
+            _log(
+              'Parallel OCR complete: ${allWords.length} word(s) from $n crops in ${totalS.toStringAsFixed(1)}s'
+              '${bench.backend.isNotEmpty ? " [${bench.backend}]" : ""}',
+            );
+          } catch (e) {
+            _heartbeat?.cancel();
+            _heartbeat = null;
+            rethrow;
+          }
+        } else if (useMontage) {
+          // ── Montage OCR ────────────────────────────────────────────
           _checkCancelled();
           _log(
             'Stitching ${imagesToProcess.length} crops into montage for single OCR pass...',
@@ -799,7 +885,10 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
             progress: imgProgress + 0.02,
           );
 
-          final montage = HighlightDetector.buildMontage(imagesToProcess);
+          final montage = HighlightDetector.buildMontage(
+            imagesToProcess,
+            maxWidth: settings.montageMaxWidth,
+          );
           final mLabel = '${imagesToProcess.length}-crop montage';
           final montageProgress = 0.10 +
               0.45 * (imgIdx + 0.5) / images.length;
@@ -869,7 +958,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
             rethrow;
           }
         } else {
-        // Single image/crop — no montage needed.
+        // ── Single image/crop ────────────────────────────────────────
         for (var i = 0; i < imagesToProcess.length; i++) {
           _checkCancelled();
           final label = imagesToProcess.length > 1
@@ -952,7 +1041,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           rethrow;
         }
         }
-        } // end montage vs single branch
+        } // end parallel / montage / single branch
       } // end image loop
 
       bench.cropCount = totalCropCount;

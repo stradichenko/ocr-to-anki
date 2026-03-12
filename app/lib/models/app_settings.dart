@@ -29,6 +29,9 @@ class AppSettings {
     this.temperature = 0.1,
     this.maxTokens = 512,
     this.contextSize = 4096,
+    this.montageMaxWidth = 768,
+    this.parallelCrops = true,
+    this.preferDiscreteGpu = true,
     this.colorSchemeSeed = 'deepOrange',
     this.customColorHex = '',
   });
@@ -74,6 +77,19 @@ class AppSettings {
   int maxTokens;
   int contextSize;
 
+  // -- OCR Performance --
+
+  /// Max width (px) for each crop before stitching into the montage.
+  /// Lower values speed up vision encoding.  0 = no downscale.
+  int montageMaxWidth;
+
+  /// When true, process crops as parallel individual OCR calls instead of
+  /// a single montage.  Faster when a discrete GPU is available.
+  bool parallelCrops;
+
+  /// Ask the backend to prefer a discrete GPU over an integrated one.
+  bool preferDiscreteGpu;
+
   Map<String, dynamic> toJson() => {
         'themeMode': themeMode.name,
         'colorSchemeSeed': colorSchemeSeed,
@@ -102,6 +118,9 @@ class AppSettings {
         'temperature': temperature,
         'maxTokens': maxTokens,
         'contextSize': contextSize,
+        'montageMaxWidth': montageMaxWidth,
+        'parallelCrops': parallelCrops,
+        'preferDiscreteGpu': preferDiscreteGpu,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -144,6 +163,9 @@ class AppSettings {
       temperature: (json['temperature'] as num?)?.toDouble() ?? 0.1,
       maxTokens: json['maxTokens'] as int? ?? 512,
       contextSize: json['contextSize'] as int? ?? 4096,
+      montageMaxWidth: json['montageMaxWidth'] as int? ?? 768,
+      parallelCrops: json['parallelCrops'] as bool? ?? true,
+      preferDiscreteGpu: json['preferDiscreteGpu'] as bool? ?? true,
     );
   }
 }
