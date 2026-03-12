@@ -127,8 +127,8 @@ You don't replace one with the other; nix-direnv enhances direnv for Nix project
 **Model download fails:**
 ```bash
 # Try with curl instead of wget
-curl -L -o ~/.cache/llama.cpp/models/gemma-3-4b-it-qat-q4_0_s.gguf \
-  "https://huggingface.co/google/gemma-3-4b-it-qat-q4_0-gguf/resolve/main/gemma-3-4b-it-qat-q4_0_s.gguf"
+curl -L -o ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0_s.gguf \
+  "https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small/resolve/main/gemma-3-4b-it-q4_0_s.gguf"
 ```
 
 **Server won't start:**
@@ -140,7 +140,7 @@ which llama-server
 nix develop
 
 # Check model exists
-ls -lh ~/.cache/llama.cpp/models/gemma-3-4b-it-qat-q4_0_s.gguf
+ls -lh ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0_s.gguf
 ```
 
 **Slow generation (CPU only):**

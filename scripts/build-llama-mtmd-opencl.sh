@@ -207,7 +207,7 @@ echo "╚═══════════════════════�
 echo ""
 echo "Test with:"
 echo "  $BINARY_NAME \\"
-echo "    -m ~/.cache/llama.cpp/models/gemma-3-4b-it-qat-q4_0_s.gguf \\"
+echo "    -m ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0_s.gguf \\"
 echo "    --mmproj ~/.cache/llama.cpp/models/mmproj-model-f16-4B.gguf \\"
 echo "    --image data/images/handwritten.jpeg \\"
 echo "    -p 'Read the handwritten French words. List each word, one per line.' \\"

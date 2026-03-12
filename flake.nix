@@ -269,9 +269,9 @@
             echo ""
             
             echo "llama.cpp status (fully offline):"
-            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" ]; then
+            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0_s.gguf" ]; then
               echo "  [OK] Gemma 3 4B model found"
-              MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" 2>/dev/null | cut -f1)
+              MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0_s.gguf" 2>/dev/null | cut -f1)
               echo "  :: Model size: $MODEL_SIZE"
               echo "     Location: $LLAMA_CPP_MODELS"
             else
@@ -551,9 +551,9 @@
             echo ""
             
             echo "llama.cpp status (fully offline):"
-            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" ]; then
+            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0_s.gguf" ]; then
               echo "  [OK] Gemma 3 4B model found"
-              MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" 2>/dev/null | cut -f1)
+              MODEL_SIZE=$(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0_s.gguf" 2>/dev/null | cut -f1)
               echo "  :: Model size: $MODEL_SIZE"
               echo "     Location: $LLAMA_CPP_MODELS"
             else
@@ -736,8 +736,8 @@
             
             # ── Model Status ───────────────────────────────────
             echo "Models:"
-            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" ]; then
-              echo "  [OK] $(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-qat-q4_0_s.gguf" | cut -f1) gemma-3-4b-it-qat-q4_0_s.gguf"
+            if [ -f "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0_s.gguf" ]; then
+              echo "  [OK] $(du -h "$LLAMA_CPP_MODELS/gemma-3-4b-it-q4_0_s.gguf" | cut -f1) gemma-3-4b-it-q4_0_s.gguf"
             else
               echo "  [WARN] Model not found -- run: ./scripts/setup-llama-cpp.sh"
             fi

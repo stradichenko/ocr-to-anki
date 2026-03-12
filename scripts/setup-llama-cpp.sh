@@ -14,7 +14,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # but ~25% smaller (requantized fp16 embeddings → Q4_0 with imatrix)
 # and with fixed control token metadata for proper instruct-mode behavior.
 # Repo: https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small
-MODEL_FILE="gemma-3-4b-it-qat-q4_0_s.gguf"
+MODEL_FILE="gemma-3-4b-it-q4_0_s.gguf"
 MMPROJ_FILE="mmproj-model-f16-4B.gguf"
 MODELS_DIR="${LLAMA_CPP_MODELS:-$HOME/.cache/llama.cpp/models}"
 MODEL_PATH="${MODELS_DIR}/${MODEL_FILE}"

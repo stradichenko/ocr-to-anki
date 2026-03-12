@@ -94,7 +94,7 @@ class LlamaCppServer:
 
         self.model_path = (
             Path(model_path) if model_path
-            else models_dir / "gemma-3-4b-it-qat-q4_0_s.gguf"
+            else models_dir / "gemma-3-4b-it-q4_0_s.gguf"
         )
         if not self.model_path.exists():
             raise FileNotFoundError(

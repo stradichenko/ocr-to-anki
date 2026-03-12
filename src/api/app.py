@@ -52,7 +52,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(messa
 # -------------------------------------------------------------------
 # Model constants (must match scripts/setup-llama-cpp.sh)
 # -------------------------------------------------------------------
-_MODEL_FILE = "gemma-3-4b-it-qat-q4_0_s.gguf"
+_MODEL_FILE = "gemma-3-4b-it-q4_0_s.gguf"
 _MMPROJ_FILE = "mmproj-model-f16-4B.gguf"
 _MODEL_URL = (
     "https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small"

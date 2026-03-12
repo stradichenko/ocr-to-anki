@@ -12,7 +12,7 @@ python tests/test_server_vision.py
 
 **Prerequisites:**
 - llama-server running on port 8090
-- Model: `gemma-3-4b-it-qat-q4_0_s.gguf` + vision projector
+- Model: `gemma-3-4b-it-q4_0_s.gguf` + vision projector
 
 **What it tests:**
 - Sends multiple vision requests in sequence
@@ -47,7 +47,7 @@ python tests/benchmark_pipeline.py
 
 **Prerequisites:**
 ```bash
-ls -lh ~/.cache/llama.cpp/models/gemma-3-4b-it-qat-q4_0_s.gguf
+ls -lh ~/.cache/llama.cpp/models/gemma-3-4b-it-q4_0_s.gguf
 ls -lh ~/.cache/llama.cpp/models/mmproj-model-f16-4B.gguf
 ```
 
