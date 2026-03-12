@@ -203,21 +203,24 @@ class BackendServerService {
 
     // Resolve the executable's directory for bundled shared libraries.
     final exeDir = File(Platform.resolvedExecutable).parent.path;
+    final isWindows = Platform.isWindows;
+    final pathSep = isWindows ? ';' : ':';
 
     final env = <String, String>{
       ...Platform.environment,
-      // Ensure ~/.local/bin is in PATH so llama-server-vulkan is found.
-      'PATH': '${Platform.environment['HOME']}/.local/bin:'
-          '${Platform.environment['PATH'] ?? ''}',
+      // Ensure ~/.local/bin (Linux/macOS) is in PATH so llama-server is found.
+      if (!isWindows)
+        'PATH': '${Platform.environment['HOME']}/.local/bin$pathSep'
+            '${Platform.environment['PATH'] ?? ''}',
       // The app uses bare `from api.models import …` and
       // `from backends.… import …` (without the `src.` prefix).
       // In dev mode the Nix shell adds src/ to PYTHONPATH; replicate that here.
-      'PYTHONPATH': '$projectRoot/src:'
+      'PYTHONPATH': '$projectRoot${Platform.pathSeparator}src$pathSep'
           '${Platform.environment['PYTHONPATH'] ?? ''}',
       // Include bundled shared libs (libstdc++ etc.) so pip-installed native
       // extensions (numpy, etc.) work on systems without FHS layout (NixOS).
-      if (isBundled)
-        'LD_LIBRARY_PATH': '$exeDir/lib:'
+      if (isBundled && !isWindows)
+        'LD_LIBRARY_PATH': '$exeDir/lib$pathSep'
             '${Platform.environment['LD_LIBRARY_PATH'] ?? ''}',
     };
 

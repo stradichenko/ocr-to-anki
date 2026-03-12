@@ -113,46 +113,7 @@ class _ServerStartupGate extends ConsumerWidget {
             ),
           ),
         ),
-      // ---- Model download prompt ----
-      ServerStatus.modelsNeeded => Scaffold(
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.download_rounded,
-                      size: 56, color: theme.colorScheme.primary),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Model download required',
-                    style: theme.textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'OCR‑to‑Anki needs a ~3.2 GB language model '
-                    '(Gemma 3 4B) to run.\n'
-                    'The download is a one‑time setup and will be '
-                    'saved locally.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    onPressed: () => ref
-                        .read(serverStartupProvider.notifier)
-                        .acceptDownload(),
-                    icon: const Icon(Icons.download),
-                    label: const Text('Download now'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      // ---- Download in progress ----
+      // ---- Download in progress (Python or models) ----
       ServerStatus.downloading => Scaffold(
           body: Center(
             child: Padding(

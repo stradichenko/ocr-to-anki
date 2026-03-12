@@ -171,7 +171,6 @@ enum ServerStatus {
   ready,
   error,
   downloadingPython,
-  modelsNeeded,
   downloading,
 }
 
@@ -230,11 +229,18 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
       if (_disposed) return;
 
       if (!modelsOk) {
-        state = const ServerStartupState(
-          status: ServerStatus.modelsNeeded,
-          message: 'Model files not found. Download ~3.2 GB to get started.',
-        );
-        return; // wait for user to accept via [acceptDownload]
+        // Auto-download models, keeping the user informed with progress.
+        try {
+          await _downloadModelsAuto(server.url);
+          if (_disposed) return;
+        } catch (dlErr) {
+          if (_disposed) return;
+          state = ServerStartupState(
+            status: ServerStatus.error,
+            message: 'Model download failed: $dlErr',
+          );
+          return;
+        }
       }
 
       state = const ServerStartupState(
@@ -293,33 +299,18 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
     );
   }
 
-  /// Called when the user accepts the model download prompt.
-  Future<void> acceptDownload() async {
-    final server = ref.read(backendServerProvider);
+  /// Auto-download models and reinitialise backends, showing progress.
+  Future<void> _downloadModelsAuto(String baseUrl) async {
     state = const ServerStartupState(
       status: ServerStatus.downloading,
-      message: 'Downloading models…',
+      message: 'Downloading AI model (~3.2 GB, one-time setup)…',
     );
 
-    try {
-      await _downloadModels(server.url);
-      if (_disposed) return;
+    await _downloadModels(baseUrl);
+    if (_disposed) return;
 
-      // Reinitialise backends now that files are on disk.
-      await _reinitBackends(server.url);
-      if (_disposed) return;
-
-      state = const ServerStartupState(
-        status: ServerStatus.ready,
-        message: 'Backend ready.',
-      );
-    } catch (e) {
-      if (_disposed) return;
-      state = ServerStartupState(
-        status: ServerStatus.error,
-        message: 'Model download failed: $e',
-      );
-    }
+    // Reinitialise backends now that files are on disk.
+    await _reinitBackends(baseUrl);
   }
 
   /// Allow retry from the error screen.
