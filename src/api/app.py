@@ -59,8 +59,8 @@ _MODEL_URL = (
     f"/resolve/main/{_MODEL_FILE}"
 )
 _MMPROJ_URL = (
-    "https://huggingface.co/google/gemma-3-4b-it-qat-q4_0-gguf"
-    f"/resolve/main/{_MMPROJ_FILE}"
+    "https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small"
+    "/resolve/main/mmproj-google_gemma-3-4b-it-f16.gguf"
 )
 
 

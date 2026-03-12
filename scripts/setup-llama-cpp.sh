@@ -21,8 +21,9 @@ MODEL_PATH="${MODELS_DIR}/${MODEL_FILE}"
 MMPROJ_PATH="${MODELS_DIR}/${MMPROJ_FILE}"
 
 # Public direct-download URLs -- no authentication required.
+# Both files come from stduhpf's repo (Google's repo requires Gemma license auth).
 MODEL_URL="https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small/resolve/main/${MODEL_FILE}"
-MMPROJ_URL="https://huggingface.co/google/gemma-3-4b-it-qat-q4_0-gguf/resolve/main/${MMPROJ_FILE}"
+MMPROJ_URL="https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small/resolve/main/mmproj-google_gemma-3-4b-it-f16.gguf"
 
 echo "=== llama.cpp Gemma 3 4B QAT Setup (Fully Offline) ==="
 echo ""

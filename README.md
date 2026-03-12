@@ -142,7 +142,7 @@ options.
 | File | Size | Source |
 |------|------|--------|
 | gemma-3-4b-it-q4_0_s.gguf | ~2.4 GB | [stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small](https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small) |
-| mmproj-model-f16-4B.gguf | ~812 MB | [google/gemma-3-4b-it-qat-q4_0-gguf](https://huggingface.co/google/gemma-3-4b-it-qat-q4_0-gguf) |
+| mmproj-model-f16-4B.gguf | ~812 MB | [stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small](https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small) |
 
 Both are downloaded by `./scripts/setup-llama-cpp.sh` via direct URL. No
 authentication required.
