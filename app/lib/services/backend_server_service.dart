@@ -185,10 +185,7 @@ class BackendServerService {
     if (isBundled) {
       python = await _ensureVenv(projectRoot);
     } else {
-      final found = _which('python3') ??
-          _which('python') ??
-          _which('py') ??
-          _portablePython();
+      final found = _findPython();
       if (found == null) {
         throw StateError(
           'Cannot find python3, python, or py in PATH.\n'
@@ -336,10 +333,7 @@ class BackendServerService {
     // Find system python.  On Windows the Python Launcher (`py`) is
     // common when python3 / python aren't on the PATH.
     // Falls back to the auto-downloaded portable Python.
-    final sysPython = _which('python3') ??
-        _which('python') ??
-        _which('py') ??
-        _portablePython();
+    final sysPython = _findPython();
     if (sysPython == null) {
       throw StateError(
         'Cannot find python3, python, or py in PATH.\n'
@@ -420,6 +414,39 @@ class BackendServerService {
 
     // Fallback: assume CWD is fine.
     return dir.path;
+  }
+
+  /// Try each candidate name in order and return the first *real* Python.
+  ///
+  /// On Windows, `python.exe` and `python3.exe` may be Microsoft Store
+  /// stubs that live in `WindowsApps/` and print "Python was not found;
+  /// run without arguments to install from the Microsoft Store …" instead
+  /// of actually working.  We run `<candidate> --version` to validate.
+  String? _findPython() {
+    for (final cmd in ['python3', 'python', 'py']) {
+      final path = _which(cmd);
+      if (path != null && _isPythonReal(path)) return path;
+    }
+    // Last resort: the auto-downloaded portable Python.
+    return _portablePython();
+  }
+
+  /// Return `true` if [pythonPath] executes and prints a version string.
+  bool _isPythonReal(String pythonPath) {
+    try {
+      final result = Process.runSync(
+        pythonPath,
+        ['--version'],
+        stdoutEncoding: const SystemEncoding(),
+        stderrEncoding: const SystemEncoding(),
+      );
+      // Real Python prints "Python 3.x.x" to stdout (or stderr on 2.x).
+      if (result.exitCode == 0) {
+        final out = '${result.stdout}${result.stderr}';
+        return out.contains('Python');
+      }
+    } catch (_) {}
+    return false;
   }
 
   String? _which(String cmd) {
