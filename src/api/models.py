@@ -110,6 +110,21 @@ class HealthResponse(BaseModel):
     backend: str
     model: str
     devices: list[dict] = []
+    models_downloaded: bool = True
+    models_dir: str = ""
+
+
+class ModelFileInfo(BaseModel):
+    name: str
+    size_bytes: int = 0
+    exists: bool
+    url: str
+
+
+class ModelStatusResponse(BaseModel):
+    all_present: bool
+    models_dir: str
+    files: list[ModelFileInfo]
 
 
 class BackendInfoResponse(BaseModel):

@@ -13,6 +13,7 @@ import asyncio
 import base64
 import hashlib
 import logging
+import os
 import re
 import tempfile
 import time
@@ -25,6 +26,7 @@ import numpy as np
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from api.models import (
     BackendInfoResponse,
@@ -35,6 +37,8 @@ from api.models import (
     GenerateRequest,
     GenerateResponse,
     HealthResponse,
+    ModelFileInfo,
+    ModelStatusResponse,
     VisionOCRRequest,
     VisionOCRResponse,
 )
@@ -44,6 +48,29 @@ from backends.llama_cpp_server import LlamaCppServer
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(message)s")
+
+# -------------------------------------------------------------------
+# Model constants (must match scripts/setup-llama-cpp.sh)
+# -------------------------------------------------------------------
+_MODEL_FILE = "gemma-3-4b-it-qat-q4_0_s.gguf"
+_MMPROJ_FILE = "mmproj-model-f16-4B.gguf"
+_MODEL_URL = (
+    "https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small"
+    f"/resolve/main/{_MODEL_FILE}"
+)
+_MMPROJ_URL = (
+    "https://huggingface.co/google/gemma-3-4b-it-qat-q4_0-gguf"
+    f"/resolve/main/{_MMPROJ_FILE}"
+)
+
+
+def _models_dir() -> Path:
+    """Return the directory where model files are stored."""
+    return Path(
+        os.getenv("LLAMA_CPP_MODELS",
+                   Path.home() / ".cache" / "llama.cpp" / "models")
+    )
+
 
 # -------------------------------------------------------------------
 # Globals (set during lifespan)
@@ -135,6 +162,11 @@ async def health():
     text_ok = _text is not None
     vision_ok = _vision is not None
 
+    mdir = _models_dir()
+    model_exists = (mdir / _MODEL_FILE).exists()
+    mmproj_exists = (mdir / _MMPROJ_FILE).exists()
+    all_present = model_exists and mmproj_exists
+
     return HealthResponse(
         status="ok" if (text_ok or vision_ok) else "degraded",
         vision_available=vision_ok,
@@ -145,7 +177,108 @@ async def health():
             {"name": d.name, "backend": d.backend.value}
             for d in (_detection.devices if _detection else [])
         ],
+        models_downloaded=all_present,
+        models_dir=str(mdir),
     )
+
+
+# -------------------------------------------------------------------
+# Model management
+# -------------------------------------------------------------------
+
+@app.get("/models/status", response_model=ModelStatusResponse, tags=["models"])
+async def models_status():
+    """Check which model files are present on disk."""
+    mdir = _models_dir()
+    files = []
+    for name, url in [(_MODEL_FILE, _MODEL_URL), (_MMPROJ_FILE, _MMPROJ_URL)]:
+        p = mdir / name
+        files.append(ModelFileInfo(
+            name=name,
+            size_bytes=p.stat().st_size if p.exists() else 0,
+            exists=p.exists(),
+            url=url,
+        ))
+    return ModelStatusResponse(
+        all_present=all(f.exists for f in files),
+        models_dir=str(mdir),
+        files=files,
+    )
+
+
+@app.post("/models/download", tags=["models"])
+async def models_download():
+    """Download missing model files.  Returns an SSE stream with progress.
+
+    Each SSE event is a JSON object:
+      {"file": "...", "downloaded": <bytes>, "total": <bytes>, "done": false}
+    The final event has ``done: true``.
+    """
+    import httpx
+
+    mdir = _models_dir()
+    mdir.mkdir(parents=True, exist_ok=True)
+
+    to_download: list[tuple[str, str, Path]] = []
+    for name, url in [(_MODEL_FILE, _MODEL_URL), (_MMPROJ_FILE, _MMPROJ_URL)]:
+        dest = mdir / name
+        if not dest.exists():
+            to_download.append((name, url, dest))
+
+    if not to_download:
+        import json as _json
+
+        async def _already_done():
+            yield f"data: {_json.dumps({'file': '', 'downloaded': 0, 'total': 0, 'done': True, 'error': None})}\n\n"
+
+        return StreamingResponse(_already_done(), media_type="text/event-stream")
+
+    async def _stream():
+        import json as _json
+
+        for name, url, dest in to_download:
+            tmp = dest.with_suffix(".part")
+            downloaded = 0
+            total = 0
+            try:
+                async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+                    async with client.stream("GET", url) as resp:
+                        resp.raise_for_status()
+                        total = int(resp.headers.get("content-length", 0))
+                        with open(tmp, "wb") as f:
+                            async for chunk in resp.aiter_bytes(chunk_size=1024 * 256):
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                yield f"data: {_json.dumps({'file': name, 'downloaded': downloaded, 'total': total, 'done': False, 'error': None})}\n\n"
+                tmp.rename(dest)
+                log.info("Downloaded model: %s (%d bytes)", name, downloaded)
+            except Exception as exc:
+                tmp.unlink(missing_ok=True)
+                yield f"data: {_json.dumps({'file': name, 'downloaded': downloaded, 'total': total, 'done': True, 'error': str(exc)})}\n\n"
+                return
+
+        yield f"data: {_json.dumps({'file': '', 'downloaded': 0, 'total': 0, 'done': True, 'error': None})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+@app.post("/models/reinit", tags=["models"])
+async def models_reinit():
+    """Re-initialise vision and text backends after model download."""
+    global _vision, _text
+
+    if _text is not None:
+        _text.stop()
+    _vision = _init_vision()
+    _text = _init_text()
+
+    text_ok = _text is not None
+    vision_ok = _vision is not None
+    return {
+        "status": "ok" if (text_ok or vision_ok) else "degraded",
+        "vision_available": vision_ok,
+        "text_available": text_ok,
+    }
 
 
 @app.get("/backends", response_model=BackendInfoResponse, tags=["system"])

@@ -76,6 +76,82 @@ class _ServerStartupGate extends ConsumerWidget {
             ),
           ),
         ),
+      // ---- Model download prompt ----
+      ServerStatus.modelsNeeded => Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.download_rounded,
+                      size: 56, color: theme.colorScheme.primary),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Model download required',
+                    style: theme.textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'OCR‑to‑Anki needs a ~3.2 GB language model '
+                    '(Gemma 3 4B) to run.\n'
+                    'The download is a one‑time setup and will be '
+                    'saved locally.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  FilledButton.icon(
+                    onPressed: () => ref
+                        .read(serverStartupProvider.notifier)
+                        .acceptDownload(),
+                    icon: const Icon(Icons.download),
+                    label: const Text('Download now'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      // ---- Download in progress ----
+      ServerStatus.downloading => Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 48),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (startup.totalBytes > 0) ...[
+                    LinearProgressIndicator(
+                      value: startup.downloadProgress,
+                      minHeight: 8,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '${_megabytes(startup.downloadedBytes)} / '
+                      '${_megabytes(startup.totalBytes)} MB',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                  ] else ...[
+                    const LinearProgressIndicator(minHeight: 8),
+                    const SizedBox(height: 16),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(
+                    startup.message,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ServerStatus.error => Scaffold(
           body: Center(
             child: Padding(
@@ -140,4 +216,7 @@ class _ServerStartupGate extends ConsumerWidget {
       ServerStatus.ready => const HomeScreen(),
     };
   }
+
+  static String _megabytes(int bytes) =>
+      (bytes / (1024 * 1024)).toStringAsFixed(1);
 }

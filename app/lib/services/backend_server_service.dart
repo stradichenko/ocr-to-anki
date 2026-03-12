@@ -64,10 +64,11 @@ class BackendServerService {
     if (isBundled) {
       python = await _ensureVenv(projectRoot);
     } else {
-      final found = _which('python3') ?? _which('python');
+      final found =
+          _which('python3') ?? _which('python') ?? _which('py');
       if (found == null) {
         throw StateError(
-          'Cannot find python3 or python in PATH.\n'
+          'Cannot find python3, python, or py in PATH.\n'
           'Make sure the app is launched inside the nix develop shell,\n'
           'or run from the release bundle which sets up a venv automatically.',
         );
@@ -209,11 +210,13 @@ class BackendServerService {
         ? '$venvDir/Scripts/python.exe'
         : '$venvDir/bin/python';
 
-    // Find system python.
-    final sysPython = _which('python3') ?? _which('python');
+    // Find system python.  On Windows the Python Launcher (`py`) is
+    // common when python3 / python aren't on the PATH.
+    final sysPython =
+        _which('python3') ?? _which('python') ?? _which('py');
     if (sysPython == null) {
       throw StateError(
-        'Cannot find python3 or python in PATH.\n'
+        'Cannot find python3, python, or py in PATH.\n'
         'Please install Python 3.10 or newer.',
       );
     }
@@ -294,9 +297,20 @@ class BackendServerService {
 
   String? _which(String cmd) {
     try {
-      final result = Process.runSync('which', [cmd]);
-      if (result.exitCode == 0) {
-        return (result.stdout as String).trim();
+      if (Platform.isWindows) {
+        // `which` does not exist on Windows; use `where.exe` instead.
+        final result = Process.runSync('where', [cmd]);
+        if (result.exitCode == 0) {
+          // `where` may return multiple lines; take the first match.
+          final first =
+              (result.stdout as String).trim().split('\n').first.trim();
+          if (first.isNotEmpty) return first;
+        }
+      } else {
+        final result = Process.runSync('which', [cmd]);
+        if (result.exitCode == 0) {
+          return (result.stdout as String).trim();
+        }
       }
     } catch (_) {}
     return null;

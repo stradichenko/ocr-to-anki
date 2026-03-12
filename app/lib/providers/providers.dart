@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 
 import '../database/database.dart';
 import '../models/models.dart';
@@ -165,15 +166,31 @@ final backendServerProvider = Provider<BackendServerService>((ref) {
 /// The [ServerStartupNotifier] is initialised eagerly by the startup gate
 /// widget.  It starts the backend and exposes the current status so the UI
 /// can show a loading / error screen.
-enum ServerStatus { starting, ready, error }
+enum ServerStatus { starting, ready, error, modelsNeeded, downloading }
 
 class ServerStartupState {
   const ServerStartupState({
     this.status = ServerStatus.starting,
     this.message = 'Starting backend server…',
+    this.downloadFile = '',
+    this.downloadedBytes = 0,
+    this.totalBytes = 0,
   });
   final ServerStatus status;
   final String message;
+
+  /// Currently-downloading file name (during [ServerStatus.downloading]).
+  final String downloadFile;
+
+  /// Bytes downloaded so far.
+  final int downloadedBytes;
+
+  /// Total bytes expected (0 = unknown).
+  final int totalBytes;
+
+  /// Convenience: download progress as 0..1 (or 0 when unknown).
+  double get downloadProgress =>
+      totalBytes > 0 ? downloadedBytes / totalBytes : 0;
 }
 
 final serverStartupProvider =
@@ -200,6 +217,19 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
       );
       await server.start(timeout: const Duration(seconds: 120));
       if (_disposed) return;
+
+      // Server is up — check whether model files are present.
+      final modelsOk = await _checkModels(server.url);
+      if (_disposed) return;
+
+      if (!modelsOk) {
+        state = const ServerStartupState(
+          status: ServerStatus.modelsNeeded,
+          message: 'Model files not found. Download ~3.2 GB to get started.',
+        );
+        return; // wait for user to accept via [acceptDownload]
+      }
+
       state = const ServerStartupState(
         status: ServerStatus.ready,
         message: 'Backend ready.',
@@ -213,8 +243,108 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
     }
   }
 
+  /// Called when the user accepts the model download prompt.
+  Future<void> acceptDownload() async {
+    final server = ref.read(backendServerProvider);
+    state = const ServerStartupState(
+      status: ServerStatus.downloading,
+      message: 'Downloading models…',
+    );
+
+    try {
+      await _downloadModels(server.url);
+      if (_disposed) return;
+
+      // Reinitialise backends now that files are on disk.
+      await _reinitBackends(server.url);
+      if (_disposed) return;
+
+      state = const ServerStartupState(
+        status: ServerStatus.ready,
+        message: 'Backend ready.',
+      );
+    } catch (e) {
+      if (_disposed) return;
+      state = ServerStartupState(
+        status: ServerStatus.error,
+        message: 'Model download failed: $e',
+      );
+    }
+  }
+
   /// Allow retry from the error screen.
   Future<void> retry() async => _boot();
+
+  // -----------------------------------------------------------------------
+  // Helpers
+  // -----------------------------------------------------------------------
+
+  /// Returns true if all model files are present.
+  Future<bool> _checkModels(String baseUrl) async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$baseUrl/health'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        return body['models_downloaded'] == true;
+      }
+    } catch (_) {}
+    return true; // assume ok if we can't tell
+  }
+
+  /// Stream-download missing models, updating state with progress.
+  Future<void> _downloadModels(String baseUrl) async {
+    final request = http.Request('POST', Uri.parse('$baseUrl/models/download'));
+    final client = http.Client();
+    try {
+      final streamed = await client.send(request);
+      final lines = streamed.stream
+          .transform(const Utf8Decoder())
+          .transform(const LineSplitter());
+
+      await for (final line in lines) {
+        if (_disposed) return;
+        if (!line.startsWith('data: ')) continue;
+        final payload = line.substring(6);
+        try {
+          final j = jsonDecode(payload) as Map<String, dynamic>;
+          if (j['done'] == true) {
+            if (j['error'] != null) {
+              throw Exception(j['error']);
+            }
+            break;
+          }
+          state = ServerStartupState(
+            status: ServerStatus.downloading,
+            message: 'Downloading ${j['file']}…',
+            downloadFile: j['file'] as String? ?? '',
+            downloadedBytes: (j['downloaded'] as num?)?.toInt() ?? 0,
+            totalBytes: (j['total'] as num?)?.toInt() ?? 0,
+          );
+        } catch (e) {
+          if (e is Exception &&
+              e.toString().contains('Exception:')) {
+            rethrow;
+          }
+          // parse error — skip line
+        }
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Ask the backend to reload vision + text after model download.
+  Future<void> _reinitBackends(String baseUrl) async {
+    state = const ServerStartupState(
+      status: ServerStatus.downloading,
+      message: 'Initialising models…',
+    );
+    await http
+        .post(Uri.parse('$baseUrl/models/reinit'))
+        .timeout(const Duration(seconds: 60));
+  }
 }
 
 final inferenceServiceProvider = Provider<InferenceService>((ref) {
