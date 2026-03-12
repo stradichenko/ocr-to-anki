@@ -12,6 +12,7 @@ Dependencies: Python stdlib only (urllib, json, subprocess, …).
 import json
 import logging
 import os
+import platform
 import signal
 import subprocess
 import sys
@@ -22,7 +23,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from backends.auto_detect import Backend, _opencl_env, detect  # noqa: F401
+from backends.auto_detect import Backend, _opencl_env, _llama_bin_cache, detect  # noqa: F401
 
 log = logging.getLogger(__name__)
 
@@ -39,24 +40,46 @@ _SERVER_BINARY_NAMES: dict[Backend, list[str]] = {
 }
 
 _SEARCH_PATHS = [
-    Path.home() / ".local" / "bin",
+    _llama_bin_cache(),                # Auto-downloaded binaries
+    Path.home() / ".local" / "bin",    # User-installed (Linux/macOS)
     Path("/usr/local/bin"),
     Path("/usr/bin"),
 ]
 
 
 def _find_server_binary(backend: Backend) -> Optional[Path]:
-    """Locate a llama-server binary for *backend*."""
+    """Locate a llama-server binary for *backend*.
+
+    Search order mirrors :func:`auto_detect._find_binary`:
+    explicit dirs → recursive cache search → PATH.
+    On Windows ``.exe`` is tried automatically.
+    """
     import shutil
 
+    is_win = platform.system() == "Windows"
+    cache = _llama_bin_cache()
+
     for name in _SERVER_BINARY_NAMES.get(backend, ["llama-server"]):
+        ext_names = [f"{name}.exe", name] if is_win else [name]
+
+        for n in ext_names:
+            # 1. Flat search in explicit dirs
+            for d in _SEARCH_PATHS:
+                candidate = d / n
+                if candidate.is_file() and (is_win or os.access(candidate, os.X_OK)):
+                    return candidate
+
+            # 2. Recursive search in cache dir
+            if cache.exists():
+                for f in cache.rglob(n):
+                    if f.is_file() and (is_win or os.access(f, os.X_OK)):
+                        return f
+
+        # 3. PATH lookup
         found = shutil.which(name)
         if found:
             return Path(found)
-        for d in _SEARCH_PATHS:
-            candidate = d / name
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                return candidate
+
     return None
 
 

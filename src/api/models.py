@@ -112,6 +112,7 @@ class HealthResponse(BaseModel):
     devices: list[dict] = []
     models_downloaded: bool = True
     models_dir: str = ""
+    llama_binary_available: bool = True
 
 
 class ModelFileInfo(BaseModel):

@@ -14,6 +14,7 @@ import base64
 import hashlib
 import logging
 import os
+import platform
 import re
 import tempfile
 import time
@@ -42,7 +43,7 @@ from api.models import (
     VisionOCRRequest,
     VisionOCRResponse,
 )
-from backends.auto_detect import detect, Backend
+from backends.auto_detect import detect, Backend, _find_binary, _llama_bin_cache
 from backends.mtmd_cli import LlamaMtmdCli
 from backends.llama_cpp_server import LlamaCppServer
 
@@ -70,6 +71,98 @@ def _models_dir() -> Path:
         os.getenv("LLAMA_CPP_MODELS",
                    Path.home() / ".cache" / "llama.cpp" / "models")
     )
+
+
+# -------------------------------------------------------------------
+# llama.cpp binary auto-download
+# -------------------------------------------------------------------
+_LLAMA_TAG = "b8292"
+_LLAMA_RELEASE_BASE = (
+    f"https://github.com/ggml-org/llama.cpp/releases/download/{_LLAMA_TAG}"
+)
+
+
+def _llama_asset_url() -> str:
+    """Return the download URL for the platform-appropriate llama.cpp release."""
+    system = platform.system()
+    machine = platform.machine().lower()
+    if system == "Windows":
+        return f"{_LLAMA_RELEASE_BASE}/llama-{_LLAMA_TAG}-bin-win-vulkan-x64.zip"
+    elif system == "Darwin":
+        arch = "arm64" if machine in ("arm64", "aarch64") else "x64"
+        return f"{_LLAMA_RELEASE_BASE}/llama-{_LLAMA_TAG}-bin-macos-{arch}.tar.gz"
+    else:  # Linux
+        return f"{_LLAMA_RELEASE_BASE}/llama-{_LLAMA_TAG}-bin-ubuntu-vulkan-x64.tar.gz"
+
+
+def _has_any_llama_binary() -> bool:
+    """Return True if any llama-mtmd-cli binary is already available."""
+    for backend in Backend:
+        if _find_binary(backend):
+            return True
+    return False
+
+
+async def _download_llama_binary(
+    on_progress=None,
+) -> None:
+    """Download and extract llama.cpp pre-built binaries from GitHub.
+
+    Parameters
+    ----------
+    on_progress : callable, optional
+        Called with (downloaded_bytes, total_bytes) for progress reporting.
+    """
+    import httpx
+
+    bin_dir = _llama_bin_cache()
+    bin_dir.mkdir(parents=True, exist_ok=True)
+
+    url = _llama_asset_url()
+    is_zip = url.endswith(".zip")
+    archive_path = bin_dir / ("llama.zip" if is_zip else "llama.tar.gz")
+
+    log.info("Downloading llama.cpp binaries from %s", url)
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+        async with client.stream("GET", url) as resp:
+            resp.raise_for_status()
+            total = int(resp.headers.get("content-length", 0))
+            downloaded = 0
+            with open(archive_path, "wb") as f:
+                async for chunk in resp.aiter_bytes(chunk_size=256 * 1024):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if on_progress:
+                        on_progress(downloaded, total)
+
+    log.info("Downloaded %d MB, extracting...", downloaded // (1024 * 1024))
+
+    # Extract
+    if is_zip:
+        import zipfile
+        with zipfile.ZipFile(archive_path) as zf:
+            zf.extractall(bin_dir)
+    else:
+        import tarfile
+        with tarfile.open(archive_path) as tf:
+            tf.extractall(bin_dir)
+
+    archive_path.unlink(missing_ok=True)
+
+    # Make binaries executable on Unix
+    if platform.system() != "Windows":
+        for f in bin_dir.rglob("llama-*"):
+            if f.is_file():
+                f.chmod(f.stat().st_mode | 0o755)
+
+    # Verify
+    binary_name = "llama-mtmd-cli.exe" if platform.system() == "Windows" else "llama-mtmd-cli"
+    found = list(bin_dir.rglob(binary_name))
+    if found:
+        log.info("llama-mtmd-cli ready: %s", found[0])
+    else:
+        log.warning("llama-mtmd-cli not found after extraction")
 
 
 # -------------------------------------------------------------------
@@ -179,6 +272,7 @@ async def health():
         ],
         models_downloaded=all_present,
         models_dir=str(mdir),
+        llama_binary_available=_has_any_llama_binary(),
     )
 
 
@@ -265,10 +359,11 @@ async def models_download():
 @app.post("/models/reinit", tags=["models"])
 async def models_reinit():
     """Re-initialise vision and text backends after model download."""
-    global _vision, _text
+    global _vision, _text, _detection
 
     if _text is not None:
         _text.stop()
+    _detection = detect()
     _vision = _init_vision()
     _text = _init_text()
 
@@ -279,6 +374,64 @@ async def models_reinit():
         "vision_available": vision_ok,
         "text_available": text_ok,
     }
+
+
+# -------------------------------------------------------------------
+# llama.cpp binary management
+# -------------------------------------------------------------------
+
+@app.get("/llama/status", tags=["llama"])
+async def llama_status():
+    """Check if llama.cpp binaries are available."""
+    available = _has_any_llama_binary()
+    bin_dir = str(_llama_bin_cache())
+    return {"available": available, "bin_dir": bin_dir}
+
+
+@app.post("/llama/download", tags=["llama"])
+async def llama_download():
+    """Download llama.cpp binaries.  Returns an SSE stream with progress.
+
+    Each SSE event is a JSON object:
+      {"file": "llama.cpp", "downloaded": <bytes>, "total": <bytes>,
+       "done": false, "error": null}
+    The final event has ``done: true``.
+    """
+    if _has_any_llama_binary():
+        import json as _json
+
+        async def _already():
+            yield f"data: {_json.dumps({'file': '', 'downloaded': 0, 'total': 0, 'done': True, 'error': None})}\n\n"
+
+        return StreamingResponse(_already(), media_type="text/event-stream")
+
+    async def _stream():
+        import json as _json
+        downloaded_bytes = 0
+        total_bytes = 0
+
+        def _on_progress(d: int, t: int):
+            nonlocal downloaded_bytes, total_bytes
+            downloaded_bytes = d
+            total_bytes = t
+
+        try:
+            # Run download in background; emit progress at intervals
+            import asyncio as _aio
+            task = _aio.create_task(_download_llama_binary(on_progress=_on_progress))
+
+            while not task.done():
+                yield f"data: {_json.dumps({'file': 'llama.cpp', 'downloaded': downloaded_bytes, 'total': total_bytes, 'done': False, 'error': None})}\n\n"
+                await _aio.sleep(0.3)
+
+            # Ensure task errors propagate
+            await task
+
+            yield f"data: {_json.dumps({'file': 'llama.cpp', 'downloaded': downloaded_bytes, 'total': total_bytes, 'done': True, 'error': None})}\n\n"
+        except Exception as exc:
+            yield f"data: {_json.dumps({'file': 'llama.cpp', 'downloaded': downloaded_bytes, 'total': total_bytes, 'done': True, 'error': str(exc)})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 @app.get("/backends", response_model=BackendInfoResponse, tags=["system"])

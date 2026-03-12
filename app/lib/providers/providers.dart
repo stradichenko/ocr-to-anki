@@ -171,6 +171,7 @@ enum ServerStatus {
   ready,
   error,
   downloadingPython,
+  downloadingLlama,
   downloading,
 }
 
@@ -223,6 +224,24 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
       );
       await server.start(timeout: const Duration(seconds: 120));
       if (_disposed) return;
+
+      // Ensure llama.cpp vision binary is available (auto-download if missing).
+      final llamaOk = await _checkLlamaBinary(server.url);
+      if (_disposed) return;
+
+      if (!llamaOk) {
+        try {
+          await _downloadLlamaAuto(server.url);
+          if (_disposed) return;
+        } catch (dlErr) {
+          if (_disposed) return;
+          state = ServerStartupState(
+            status: ServerStatus.error,
+            message: 'Vision engine download failed: $dlErr',
+          );
+          return;
+        }
+      }
 
       // Server is up — check whether model files are present.
       final modelsOk = await _checkModels(server.url);
@@ -297,6 +316,70 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
         );
       },
     );
+  }
+
+  /// Returns true if the llama.cpp vision binary is already available.
+  Future<bool> _checkLlamaBinary(String baseUrl) async {
+    try {
+      final resp = await http
+          .get(Uri.parse('$baseUrl/health'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final body = jsonDecode(resp.body) as Map<String, dynamic>;
+        return body['llama_binary_available'] == true;
+      }
+    } catch (_) {}
+    return true; // assume ok if we can't tell
+  }
+
+  /// Auto-download llama.cpp binaries, showing progress.
+  Future<void> _downloadLlamaAuto(String baseUrl) async {
+    state = const ServerStartupState(
+      status: ServerStatus.downloadingLlama,
+      message: 'Downloading vision engine (~50 MB, one-time setup)…',
+    );
+
+    final request =
+        http.Request('POST', Uri.parse('$baseUrl/llama/download'));
+    final client = http.Client();
+    try {
+      final streamed = await client.send(request);
+      final lines = streamed.stream
+          .transform(const Utf8Decoder())
+          .transform(const LineSplitter());
+
+      await for (final line in lines) {
+        if (_disposed) return;
+        if (!line.startsWith('data: ')) continue;
+        final payload = line.substring(6);
+        try {
+          final j = jsonDecode(payload) as Map<String, dynamic>;
+          if (j['done'] == true) {
+            if (j['error'] != null) {
+              throw Exception(j['error']);
+            }
+            break;
+          }
+          state = ServerStartupState(
+            status: ServerStatus.downloadingLlama,
+            message: 'Downloading vision engine…',
+            downloadFile: j['file'] as String? ?? '',
+            downloadedBytes: (j['downloaded'] as num?)?.toInt() ?? 0,
+            totalBytes: (j['total'] as num?)?.toInt() ?? 0,
+          );
+        } catch (e) {
+          if (e is Exception && e.toString().contains('Exception:')) {
+            rethrow;
+          }
+          // parse error — skip line
+        }
+      }
+    } finally {
+      client.close();
+    }
+
+    // Reinitialise backends now that binaries are available.
+    await _reinitBackends(baseUrl);
   }
 
   /// Auto-download models and reinitialise backends, showing progress.

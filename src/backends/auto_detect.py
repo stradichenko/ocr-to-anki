@@ -89,9 +89,19 @@ class DetectionResult:
 # Binary resolution
 # -------------------------------------------------------------------
 
+
+def _llama_bin_cache() -> Path:
+    """Directory for auto-downloaded llama.cpp binaries."""
+    if platform.system() == "Windows":
+        base = os.environ.get("LOCALAPPDATA", str(Path.home() / ".cache"))
+        return Path(base) / "llama.cpp" / "bin"
+    return Path.home() / ".cache" / "llama.cpp" / "bin"
+
+
 # Where we look for backend-specific binaries, in priority order.
 _SEARCH_PATHS = [
-    Path.home() / ".local" / "bin",
+    _llama_bin_cache(),                # Auto-downloaded binaries
+    Path.home() / ".local" / "bin",    # User-installed (Linux/macOS)
     Path("/usr/local/bin"),
     Path("/usr/bin"),
 ]
@@ -110,20 +120,37 @@ _BINARY_NAMES: dict[Backend, list[str]] = {
 def _find_binary(backend: Backend) -> Optional[Path]:
     """Locate a working llama-mtmd-cli binary for *backend*.
 
-    Search order: explicit search paths (~/.local/bin, /usr/local/bin)
-    first, then PATH.  This ensures manually-built binaries (e.g. with
-    the IM2COL fix) take priority over system/Nix-provided ones.
+    Search order: explicit search paths (~/.cache/llama.cpp/bin,
+    ~/.local/bin, /usr/local/bin) first — flat check then recursive
+    search in the cache dir (handles archives with subdirectories) —
+    then PATH.
+
+    On Windows ``.exe`` extensions are tried automatically.
     """
+    is_win = platform.system() == "Windows"
+    cache = _llama_bin_cache()
+
     for name in _BINARY_NAMES[backend]:
-        # 1. explicit search dirs (manually-built binaries first)
-        for d in _SEARCH_PATHS:
-            candidate = d / name
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                return candidate
-        # 2. PATH lookup (system / Nix packages)
+        ext_names = [f"{name}.exe", name] if is_win else [name]
+
+        for n in ext_names:
+            # 1. Flat check in explicit search dirs
+            for d in _SEARCH_PATHS:
+                candidate = d / n
+                if candidate.is_file() and (is_win or os.access(candidate, os.X_OK)):
+                    return candidate
+
+            # 2. Recursive search inside cache dir (archives may nest)
+            if cache.exists():
+                for f in cache.rglob(n):
+                    if f.is_file() and (is_win or os.access(f, os.X_OK)):
+                        return f
+
+        # 3. PATH lookup (shutil.which handles .exe on Windows)
         found = shutil.which(name)
         if found:
             return Path(found)
+
     return None
 
 

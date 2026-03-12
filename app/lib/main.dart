@@ -113,6 +113,43 @@ class _ServerStartupGate extends ConsumerWidget {
             ),
           ),
         ),
+      // ---- llama.cpp binary downloading (automatic) ----
+      ServerStatus.downloadingLlama => Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 48),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (startup.totalBytes > 0) ...[
+                    LinearProgressIndicator(
+                      value: startup.downloadProgress,
+                      minHeight: 8,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '${_megabytes(startup.downloadedBytes)} / '
+                      '${_megabytes(startup.totalBytes)} MB',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                  ] else ...[
+                    const LinearProgressIndicator(minHeight: 8),
+                    const SizedBox(height: 16),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(
+                    'Downloading vision engine (one-time setup)…',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       // ---- Download in progress (Python or models) ----
       ServerStatus.downloading => Scaffold(
           body: Center(
