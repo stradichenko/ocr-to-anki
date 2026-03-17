@@ -142,6 +142,11 @@ class LlamaMtmdCli:
         #
         # OpenCL: needs CPU mmproj — lacks GGML_OP_POOL_2D needed
         # by Gemma 3's SigLIP vision encoder (crashes during warmup).
+        #
+        # Windows Vulkan: the SigLIP vision encoder Vulkan shaders crash
+        # during "encoding image slice" (STATUS_STACK_BUFFER_OVERRUN
+        # 0xC0000409) on many drivers.  CPU mmproj is the safe default;
+        # the LLM layers still run on GPU via -ngl.
 
         # Detect if we're using the OpenCL backend
         self._is_opencl = (
@@ -149,7 +154,15 @@ class LlamaMtmdCli:
             or (self.detection and self.detection.recommended_backend == Backend.OPENCL)
         )
 
-        self.mmproj_offload = mmproj_offload if mmproj_offload is not None else True
+        # Default mmproj offload: disabled on OpenCL (missing ops) and
+        # Windows (Vulkan vision encoder crashes).  Explicit caller
+        # override is always honoured.
+        if mmproj_offload is not None:
+            self.mmproj_offload = mmproj_offload
+        elif self._is_opencl or platform.system() == "Windows":
+            self.mmproj_offload = False
+        else:
+            self.mmproj_offload = True
 
         # Handle for the currently running subprocess so it can be killed
         # on cancellation from another thread.
