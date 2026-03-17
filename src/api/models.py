@@ -113,6 +113,7 @@ class HealthResponse(BaseModel):
     models_downloaded: bool = True
     models_dir: str = ""
     llama_binary_available: bool = True
+    gpu_mode: str = "auto"
 
 
 class ModelFileInfo(BaseModel):

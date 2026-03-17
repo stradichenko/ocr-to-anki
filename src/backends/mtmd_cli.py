@@ -80,7 +80,7 @@ class LlamaMtmdCli:
         mmproj_path: Optional[str] = None,
         binary_path: Optional[str] = None,
         backend: Optional[Backend] = None,
-        n_gpu_layers: int = -1,
+        n_gpu_layers: Optional[int] = None,
         ctx_size: int = 4096,
         threads: Optional[int] = None,
         temp: float = 0.1,
@@ -118,13 +118,15 @@ class LlamaMtmdCli:
 
         # Generation params
         #
-        # On Windows the pre-built Vulkan binary's GPU graph execution
-        # crashes (0xC0000409) on many drivers.  Default to CPU-only;
-        # users with a known-good discrete GPU can override via env /
-        # constructor arg.
-        if n_gpu_layers == -1 and platform.system() == "Windows":
-            self.n_gpu_layers = 0
-            log.info("Windows detected — defaulting to CPU-only (-ngl 0)")
+        # n_gpu_layers: None = auto (CPU on Windows, GPU elsewhere),
+        #               -1   = force all layers on GPU,
+        #                0   = force CPU-only.
+        if n_gpu_layers is None:
+            if platform.system() == "Windows":
+                self.n_gpu_layers = 0
+                log.info("Windows detected — defaulting to CPU-only (-ngl 0)")
+            else:
+                self.n_gpu_layers = -1
         else:
             self.n_gpu_layers = n_gpu_layers
         self.ctx_size = ctx_size
@@ -199,9 +201,14 @@ class LlamaMtmdCli:
         # Disable flash attention on backends / platforms where it crashes
         # during the vision encoder (SigLIP) warmup or image encoding:
         #   - OpenCL: lacks FA kernel support entirely.
-        #   - Windows Vulkan: FA crashes with STATUS_STACK_BUFFER_OVERRUN
+        #   - Windows (auto mode): FA crashes with STATUS_STACK_BUFFER_OVERRUN
         #     (0xC0000409) during "encoding image slice" on many drivers.
-        if self._is_opencl or platform.system() == "Windows":
+        #     When the user explicitly forces GPU (n_gpu_layers == -1 on
+        #     Windows), we honour that and keep FA enabled.
+        _disable_fa = self._is_opencl
+        if platform.system() == "Windows" and self.n_gpu_layers == 0:
+            _disable_fa = True
+        if _disable_fa:
             cmd.extend(["-fa", "off"])
         return cmd
 

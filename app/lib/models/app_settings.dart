@@ -32,6 +32,7 @@ class AppSettings {
     this.montageMaxWidth = 768,
     this.parallelCrops = true,
     this.preferDiscreteGpu = true,
+    this.gpuMode = 'auto',
     this.colorSchemeSeed = 'deepOrange',
     this.customColorHex = '',
   });
@@ -90,6 +91,11 @@ class AppSettings {
   /// Ask the backend to prefer a discrete GPU over an integrated one.
   bool preferDiscreteGpu;
 
+  /// GPU acceleration mode: 'auto' (platform default), 'gpu' (force all
+  /// layers on GPU), or 'cpu' (force CPU-only).  On Windows 'auto'
+  /// means CPU because the Vulkan drivers are often unstable.
+  String gpuMode;
+
   Map<String, dynamic> toJson() => {
         'themeMode': themeMode.name,
         'colorSchemeSeed': colorSchemeSeed,
@@ -121,6 +127,7 @@ class AppSettings {
         'montageMaxWidth': montageMaxWidth,
         'parallelCrops': parallelCrops,
         'preferDiscreteGpu': preferDiscreteGpu,
+        'gpuMode': gpuMode,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -166,6 +173,7 @@ class AppSettings {
       montageMaxWidth: json['montageMaxWidth'] as int? ?? 768,
       parallelCrops: json['parallelCrops'] as bool? ?? true,
       preferDiscreteGpu: json['preferDiscreteGpu'] as bool? ?? true,
+      gpuMode: json['gpuMode'] as String? ?? 'auto',
     );
   }
 }

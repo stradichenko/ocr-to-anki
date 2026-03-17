@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 
 import '../database/database.dart';
 import '../models/models.dart';
@@ -243,6 +246,34 @@ class SettingsScreen extends ConsumerWidget {
           // OCR Performance
           // ---------------------------------------------------------------
           _SectionHeader('OCR Performance'),
+          ListTile(
+            title: const Text('GPU acceleration'),
+            subtitle: Text(
+              switch (settings.gpuMode) {
+                'gpu'  => 'Force GPU — use for discrete NVIDIA / AMD GPUs.',
+                'cpu'  => 'Force CPU — slower but stable on all hardware.',
+                _      => 'Auto — GPU on Linux/macOS, CPU on Windows.',
+              },
+            ),
+            trailing: DropdownButton<String>(
+              value: settings.gpuMode,
+              items: const [
+                DropdownMenuItem(value: 'auto', child: Text('Auto')),
+                DropdownMenuItem(value: 'gpu',  child: Text('GPU')),
+                DropdownMenuItem(value: 'cpu',  child: Text('CPU')),
+              ],
+              onChanged: (v) {
+                if (v == null) return;
+                notifier.update((s) => s..gpuMode = v);
+                // Notify backend to reinit with the new GPU mode.
+                http.post(
+                  Uri.parse('${settings.serverUrl}/config/gpu'),
+                  headers: {'Content-Type': 'application/json'},
+                  body: jsonEncode({'mode': v}),
+                ).catchError((_) => http.Response('', 500));
+              },
+            ),
+          ),
           SwitchListTile(
             title: const Text('Prefer discrete GPU'),
             subtitle: const Text(

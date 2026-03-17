@@ -171,20 +171,44 @@ async def _download_llama_binary(
 _vision: Optional[LlamaMtmdCli] = None
 _text: Optional[LlamaCppServer] = None
 _detection = None
+# GPU acceleration mode: 'auto' | 'gpu' | 'cpu'
+# 'auto' = platform default (CPU on Windows, GPU elsewhere)
+# 'gpu'  = force all layers on GPU (-ngl -1)
+# 'cpu'  = force CPU-only (-ngl 0)
+_gpu_mode: str = "auto"
 # Serialize vision OCR: only one llama-mtmd-cli process at a time.
 # Running multiple simultaneously exhausts GPU VRAM and crashes on
 # Windows/iGPUs (STATUS_STACK_BUFFER_OVERRUN 0xC0000409).
 _vision_sem = asyncio.Semaphore(1)
 
 
+def _ngl_for_mode() -> Optional[int]:
+    """Return n_gpu_layers based on the current _gpu_mode."""
+    if _gpu_mode == "gpu":
+        return -1   # all layers on GPU
+    if _gpu_mode == "cpu":
+        return 0    # CPU-only
+    # 'auto' — let the backend constructor decide (CPU on Windows)
+    return None
+
+
 def _init_vision() -> Optional[LlamaMtmdCli]:
     """Try to initialise the vision backend; return None on failure."""
     try:
-        cli = LlamaMtmdCli()
+        ngl = _ngl_for_mode()
+        # In 'auto' mode the constructor defaults to 0 on Windows;
+        # in 'gpu' mode we force -1 to override that safety net.
+        force_gpu = _gpu_mode == "gpu"
+        cli = LlamaMtmdCli(
+            n_gpu_layers=ngl,
+            mmproj_offload=True if force_gpu else None,
+        )
         log.info(
-            "Vision backend ready: %s (%s)",
+            "Vision backend ready: %s (%s) ngl=%s mode=%s",
             cli.detection.recommended_backend.value if cli.detection else "manual",
             cli.binary_path,
+            cli.n_gpu_layers,
+            _gpu_mode,
         )
         return cli
     except Exception as e:
@@ -195,11 +219,10 @@ def _init_vision() -> Optional[LlamaMtmdCli]:
 def _init_text() -> Optional[LlamaCppServer]:
     """Try to initialise the text backend; return None on failure."""
     try:
-        # Context window: prompt (~100 tok) + output (2 × 150 = 300 tok) ≈ 400.
-        # 1024 leaves plenty of room and keeps KV cache small for the iGPU.
-        server = LlamaCppServer(context_size=1024)
-        # Don't auto-start here; start lazily on first request
-        log.info("Text backend configured: %s", server.model_path.name)
+        ngl = _ngl_for_mode()
+        server = LlamaCppServer(context_size=1024, n_gpu_layers=ngl)
+        log.info("Text backend configured: %s (ngl=%s mode=%s)",
+                 server.model_path.name, ngl, _gpu_mode)
         return server
     except Exception as e:
         log.warning("Text backend unavailable: %s", e)
@@ -277,6 +300,7 @@ async def health():
         models_downloaded=all_present,
         models_dir=str(mdir),
         llama_binary_available=_has_any_llama_binary(),
+        gpu_mode=_gpu_mode,
     )
 
 
@@ -374,6 +398,43 @@ async def models_reinit():
     text_ok = _text is not None
     vision_ok = _vision is not None
     return {
+        "status": "ok" if (text_ok or vision_ok) else "degraded",
+        "vision_available": vision_ok,
+        "text_available": text_ok,
+    }
+
+
+@app.post("/config/gpu", tags=["system"])
+async def config_gpu(body: dict):
+    """Set the GPU acceleration mode and reinitialise backends.
+
+    Body: ``{"mode": "auto" | "gpu" | "cpu"}``
+
+    * **auto** — platform default (CPU on Windows, GPU on Linux/macOS).
+    * **gpu**  — force all layers on GPU (overrides Windows safety net).
+    * **cpu**  — force CPU-only inference on all platforms.
+    """
+    global _gpu_mode, _vision, _text, _detection
+
+    mode = body.get("mode", "auto")
+    if mode not in ("auto", "gpu", "cpu"):
+        raise HTTPException(400, f"Invalid GPU mode: {mode!r}")
+
+    old = _gpu_mode
+    _gpu_mode = mode
+    log.info("GPU mode changed: %s -> %s", old, mode)
+
+    # Reinitialise backends with new GPU settings.
+    if _text is not None:
+        _text.stop()
+    _detection = detect()
+    _vision = _init_vision()
+    _text = _init_text()
+
+    text_ok = _text is not None
+    vision_ok = _vision is not None
+    return {
+        "gpu_mode": _gpu_mode,
         "status": "ok" if (text_ok or vision_ok) else "degraded",
         "vision_available": vision_ok,
         "text_available": text_ok,

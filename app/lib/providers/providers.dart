@@ -225,6 +225,12 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
       await server.start(timeout: const Duration(seconds: 120));
       if (_disposed) return;
 
+      // Send the user's GPU mode preference to the backend so it can
+      // initialise with the right n_gpu_layers before we check binaries
+      // or download models.
+      await _syncGpuMode(server.url);
+      if (_disposed) return;
+
       // Ensure llama.cpp vision binary is available (auto-download if missing).
       final llamaOk = await _checkLlamaBinary(server.url);
       if (_disposed) return;
@@ -394,6 +400,23 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
 
     // Reinitialise backends now that files are on disk.
     await _reinitBackends(baseUrl);
+  }
+
+  /// Send the user's GPU mode preference to the backend.
+  Future<void> _syncGpuMode(String baseUrl) async {
+    try {
+      final settings = ref.read(settingsProvider);
+      await http
+          .post(
+            Uri.parse('$baseUrl/config/gpu'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'mode': settings.gpuMode}),
+          )
+          .timeout(const Duration(seconds: 30));
+    } catch (e) {
+      // Non-fatal — backend will use its platform defaults.
+      debugPrint('Failed to sync GPU mode: $e');
+    }
   }
 
   /// Allow retry from the error screen.
