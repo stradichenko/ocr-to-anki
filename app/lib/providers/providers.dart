@@ -1091,12 +1091,16 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           );
 
           try {
-            final futures = cropsToSend.map((crop) async {
+            // Process crops sequentially — llama-mtmd-cli loads the full
+            // model into GPU VRAM each call, so running multiple in
+            // parallel crashes on Windows/iGPUs (0xC0000409).
+            final results = <VisionOcrResult>[];
+            for (final crop in cropsToSend) {
+              _checkCancelled();
               final result = await inference.visionOcr(imageBytes: crop);
               completed++;
-              return result;
-            });
-            final results = await Future.wait(futures);
+              results.add(result);
+            }
             ocrStopwatch.stop();
             _heartbeat?.cancel();
             _heartbeat = null;

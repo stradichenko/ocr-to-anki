@@ -171,6 +171,10 @@ async def _download_llama_binary(
 _vision: Optional[LlamaMtmdCli] = None
 _text: Optional[LlamaCppServer] = None
 _detection = None
+# Serialize vision OCR: only one llama-mtmd-cli process at a time.
+# Running multiple simultaneously exhausts GPU VRAM and crashes on
+# Windows/iGPUs (STATUS_STACK_BUFFER_OVERRUN 0xC0000409).
+_vision_sem = asyncio.Semaphore(1)
 
 
 def _init_vision() -> Optional[LlamaMtmdCli]:
@@ -528,35 +532,37 @@ async def ocr_vision(req: VisionOCRRequest):
     if req.max_image_dim > 0:
         raw = await asyncio.to_thread(_downscale_image, raw, req.max_image_dim)
 
-    # Free the GPU -- stop text server if it's occupying the iGPU.
-    await asyncio.to_thread(_pause_text_server)
+    # Serialize: only one vision subprocess at a time (GPU VRAM).
+    async with _vision_sem:
+        # Free the GPU -- stop text server if it's occupying the iGPU.
+        await asyncio.to_thread(_pause_text_server)
 
-    # delete=False + manual cleanup: on Windows the subprocess cannot
-    # open a NamedTemporaryFile that is still held open by Python.
-    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-    tmp_path = tmp.name
-    try:
-        tmp.write(raw)
-        tmp.flush()
-        tmp.close()
+        # delete=False + manual cleanup: on Windows the subprocess cannot
+        # open a NamedTemporaryFile that is still held open by Python.
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        tmp_path = tmp.name
+        try:
+            tmp.write(raw)
+            tmp.flush()
+            tmp.close()
 
-        try:
-            result = await asyncio.to_thread(
-                _vision.run_vision,
-                image_path=tmp_path,
-                prompt=req.prompt,
-                timeout=req.timeout,
-            )
-        except TimeoutError:
-            raise HTTPException(504, f"Vision OCR timed out after {req.timeout}s")
-        except Exception as e:
-            log.exception("Vision OCR failed")
-            raise HTTPException(500, str(e))
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+            try:
+                result = await asyncio.to_thread(
+                    _vision.run_vision,
+                    image_path=tmp_path,
+                    prompt=req.prompt,
+                    timeout=req.timeout,
+                )
+            except TimeoutError:
+                raise HTTPException(504, f"Vision OCR timed out after {req.timeout}s")
+            except Exception as e:
+                log.exception("Vision OCR failed")
+                raise HTTPException(500, str(e))
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
     return VisionOCRResponse(
         text=result["text"],
@@ -601,33 +607,35 @@ async def ocr_vision_upload(
     if max_image_dim > 0:
         raw = await asyncio.to_thread(_downscale_image, raw, max_image_dim)
 
-    # Free the GPU -- stop text server if it's occupying the iGPU.
-    await asyncio.to_thread(_pause_text_server)
+    # Serialize: only one vision subprocess at a time (GPU VRAM).
+    async with _vision_sem:
+        # Free the GPU -- stop text server if it's occupying the iGPU.
+        await asyncio.to_thread(_pause_text_server)
 
-    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-    tmp_path = tmp.name
-    try:
-        tmp.write(raw)
-        tmp.flush()
-        tmp.close()
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        tmp_path = tmp.name
+        try:
+            tmp.write(raw)
+            tmp.flush()
+            tmp.close()
 
-        try:
-            result = await asyncio.to_thread(
-                _vision.run_vision,
-                image_path=tmp_path,
-                prompt=prompt,
-                timeout=timeout,
-            )
-        except TimeoutError:
-            raise HTTPException(504, f"Vision OCR timed out after {timeout}s")
-        except Exception as e:
-            log.exception("Vision OCR failed")
-            raise HTTPException(500, str(e))
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+            try:
+                result = await asyncio.to_thread(
+                    _vision.run_vision,
+                    image_path=tmp_path,
+                    prompt=prompt,
+                    timeout=timeout,
+                )
+            except TimeoutError:
+                raise HTTPException(504, f"Vision OCR timed out after {timeout}s")
+            except Exception as e:
+                log.exception("Vision OCR failed")
+                raise HTTPException(500, str(e))
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
     return VisionOCRResponse(
         text=result["text"],
@@ -1053,23 +1061,25 @@ async def pipeline_image_to_cards(
     # Downscale large images to reduce vision tokens.
     raw = await asyncio.to_thread(_downscale_image, raw, 768)
 
-    # Free the GPU -- stop text server if it's occupying the iGPU.
-    await asyncio.to_thread(_pause_text_server)
+    # Serialize: only one vision subprocess at a time (GPU VRAM).
+    async with _vision_sem:
+        # Free the GPU -- stop text server if it's occupying the iGPU.
+        await asyncio.to_thread(_pause_text_server)
 
-    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-    tmp_path = tmp.name
-    try:
-        tmp.write(raw)
-        tmp.flush()
-        tmp.close()
-        ocr_result = await asyncio.to_thread(
-            _vision.run_vision, tmp_path, prompt=ocr_prompt, timeout=2700,
-        )
-    finally:
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        tmp_path = tmp.name
         try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+            tmp.write(raw)
+            tmp.flush()
+            tmp.close()
+            ocr_result = await asyncio.to_thread(
+                _vision.run_vision, tmp_path, prompt=ocr_prompt, timeout=2700,
+            )
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
     ocr_text = ocr_result["text"]
 
