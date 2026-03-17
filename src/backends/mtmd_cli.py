@@ -117,7 +117,16 @@ class LlamaMtmdCli:
             self.binary_path = Path(self.detection.binary_path)
 
         # Generation params
-        self.n_gpu_layers = n_gpu_layers
+        #
+        # On Windows the pre-built Vulkan binary's GPU graph execution
+        # crashes (0xC0000409) on many drivers.  Default to CPU-only;
+        # users with a known-good discrete GPU can override via env /
+        # constructor arg.
+        if n_gpu_layers == -1 and platform.system() == "Windows":
+            self.n_gpu_layers = 0
+            log.info("Windows detected — defaulting to CPU-only (-ngl 0)")
+        else:
+            self.n_gpu_layers = n_gpu_layers
         self.ctx_size = ctx_size
         self.threads = threads or max(1, (os.cpu_count() or 4) // 2)
         self.temp = temp

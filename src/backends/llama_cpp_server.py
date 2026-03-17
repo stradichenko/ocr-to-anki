@@ -102,7 +102,13 @@ class LlamaCppServer:
         self.host = host
         self.port = port
         self.context_size = context_size
-        self.n_gpu_layers = n_gpu_layers
+        # On Windows the pre-built Vulkan binary's GPU graph execution
+        # crashes (0xC0000409) on many drivers.  Default to CPU-only.
+        if n_gpu_layers == -1 and platform.system() == "Windows":
+            self.n_gpu_layers = 0
+            log.info("Windows detected — defaulting to CPU-only (-ngl 0)")
+        else:
+            self.n_gpu_layers = n_gpu_layers
         self.threads = threads or max(1, (os.cpu_count() or 4) // 2)
         self.verbose = verbose
         self.process: Optional[subprocess.Popen] = None
