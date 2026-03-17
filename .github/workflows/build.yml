@@ -68,12 +68,31 @@ jobs:
           cp scripts/setup-llama-cpp.sh "output/release/$ARCHIVE/scripts/"
           chmod +x "output/release/$ARCHIVE/scripts/setup-llama-cpp.sh"
 
-          # Launcher script
-          printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' \
-            'DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"' \
-            'export OCR_TO_ANKI_ROOT="$DIR/backend"' \
-            'exec "$DIR/ocr_to_anki" "$@"' \
-            > "output/release/$ARCHIVE/run.sh"
+          # NixOS runtime support
+          cp nix/nixos-support.nix "output/release/$ARCHIVE/nixos-support.nix"
+
+          # Launcher script (auto-detects NixOS)
+          cat > "output/release/$ARCHIVE/run.sh" << 'RUNEOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          export OCR_TO_ANKI_ROOT="$DIR/backend"
+
+          # NixOS: shared libraries live in the Nix store, not /usr/lib
+          if [ -f /etc/NIXOS ] && [ -z "${_OCR_NIXOS:-}" ]; then
+              if [ ! -f "$DIR/nixos-support.nix" ]; then
+                  echo "Error: NixOS detected but nixos-support.nix is missing."
+                  echo "Run from source instead:  nix develop .#flutter"
+                  exit 1
+              fi
+              echo "NixOS detected — entering Nix environment…"
+              export _OCR_NIXOS=1
+              export OCR_TO_ANKI_BIN="$DIR/ocr_to_anki"
+              exec nix-shell "$DIR/nixos-support.nix" --run "$DIR/ocr_to_anki"
+          fi
+
+          exec "$DIR/ocr_to_anki" "$@"
+          RUNEOF
           chmod +x "output/release/$ARCHIVE/run.sh"
 
           cd output/release
