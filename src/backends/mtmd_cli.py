@@ -9,6 +9,7 @@ For text-only tasks, use LlamaCppServer (llama_cpp_server.py) instead.
 """
 
 import os
+import platform
 import subprocess
 import logging
 import time
@@ -173,9 +174,12 @@ class LlamaMtmdCli:
         ]
         if not self.mmproj_offload:
             cmd.append("--no-mmproj-offload")
-        # OpenCL does not support flash attention; the binary crashes during
-        # warmup if it tries to use the FA kernels.
-        if self._is_opencl:
+        # Disable flash attention on backends / platforms where it crashes
+        # during the vision encoder (SigLIP) warmup or image encoding:
+        #   - OpenCL: lacks FA kernel support entirely.
+        #   - Windows Vulkan: FA crashes with STATUS_STACK_BUFFER_OVERRUN
+        #     (0xC0000409) during "encoding image slice" on many drivers.
+        if self._is_opencl or platform.system() == "Windows":
             cmd.extend(["-fa", "off"])
         return cmd
 

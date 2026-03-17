@@ -1059,7 +1059,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           _checkCancelled();
           final n = imagesToProcess.length;
           _log(
-            'Processing $n crops in parallel...',
+            'Processing $n crops sequentially...',
             phase: ProcessingPhase.ocr,
             progress: imgProgress + 0.02,
           );
