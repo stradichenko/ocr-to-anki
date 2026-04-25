@@ -116,6 +116,15 @@ class HealthResponse(BaseModel):
     gpu_mode: str = "auto"
 
 
+class PipelineImageToCardsResponse(BaseModel):
+    ocr_text: str
+    ocr_backend: str = ""
+    ocr_elapsed_s: float = 0.0
+    cards: list[EnrichWordResult]
+    total_elapsed_s: float
+    message: str = ""
+
+
 class ModelFileInfo(BaseModel):
     name: str
     size_bytes: int = 0
