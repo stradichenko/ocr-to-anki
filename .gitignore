@@ -112,3 +112,7 @@ result-*
 # Build artifacts
 .build/
 data/ollama_ocr_results/
+
+# Claude Code
+CLAUDE.md
+claude.md
