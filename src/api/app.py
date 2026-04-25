@@ -40,15 +40,15 @@ from api.models import (
     HealthResponse,
     ModelFileInfo,
     ModelStatusResponse,
+    PipelineImageToCardsResponse,
     VisionOCRRequest,
     VisionOCRResponse,
 )
-from backends.auto_detect import detect, Backend, _find_binary, _llama_bin_cache
+from backends.auto_detect import detect, Backend, find_binary, llama_bin_cache
 from backends.mtmd_cli import LlamaMtmdCli
 from backends.llama_cpp_server import LlamaCppServer
 
 log = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(message)s")
 
 # -------------------------------------------------------------------
 # Model constants (must match scripts/setup-llama-cpp.sh)
@@ -98,7 +98,7 @@ def _llama_asset_url() -> str:
 def _has_any_llama_binary() -> bool:
     """Return True if any llama-mtmd-cli binary is already available."""
     for backend in Backend:
-        if _find_binary(backend):
+        if find_binary(backend):
             return True
     return False
 
@@ -115,7 +115,7 @@ async def _download_llama_binary(
     """
     import httpx
 
-    bin_dir = _llama_bin_cache()
+    bin_dir = llama_bin_cache()
     bin_dir.mkdir(parents=True, exist_ok=True)
 
     url = _llama_asset_url()
@@ -181,6 +181,10 @@ _gpu_mode: str = "auto"
 # Windows/iGPUs (STATUS_STACK_BUFFER_OVERRUN 0xC0000409).
 _vision_sem = asyncio.Semaphore(1)
 
+# Enrichment batching defaults
+DEFAULT_ENRICH_BATCH_SIZE = 2
+DEFAULT_ENRICH_TOKENS_PER_WORD = 150
+
 
 def _ngl_for_mode() -> Optional[int]:
     """Return n_gpu_layers based on the current _gpu_mode."""
@@ -229,16 +233,37 @@ def _init_text() -> Optional[LlamaCppServer]:
         return None
 
 
+async def _reinit_backends() -> dict:
+    """Stop text server, re-detect hardware, and re-init vision + text backends.
+
+    Returns a dict with status keys for use by endpoints.
+    """
+    global _vision, _text, _detection
+
+    if _text is not None:
+        _text.stop()
+    _detection = detect()
+    _vision = _init_vision()
+    _text = _init_text()
+
+    text_ok = _text is not None
+    vision_ok = _vision is not None
+    return {
+        "status": "ok" if (text_ok or vision_ok) else "degraded",
+        "vision_available": vision_ok,
+        "text_available": text_ok,
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown hooks."""
     global _vision, _text, _detection
 
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(message)s")
     log.info("Starting OCR-to-Anki API...")
 
-    _detection = detect()
-    _vision = _init_vision()
-    _text = _init_text()
+    await _reinit_backends()
 
     yield
 
@@ -387,21 +412,7 @@ async def models_download():
 @app.post("/models/reinit", tags=["models"])
 async def models_reinit():
     """Re-initialise vision and text backends after model download."""
-    global _vision, _text, _detection
-
-    if _text is not None:
-        _text.stop()
-    _detection = detect()
-    _vision = _init_vision()
-    _text = _init_text()
-
-    text_ok = _text is not None
-    vision_ok = _vision is not None
-    return {
-        "status": "ok" if (text_ok or vision_ok) else "degraded",
-        "vision_available": vision_ok,
-        "text_available": text_ok,
-    }
+    return await _reinit_backends()
 
 
 @app.post("/config/gpu", tags=["system"])
@@ -425,20 +436,9 @@ async def config_gpu(body: dict):
     log.info("GPU mode changed: %s -> %s", old, mode)
 
     # Reinitialise backends with new GPU settings.
-    if _text is not None:
-        _text.stop()
-    _detection = detect()
-    _vision = _init_vision()
-    _text = _init_text()
-
-    text_ok = _text is not None
-    vision_ok = _vision is not None
-    return {
-        "gpu_mode": _gpu_mode,
-        "status": "ok" if (text_ok or vision_ok) else "degraded",
-        "vision_available": vision_ok,
-        "text_available": text_ok,
-    }
+    result = await _reinit_backends()
+    result["gpu_mode"] = _gpu_mode
+    return result
 
 
 # -------------------------------------------------------------------
@@ -449,7 +449,7 @@ async def config_gpu(body: dict):
 async def llama_status():
     """Check if llama.cpp binaries are available."""
     available = _has_any_llama_binary()
-    bin_dir = str(_llama_bin_cache())
+    bin_dir = str(llama_bin_cache())
     return {"available": available, "bin_dir": bin_dir}
 
 
@@ -470,31 +470,37 @@ async def llama_download():
 
         return StreamingResponse(_already(), media_type="text/event-stream")
 
-    async def _stream():
-        import json as _json
-        downloaded_bytes = 0
-        total_bytes = 0
+    async def _download_llama_binary_queue(progress_queue: asyncio.Queue) -> None:
+        """Wrap _download_llama_binary and feed progress into an asyncio.Queue."""
 
         def _on_progress(d: int, t: int):
-            nonlocal downloaded_bytes, total_bytes
-            downloaded_bytes = d
-            total_bytes = t
+            progress_queue.put_nowait((d, t))
 
         try:
-            # Run download in background; emit progress at intervals
-            import asyncio as _aio
-            task = _aio.create_task(_download_llama_binary(on_progress=_on_progress))
+            await _download_llama_binary(on_progress=_on_progress)
+            progress_queue.put_nowait(None)
+        except Exception:
+            progress_queue.put_nowait(None)
+            raise
 
-            while not task.done():
+    async def _stream():
+        import json as _json
+
+        queue: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(_download_llama_binary_queue(queue))
+
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                downloaded_bytes, total_bytes = item
                 yield f"data: {_json.dumps({'file': 'llama.cpp', 'downloaded': downloaded_bytes, 'total': total_bytes, 'done': False, 'error': None})}\n\n"
-                await _aio.sleep(0.3)
 
-            # Ensure task errors propagate
             await task
-
-            yield f"data: {_json.dumps({'file': 'llama.cpp', 'downloaded': downloaded_bytes, 'total': total_bytes, 'done': True, 'error': None})}\n\n"
+            yield f"data: {_json.dumps({'file': 'llama.cpp', 'downloaded': 0, 'total': 0, 'done': True, 'error': None})}\n\n"
         except Exception as exc:
-            yield f"data: {_json.dumps({'file': 'llama.cpp', 'downloaded': downloaded_bytes, 'total': total_bytes, 'done': True, 'error': str(exc)})}\n\n"
+            yield f"data: {_json.dumps({'file': 'llama.cpp', 'downloaded': 0, 'total': 0, 'done': True, 'error': str(exc)})}\n\n"
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
 
@@ -570,28 +576,27 @@ def _downscale_image(raw: bytes, max_dim: int = 768) -> bytes:
 # Vision OCR
 # -------------------------------------------------------------------
 
-@app.post("/ocr/vision", response_model=VisionOCRResponse, tags=["ocr"])
-async def ocr_vision(req: VisionOCRRequest):
-    """
-    Run vision OCR on a base64-encoded image.
+async def _run_vision_ocr(
+    raw_image_bytes: bytes,
+    prompt: str,
+    timeout: int,
+    suffix: str = ".jpg",
+    max_image_dim: int = 0,
+) -> VisionOCRResponse:
+    """Shared helper: downscale, hash, serialize, pause text server, run vision OCR.
 
-    The image is decoded, written to a temp file, and passed to
-    llama-mtmd-cli with the chosen GPU backend.
+    Raises HTTPException on invalid input, timeout, or backend failure.
     """
     if _vision is None:
         raise HTTPException(503, "Vision backend not available")
 
-    # Decode image to temp file
-    try:
-        raw = base64.b64decode(req.image_base64)
-    except Exception:
-        raise HTTPException(400, "Invalid base64 image data")
-
-    img_hash = hashlib.md5(raw).hexdigest()[:12]
+    img_hash = hashlib.md5(raw_image_bytes).hexdigest()[:12]
 
     # Downscale large images to reduce vision tokens (fewer SigLIP tiles).
-    if req.max_image_dim > 0:
-        raw = await asyncio.to_thread(_downscale_image, raw, req.max_image_dim)
+    if max_image_dim > 0:
+        raw_image_bytes = await asyncio.to_thread(
+            _downscale_image, raw_image_bytes, max_image_dim
+        )
 
     # Serialize: only one vision subprocess at a time (GPU VRAM).
     async with _vision_sem:
@@ -600,83 +605,10 @@ async def ocr_vision(req: VisionOCRRequest):
 
         # delete=False + manual cleanup: on Windows the subprocess cannot
         # open a NamedTemporaryFile that is still held open by Python.
-        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-        tmp_path = tmp.name
-        try:
-            tmp.write(raw)
-            tmp.flush()
-            tmp.close()
-
-            try:
-                result = await asyncio.to_thread(
-                    _vision.run_vision,
-                    image_path=tmp_path,
-                    prompt=req.prompt,
-                    timeout=req.timeout,
-                )
-            except TimeoutError:
-                raise HTTPException(504, f"Vision OCR timed out after {req.timeout}s")
-            except Exception as e:
-                log.exception("Vision OCR failed")
-                raise HTTPException(500, str(e))
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    return VisionOCRResponse(
-        text=result["text"],
-        elapsed_s=result["elapsed_s"],
-        backend=result["backend"],
-        image_hash=img_hash,
-    )
-
-
-@app.post("/ocr/cancel", tags=["ocr"])
-async def ocr_cancel():
-    """Cancel any running vision OCR subprocess."""
-    if _vision is not None:
-        await asyncio.to_thread(_vision.cancel)
-        return {"status": "cancelled"}
-    return {"status": "no_vision_backend"}
-
-
-@app.post("/ocr/vision/upload", response_model=VisionOCRResponse, tags=["ocr"])
-async def ocr_vision_upload(
-    file: UploadFile = File(...),
-    prompt: str = Form(
-        default="Extract all visible text from this image. List each word or phrase you can read."
-    ),
-    timeout: int = Form(default=2700),
-    max_image_dim: int = Form(default=768),
-):
-    """
-    Run vision OCR on an uploaded image file.
-    """
-    if _vision is None:
-        raise HTTPException(503, "Vision backend not available")
-
-    raw = await file.read()
-    if not raw:
-        raise HTTPException(400, "Empty file")
-
-    img_hash = hashlib.md5(raw).hexdigest()[:12]
-    suffix = Path(file.filename).suffix if file.filename else ".jpg"
-
-    # Downscale large images to reduce vision tokens.
-    if max_image_dim > 0:
-        raw = await asyncio.to_thread(_downscale_image, raw, max_image_dim)
-
-    # Serialize: only one vision subprocess at a time (GPU VRAM).
-    async with _vision_sem:
-        # Free the GPU -- stop text server if it's occupying the iGPU.
-        await asyncio.to_thread(_pause_text_server)
-
         tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
         tmp_path = tmp.name
         try:
-            tmp.write(raw)
+            tmp.write(raw_image_bytes)
             tmp.flush()
             tmp.close()
 
@@ -703,6 +635,64 @@ async def ocr_vision_upload(
         elapsed_s=result["elapsed_s"],
         backend=result["backend"],
         image_hash=img_hash,
+    )
+
+
+@app.post("/ocr/vision", response_model=VisionOCRResponse, tags=["ocr"])
+async def ocr_vision(req: VisionOCRRequest):
+    """
+    Run vision OCR on a base64-encoded image.
+
+    The image is decoded, written to a temp file, and passed to
+    llama-mtmd-cli with the chosen GPU backend.
+    """
+    try:
+        raw = base64.b64decode(req.image_base64)
+    except Exception:
+        raise HTTPException(400, "Invalid base64 image data")
+
+    return await _run_vision_ocr(
+        raw_image_bytes=raw,
+        prompt=req.prompt,
+        timeout=req.timeout,
+        suffix=".jpg",
+        max_image_dim=req.max_image_dim,
+    )
+
+
+@app.post("/ocr/cancel", tags=["ocr"])
+async def ocr_cancel():
+    """Cancel any running vision OCR subprocess."""
+    if _vision is not None:
+        await asyncio.to_thread(_vision.cancel)
+        return {"status": "cancelled"}
+    return {"status": "no_vision_backend"}
+
+
+@app.post("/ocr/vision/upload", response_model=VisionOCRResponse, tags=["ocr"])
+async def ocr_vision_upload(
+    file: UploadFile = File(...),
+    prompt: str = Form(
+        default="Extract all visible text from this image. List each word or phrase you can read."
+    ),
+    timeout: int = Form(default=2700),
+    max_image_dim: int = Form(default=768),
+):
+    """
+    Run vision OCR on an uploaded image file.
+    """
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Empty file")
+
+    suffix = Path(file.filename).suffix if file.filename else ".jpg"
+
+    return await _run_vision_ocr(
+        raw_image_bytes=raw,
+        prompt=prompt,
+        timeout=timeout,
+        suffix=suffix,
+        max_image_dim=max_image_dim,
     )
 
 
@@ -950,14 +940,9 @@ async def enrich(req: EnrichRequest):
     t0 = time.monotonic()
     all_parsed: list[dict] = []
 
-    BATCH_SIZE = 2  # small batches — 2 words × 150 tok ≈ 300 output, fits 1024
-    # Token budget per word: definitions (1-2 sentences) + 2 example sentences
-    # typically need 90-120 tokens each.  The old budget of 60 caused
-    # truncation and lost words when the response was cut mid-batch.
-    TOKENS_PER_WORD = 150
     batches = [
-        sanitized[i : i + BATCH_SIZE]
-        for i in range(0, len(sanitized), BATCH_SIZE)
+        sanitized[i : i + DEFAULT_ENRICH_BATCH_SIZE]
+        for i in range(0, len(sanitized), DEFAULT_ENRICH_BATCH_SIZE)
     ]
 
     for batch_idx, batch in enumerate(batches, 1):
@@ -971,7 +956,7 @@ async def enrich(req: EnrichRequest):
         system = _build_enrich_system(
             req.definition_language, req.examples_language, req.term_language,
         )
-        max_tok = TOKENS_PER_WORD * len(batch)
+        max_tok = DEFAULT_ENRICH_TOKENS_PER_WORD * len(batch)
         # Timeout: iGPU needs ~200s prompt eval + ~200s/word generation.
         # First batch may also include server restart overhead (~90s).
         batch_timeout = 900
@@ -1044,7 +1029,7 @@ async def enrich(req: EnrichRequest):
                     _text.generate,
                     prompt=prompt,
                     system=system,
-                    max_tokens=TOKENS_PER_WORD * len(rb),
+                    max_tokens=DEFAULT_ENRICH_TOKENS_PER_WORD * len(rb),
                     temperature=req.temperature,
                     timeout=batch_timeout,
                 )
@@ -1093,7 +1078,7 @@ async def enrich(req: EnrichRequest):
 # Pipeline: image → OCR → enrich → Anki-ready cards
 # -------------------------------------------------------------------
 
-@app.post("/pipeline/image-to-cards", tags=["pipeline"])
+@app.post("/pipeline/image-to-cards", response_model=PipelineImageToCardsResponse, tags=["pipeline"])
 async def pipeline_image_to_cards(
     file: UploadFile = File(...),
     definition_language: str = Form(default="english"),
@@ -1107,9 +1092,6 @@ async def pipeline_image_to_cards(
     Full pipeline: Upload an image → extract text via vision OCR →
     enrich each word with definitions and examples → return Anki-ready cards.
     """
-    if _vision is None:
-        raise HTTPException(503, "Vision backend not available")
-
     t0 = time.monotonic()
 
     # Step 1: Vision OCR
@@ -1119,55 +1101,44 @@ async def pipeline_image_to_cards(
 
     suffix = Path(file.filename).suffix if file.filename else ".jpg"
 
-    # Downscale large images to reduce vision tokens.
-    raw = await asyncio.to_thread(_downscale_image, raw, 768)
+    ocr_resp = await _run_vision_ocr(
+        raw_image_bytes=raw,
+        prompt=ocr_prompt,
+        timeout=2700,
+        suffix=suffix,
+        max_image_dim=768,
+    )
 
-    # Serialize: only one vision subprocess at a time (GPU VRAM).
-    async with _vision_sem:
-        # Free the GPU -- stop text server if it's occupying the iGPU.
-        await asyncio.to_thread(_pause_text_server)
-
-        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-        tmp_path = tmp.name
-        try:
-            tmp.write(raw)
-            tmp.flush()
-            tmp.close()
-            ocr_result = await asyncio.to_thread(
-                _vision.run_vision, tmp_path, prompt=ocr_prompt, timeout=2700,
-            )
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    ocr_text = ocr_result["text"]
+    ocr_text = ocr_resp.text
 
     # Step 2: Parse words from OCR output
     words = [w.strip().strip("-•·") for w in ocr_text.splitlines() if w.strip()]
     words = [w for w in words if len(w) > 1]  # filter noise
 
     if not words:
-        return {
-            "ocr_text": ocr_text,
-            "cards": [],
-            "elapsed_s": round(time.monotonic() - t0, 2),
-            "message": "No words extracted from image",
-        }
+        return PipelineImageToCardsResponse(
+            ocr_text=ocr_text,
+            ocr_backend=ocr_resp.backend,
+            ocr_elapsed_s=ocr_resp.elapsed_s,
+            cards=[],
+            total_elapsed_s=round(time.monotonic() - t0, 2),
+            message="No words extracted from image",
+        )
 
     # Step 3: Enrich (skip if text server unavailable)
-    cards = []
+    cards: list[dict] = []
     capped = words[:20]
     if _text is not None and capped:
         _ensure_text_server()
-        BATCH_SIZE = 3  # small batches to fit in 1024 context window
-        batches = [capped[i : i + BATCH_SIZE] for i in range(0, len(capped), BATCH_SIZE)]
+        batches = [
+            capped[i : i + DEFAULT_ENRICH_BATCH_SIZE]
+            for i in range(0, len(capped), DEFAULT_ENRICH_BATCH_SIZE)
+        ]
         try:
             for batch in batches:
                 prompt = _build_enrich_prompt(batch, definition_language, examples_language, term_language)
                 sys_prompt = _build_enrich_system(definition_language, examples_language, term_language)
-                max_tok = 60 * len(batch)
+                max_tok = DEFAULT_ENRICH_TOKENS_PER_WORD * len(batch)
                 result = await asyncio.to_thread(
                     _text.generate,
                     prompt=prompt,
@@ -1189,10 +1160,21 @@ async def pipeline_image_to_cards(
 
     elapsed = round(time.monotonic() - t0, 2)
 
-    return {
-        "ocr_text": ocr_text,
-        "ocr_backend": ocr_result["backend"],
-        "ocr_elapsed_s": ocr_result["elapsed_s"],
-        "cards": cards,
-        "total_elapsed_s": elapsed,
-    }
+    results = [
+        EnrichWordResult(
+            word=c["word"],
+            definition=c.get("definition", ""),
+            examples=c.get("examples", ""),
+            warning=c.get("warning", ""),
+            corrected_word=c.get("corrected_word", ""),
+        )
+        for c in cards
+    ]
+
+    return PipelineImageToCardsResponse(
+        ocr_text=ocr_text,
+        ocr_backend=ocr_resp.backend,
+        ocr_elapsed_s=ocr_resp.elapsed_s,
+        cards=results,
+        total_elapsed_s=elapsed,
+    )
