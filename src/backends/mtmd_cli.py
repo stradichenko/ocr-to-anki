@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from backends.auto_detect import detect, Backend, DetectionResult, _opencl_env
+from backends.auto_detect import detect, Backend, DetectionResult, opencl_env
 
 log = logging.getLogger(__name__)
 
@@ -244,7 +244,7 @@ class LlamaMtmdCli:
         )
 
         # Set up environment (OpenCL needs OCL_ICD_VENDORS)
-        env = _opencl_env() if self._is_opencl else None
+        env = opencl_env() if self._is_opencl else None
 
         t0 = time.monotonic()
         proc = subprocess.Popen(
