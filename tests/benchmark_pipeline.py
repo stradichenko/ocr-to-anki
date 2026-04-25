@@ -14,7 +14,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, line_buffering=True)
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, line_buffering=True)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from backends.auto_detect import detect, _opencl_env, _find_binary, Backend
+from backends.auto_detect import detect, opencl_env, find_binary, Backend
 
 MODELS_DIR = Path(os.getenv("LLAMA_CPP_MODELS", Path.home() / ".cache" / "llama.cpp" / "models"))
 MODEL  = MODELS_DIR / "gemma-3-4b-it-q4_0_s.gguf"
@@ -101,8 +101,8 @@ def main():
     print(f"  avg={sum(times)/len(times)*1000:.0f}ms  best={min(times)*1000:.0f}ms")
     print(f"  → {det.recommended_backend.value}: {det.binary_path}")
 
-    ocl = _find_binary(Backend.OPENCL)
-    env = _opencl_env()
+    ocl = find_binary(Backend.OPENCL)
+    env = opencl_env()
     if not ocl:
         print("  [ERR] No OpenCL binary"); return
 

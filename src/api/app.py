@@ -43,7 +43,7 @@ from api.models import (
     VisionOCRRequest,
     VisionOCRResponse,
 )
-from backends.auto_detect import detect, Backend, _find_binary, _llama_bin_cache
+from backends.auto_detect import detect, Backend, find_binary, llama_bin_cache
 from backends.mtmd_cli import LlamaMtmdCli
 from backends.llama_cpp_server import LlamaCppServer
 
@@ -98,7 +98,7 @@ def _llama_asset_url() -> str:
 def _has_any_llama_binary() -> bool:
     """Return True if any llama-mtmd-cli binary is already available."""
     for backend in Backend:
-        if _find_binary(backend):
+        if find_binary(backend):
             return True
     return False
 
@@ -115,7 +115,7 @@ async def _download_llama_binary(
     """
     import httpx
 
-    bin_dir = _llama_bin_cache()
+    bin_dir = llama_bin_cache()
     bin_dir.mkdir(parents=True, exist_ok=True)
 
     url = _llama_asset_url()

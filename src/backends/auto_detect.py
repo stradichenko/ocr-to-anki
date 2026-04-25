@@ -5,6 +5,7 @@ Probes the system for available GPU backends (Vulkan, CUDA, SYCL, Metal)
 and selects the best llama-mtmd-cli binary accordingly.
 """
 
+import functools
 import os
 import re
 import shutil
@@ -90,7 +91,7 @@ class DetectionResult:
 # -------------------------------------------------------------------
 
 
-def _llama_bin_cache() -> Path:
+def llama_bin_cache() -> Path:
     """Directory for auto-downloaded llama.cpp binaries."""
     if platform.system() == "Windows":
         base = os.environ.get("LOCALAPPDATA", str(Path.home() / ".cache"))
@@ -98,13 +99,18 @@ def _llama_bin_cache() -> Path:
     return Path.home() / ".cache" / "llama.cpp" / "bin"
 
 
-# Where we look for backend-specific binaries, in priority order.
-_SEARCH_PATHS = [
-    _llama_bin_cache(),                # Auto-downloaded binaries
-    Path.home() / ".local" / "bin",    # User-installed (Linux/macOS)
-    Path("/usr/local/bin"),
-    Path("/usr/bin"),
-]
+# Backward-compatible alias
+_llama_bin_cache = llama_bin_cache
+
+
+def _search_paths() -> list[Path]:
+    """Return the list of directories to search for backend-specific binaries."""
+    return [
+        llama_bin_cache(),                # Auto-downloaded binaries
+        Path.home() / ".local" / "bin",    # User-installed (Linux/macOS)
+        Path("/usr/local/bin"),
+        Path("/usr/bin"),
+    ]
 
 # Mapping of backend → possible binary names (most specific first)
 _BINARY_NAMES: dict[Backend, list[str]] = {
@@ -117,25 +123,21 @@ _BINARY_NAMES: dict[Backend, list[str]] = {
 }
 
 
-def _find_binary(backend: Backend) -> Optional[Path]:
-    """Locate a working llama-mtmd-cli binary for *backend*.
-
-    Search order: explicit search paths (~/.cache/llama.cpp/bin,
-    ~/.local/bin, /usr/local/bin) first — flat check then recursive
-    search in the cache dir (handles archives with subdirectories) —
-    then PATH.
-
-    On Windows ``.exe`` extensions are tried automatically.
-    """
+def _find_binary_impl(
+    backend: Backend,
+    names: Optional[dict[Backend, list[str]]] = None,
+) -> Optional[Path]:
+    """Core binary resolution (uncached so custom name maps work)."""
     is_win = platform.system() == "Windows"
-    cache = _llama_bin_cache()
+    cache = llama_bin_cache()
+    name_list = (names or _BINARY_NAMES).get(backend, [])
 
-    for name in _BINARY_NAMES[backend]:
+    for name in name_list:
         ext_names = [f"{name}.exe", name] if is_win else [name]
 
         for n in ext_names:
             # 1. Flat check in explicit search dirs
-            for d in _SEARCH_PATHS:
+            for d in _search_paths():
                 candidate = d / n
                 if candidate.is_file() and (is_win or os.access(candidate, os.X_OK)):
                     return candidate
@@ -154,6 +156,24 @@ def _find_binary(backend: Backend) -> Optional[Path]:
     return None
 
 
+@functools.lru_cache(maxsize=None)
+def find_binary(backend: Backend) -> Optional[Path]:
+    """Locate a working llama-mtmd-cli binary for *backend*.
+
+    Search order: explicit search paths (~/.cache/llama.cpp/bin,
+    ~/.local/bin, /usr/local/bin) first — flat check then recursive
+    search in the cache dir (handles archives with subdirectories) —
+    then PATH.
+
+    On Windows ``.exe`` extensions are tried automatically.
+    """
+    return _find_binary_impl(backend)
+
+
+# Backward-compatible alias
+_find_binary = find_binary
+
+
 def _binary_supports_vulkan(binary: Path) -> bool:
     """Quick check: does this binary actually have Vulkan compiled in?"""
     try:
@@ -167,7 +187,7 @@ def _binary_supports_vulkan(binary: Path) -> bool:
         return False
 
 
-def _opencl_env() -> dict[str, str]:
+def opencl_env() -> dict[str, str]:
     """Return environment dict with OCL_ICD_VENDORS set for Intel NEO runtime."""
     env = dict(os.environ)
     if env.get("OCL_ICD_VENDORS"):
@@ -207,6 +227,10 @@ def _opencl_env() -> dict[str, str]:
     return env
 
 
+# Backward-compatible alias
+_opencl_env = opencl_env
+
+
 # -------------------------------------------------------------------
 # Per-backend probes
 # -------------------------------------------------------------------
@@ -216,7 +240,7 @@ def _probe_vulkan() -> list[GPUDevice]:
     devices = []
 
     # First try: the binary itself reports Vulkan devices
-    binary = _find_binary(Backend.VULKAN)
+    binary = find_binary(Backend.VULKAN)
     if binary:
         try:
             out = subprocess.run(
@@ -322,10 +346,10 @@ def _probe_opencl() -> list[GPUDevice]:
     devices = []
 
     # Try the OpenCL binary's --list-devices
-    binary = _find_binary(Backend.OPENCL)
+    binary = find_binary(Backend.OPENCL)
     if binary:
         try:
-            env = _opencl_env()
+            env = opencl_env()
             out = subprocess.run(
                 [str(binary), "--list-devices"],
                 capture_output=True, text=True, timeout=10, env=env,
@@ -348,7 +372,7 @@ def _probe_opencl() -> list[GPUDevice]:
     clinfo = shutil.which("clinfo")
     if clinfo:
         try:
-            env = _opencl_env()
+            env = opencl_env()
             out = subprocess.run(
                 [clinfo, "-l"],
                 capture_output=True, text=True, timeout=10, env=env,
@@ -460,7 +484,7 @@ def detect(*, prefer: Optional[Backend] = None, prefer_discrete: bool = True) ->
     viable: list[tuple[Backend, Path, bool]] = []     # (backend, binary, has_discrete)
     backend_has_discrete: dict[Backend, bool] = {}
     for dev in result.devices:
-        binary = _find_binary(dev.backend)
+        binary = find_binary(dev.backend)
         if binary:
             is_disc = dev.is_discrete
             if dev.backend not in backend_has_discrete:
@@ -478,7 +502,7 @@ def detect(*, prefer: Optional[Backend] = None, prefer_discrete: bool = True) ->
             unique_viable.append((b, p, backend_has_discrete.get(b, False)))
 
     # CPU always viable
-    cpu_binary = _find_binary(Backend.CPU)
+    cpu_binary = find_binary(Backend.CPU)
     if cpu_binary and Backend.CPU not in seen:
         unique_viable.append((Backend.CPU, cpu_binary, False))
 
@@ -549,7 +573,7 @@ def print_report(result: DetectionResult) -> None:
     print()
     print("  Binary availability:")
     for backend in Backend:
-        binary = _find_binary(backend)
+        binary = find_binary(backend)
         status = f"[OK] {binary}" if binary else "-"
         print(f"    {backend.value:>6}: {status}")
     print()
