@@ -144,3 +144,12 @@ class BackendInfoResponse(BaseModel):
     recommended_backend: str
     binary_path: Optional[str]
     devices: list[dict]
+
+
+class UpdateCheckResponse(BaseModel):
+    has_update: bool
+    current_version: str
+    latest_version: str
+    download_url: str = ""
+    release_notes: str = ""
+    published_at: str = ""

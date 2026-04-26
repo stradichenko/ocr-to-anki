@@ -362,6 +362,21 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 32),
 
           // ---------------------------------------------------------------
+          // Updates
+          // ---------------------------------------------------------------
+          _SectionHeader('Updates'),
+          SwitchListTile(
+            title: const Text('Auto-check for updates'),
+            subtitle: const Text('Check on startup if a new release is available'),
+            value: settings.autoCheckUpdates,
+            onChanged: (v) =>
+                notifier.update((s) => s..autoCheckUpdates = v),
+          ),
+          const _UpdateCheckTile(),
+
+          const SizedBox(height: 32),
+
+          // ---------------------------------------------------------------
           // Connection test
           // ---------------------------------------------------------------
           _SectionHeader('Connection'),
@@ -654,6 +669,134 @@ class _LanguagePicker extends StatelessWidget {
         onChanged: (v) {
           if (v != null) onChanged(v);
         },
+      ),
+    );
+  }
+}
+
+class _UpdateCheckTile extends ConsumerWidget {
+  const _UpdateCheckTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final update = ref.watch(updateProvider);
+    final notifier = ref.read(updateProvider.notifier);
+
+    return ListTile(
+      leading: const Icon(Icons.system_update),
+      title: const Text('Check for updates now'),
+      subtitle: switch (update.status) {
+        UpdateStatus.checking => const Text('Checking...'),
+        UpdateStatus.available => Text(
+            'Version ${update.info!.latestVersion} is available',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        UpdateStatus.downloading => Text(
+            'Downloading... ${(update.downloadProgress * 100).toStringAsFixed(0)}%',
+          ),
+        UpdateStatus.error => Text(
+            'Error: ${update.error ?? "Unknown error"}',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.error,
+            ),
+          ),
+        _ => const Text('Tap to check for a newer release'),
+      },
+      trailing: update.status == UpdateStatus.checking
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : update.status == UpdateStatus.available
+              ? FilledButton(
+                  onPressed: () => _showUpdateDialog(context, ref),
+                  child: const Text('Update'),
+                )
+              : const Icon(Icons.chevron_right),
+      onTap: update.status == UpdateStatus.checking ||
+              update.status == UpdateStatus.downloading
+          ? null
+          : () => notifier.check(force: true),
+    );
+  }
+
+  void _showUpdateDialog(BuildContext context, WidgetRef ref) {
+    final info = ref.read(updateProvider).info;
+    if (info == null) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Update Available'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('A new version of OCR to Anki is available.'),
+            const SizedBox(height: 12),
+            Text(
+              'Current: ${info.currentVersion}',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+            Text(
+              'Latest: ${info.latestVersion}',
+              style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            if (info.publishedAt.isNotEmpty)
+              Text(
+                'Released: ${info.publishedAt.substring(0, 10)}',
+                style: Theme.of(ctx).textTheme.bodySmall,
+              ),
+            if (info.releaseNotes.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Release Notes:',
+                style: Theme.of(ctx).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 200),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SingleChildScrollView(
+                  child: Text(
+                    info.releaseNotes,
+                    style: Theme.of(ctx).textTheme.bodySmall,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              ref.read(updateProvider.notifier).skipVersion();
+              Navigator.pop(ctx);
+            },
+            child: const Text('Skip this version'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Later'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              ref.read(updateProvider.notifier).downloadAndApply();
+            },
+            child: const Text('Download & Install'),
+          ),
+        ],
       ),
     );
   }

@@ -272,6 +272,9 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
         status: ServerStatus.ready,
         message: 'Backend ready.',
       );
+
+      // Opportunistic update check (fire-and-forget).
+      ref.read(updateProvider.notifier).check();
     } catch (e) {
       if (_disposed) return;
 
@@ -515,6 +518,140 @@ final highlightDetectorProvider = Provider<HighlightDetector>((ref) {
     adaptiveMode: settings.adaptiveMode,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Update checking
+// ---------------------------------------------------------------------------
+
+enum UpdateStatus { idle, checking, available, downloading, error }
+
+class UpdateState {
+  const UpdateState({
+    this.status = UpdateStatus.idle,
+    this.info,
+    this.downloadProgress = 0,
+    this.error,
+  });
+
+  final UpdateStatus status;
+  final UpdateInfo? info;
+  final double downloadProgress;
+  final String? error;
+
+  UpdateState copyWith({
+    UpdateStatus? status,
+    UpdateInfo? info,
+    double? downloadProgress,
+    String? error,
+  }) =>
+      UpdateState(
+        status: status ?? this.status,
+        info: info ?? this.info,
+        downloadProgress: downloadProgress ?? this.downloadProgress,
+        error: error,
+      );
+}
+
+final updateProvider =
+    NotifierProvider<UpdateNotifier, UpdateState>(UpdateNotifier.new);
+
+class UpdateNotifier extends Notifier<UpdateState> {
+  UpdateService? _service;
+
+  @override
+  UpdateState build() => const UpdateState();
+
+  UpdateService _ensureService() {
+    _service ??= UpdateService(
+      serverUrl: ref.read(settingsProvider).serverUrl,
+      currentVersion: '0.1.0', // synced with pubspec.yaml
+    );
+    return _service!;
+  }
+
+  /// Check for updates if auto-check is enabled and not already checked.
+  Future<void> check({bool force = false}) async {
+    final settings = ref.read(settingsProvider);
+    if (!force && !settings.autoCheckUpdates) return;
+    if (state.status == UpdateStatus.checking) return;
+
+    state = state.copyWith(status: UpdateStatus.checking);
+
+    try {
+      final service = _ensureService();
+      final info = await service.checkForUpdate();
+
+      if (!info.hasUpdate) {
+        state = state.copyWith(status: UpdateStatus.idle);
+        return;
+      }
+
+      // Respect "skip this version" preference.
+      if (settings.skipVersion == info.latestVersion) {
+        state = state.copyWith(status: UpdateStatus.idle);
+        return;
+      }
+
+      state = state.copyWith(
+        status: UpdateStatus.available,
+        info: info,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        status: UpdateStatus.error,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// Download and apply the update.
+  Future<void> downloadAndApply() async {
+    final info = state.info;
+    if (info == null || info.downloadUrl.isEmpty) return;
+
+    state = state.copyWith(
+      status: UpdateStatus.downloading,
+      downloadProgress: 0,
+    );
+
+    final service = _ensureService();
+    try {
+      final archivePath = await service.downloadUpdate(
+        info.downloadUrl,
+        onProgress: (p) {
+          state = state.copyWith(
+            downloadProgress: p.fraction,
+          );
+        },
+      );
+
+      await service.applyUpdate(archivePath);
+      // applyUpdate calls exit(0) — we never return.
+    } catch (e) {
+      state = state.copyWith(
+        status: UpdateStatus.error,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// Mark the current available version as skipped.
+  void skipVersion() {
+    final info = state.info;
+    if (info == null) return;
+
+    ref.read(settingsProvider.notifier).update(
+      (s) => s..skipVersion = info.latestVersion,
+    );
+    state = state.copyWith(status: UpdateStatus.idle);
+  }
+
+  /// Dismiss the update notification without skipping.
+  void dismiss() {
+    state = state.copyWith(status: UpdateStatus.idle);
+  }
+
+}
 
 // ---------------------------------------------------------------------------
 // Processing state

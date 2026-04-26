@@ -41,6 +41,7 @@ from api.models import (
     ModelFileInfo,
     ModelStatusResponse,
     PipelineImageToCardsResponse,
+    UpdateCheckResponse,
     VisionOCRRequest,
     VisionOCRResponse,
 )
@@ -518,6 +519,78 @@ async def backends():
             {"name": d.name, "backend": d.backend.value, "vram_mb": d.vram_mb}
             for d in det.devices
         ],
+    )
+
+
+# -------------------------------------------------------------------
+# Update checking
+# -------------------------------------------------------------------
+_GITHUB_REPO = os.getenv("GITHUB_REPO", "stradichenko/ocr-to-anki")
+
+
+def _parse_version(v: str) -> tuple[int, ...]:
+    """Parse a version string like '0.1.0' into a numeric tuple."""
+    parts = []
+    for p in v.strip().lstrip("v").split("."):
+        # Take only leading digits from each part (e.g. "0+1" -> 0)
+        digits = ""
+        for ch in p:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
+def _update_asset_url(version: str) -> str:
+    """Build the download URL for the current platform's release archive."""
+    system = platform.system()
+    machine = platform.machine().lower()
+    base = f"https://github.com/{_GITHUB_REPO}/releases/download/v{version}"
+    if system == "Windows":
+        return f"{base}/ocr-to-anki-v{version}-windows-x86_64.zip"
+    elif system == "Darwin":
+        arch = "arm64" if machine in ("arm64", "aarch64") else "x64"
+        return f"{base}/ocr-to-anki-v{version}-macos-{arch}.zip"
+    else:
+        return f"{base}/ocr-to-anki-v{version}-linux-x86_64.tar.gz"
+
+
+@app.get("/update/check", response_model=UpdateCheckResponse, tags=["system"])
+async def update_check(current_version: str = Query(..., description="Current app version, e.g. 0.1.0")):
+    """Check whether a newer release is available on GitHub."""
+    import httpx
+
+    api_url = f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest"
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(api_url)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        log.warning("Update check failed: %s", e)
+        return UpdateCheckResponse(
+            has_update=False,
+            current_version=current_version,
+            latest_version="unknown",
+        )
+
+    tag = data.get("tag_name", "")
+    latest = tag.lstrip("v")
+    has_update = _parse_version(latest) > _parse_version(current_version)
+
+    download_url = ""
+    if has_update:
+        download_url = _update_asset_url(latest)
+
+    return UpdateCheckResponse(
+        has_update=has_update,
+        current_version=current_version,
+        latest_version=latest,
+        download_url=download_url,
+        release_notes=data.get("body", ""),
+        published_at=data.get("published_at", ""),
     )
 
 

@@ -35,6 +35,8 @@ class AppSettings {
     this.gpuMode = 'auto',
     this.colorSchemeSeed = 'deepOrange',
     this.customColorHex = '',
+    this.autoCheckUpdates = true,
+    this.skipVersion = '',
   });
 
   // -- Appearance --
@@ -96,6 +98,14 @@ class AppSettings {
   /// means CPU because the Vulkan drivers are often unstable.
   String gpuMode;
 
+  // -- Updates --
+
+  /// Whether to automatically check for updates on startup.
+  bool autoCheckUpdates;
+
+  /// Version string the user chose to skip (e.g. "0.2.0"). Empty = none.
+  String skipVersion;
+
   Map<String, dynamic> toJson() => {
         'themeMode': themeMode.name,
         'colorSchemeSeed': colorSchemeSeed,
@@ -128,6 +138,8 @@ class AppSettings {
         'parallelCrops': parallelCrops,
         'preferDiscreteGpu': preferDiscreteGpu,
         'gpuMode': gpuMode,
+        'autoCheckUpdates': autoCheckUpdates,
+        'skipVersion': skipVersion,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -174,6 +186,8 @@ class AppSettings {
       parallelCrops: json['parallelCrops'] as bool? ?? true,
       preferDiscreteGpu: json['preferDiscreteGpu'] as bool? ?? true,
       gpuMode: json['gpuMode'] as String? ?? 'auto',
+      autoCheckUpdates: json['autoCheckUpdates'] as bool? ?? true,
+      skipVersion: json['skipVersion'] as String? ?? '',
     );
   }
 }

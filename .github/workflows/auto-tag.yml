@@ -1,0 +1,47 @@
+# Auto-tag every commit on master with the current pubspec version.
+# If the version tag already exists, bumps the build number and retags.
+name: Auto Tag Release
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from pubspec
+        id: version
+        run: |
+          VERSION=$(grep '^version:' app/pubspec.yaml | head -1 | awk '{print $2}' | cut -d+ -f1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create or move version tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v$VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            # Tag exists — bump build number in pubspec and retag
+            BUILD=$(grep '^version:' app/pubspec.yaml | head -1 | awk '{print $2}' | cut -d+ -f2)
+            NEW_BUILD=$((BUILD + 1))
+            NEW_VERSION="${VERSION}+${NEW_BUILD}"
+            sed -i "s/^version: .*/version: ${NEW_VERSION}/" app/pubspec.yaml
+            git add app/pubspec.yaml
+            git commit -m "chore(release): bump build number to ${NEW_BUILD} [auto]"
+            git push origin master
+            TAG="v${VERSION}"
+          fi
+
+          git tag -fa "$TAG" -m "Release $TAG"
+          git push origin "$TAG" --force
