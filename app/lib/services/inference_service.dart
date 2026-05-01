@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import '../models/app_settings.dart';
+import 'llama_cpp_android_service.dart';
 
 /// Result of a vision OCR call.
 class VisionOcrResult {
@@ -46,10 +47,20 @@ class EnrichWordResult {
 
 /// Unified inference service that forwards requests to the Python FastAPI
 /// backend defined in `src/api/app.py`.
+///
+/// On Android, uses [LlamaCppAndroidService] to talk directly to the
+/// bundled llama.cpp binaries instead of going through the Python backend.
 class InferenceService {
-  InferenceService({required AppSettings settings}) : _settings = settings;
+  InferenceService({
+    required AppSettings settings,
+    LlamaCppAndroidService? androidService,
+  })  : _settings = settings,
+        _androidService = androidService;
 
   final AppSettings _settings;
+  final LlamaCppAndroidService? _androidService;
+
+  bool get _isAndroid => _androidService != null;
 
   /// HTTP client for the current OCR request; can be closed to abort.
   http.Client? _ocrClient;
@@ -79,6 +90,9 @@ class InferenceService {
 
   /// Check whether the backend is reachable.
   Future<bool> isAvailable() async {
+    if (_isAndroid) {
+      return _androidService!.checkHealth();
+    }
     return _remoteHealthCheck();
   }
 
@@ -132,10 +146,31 @@ class InferenceService {
         'List every word visible in this image. Output ONLY the words, one per line. No bullet points, no numbering, no descriptions, no commentary.',
     int timeoutSeconds = 2700,
   }) async {
+    if (_isAndroid) {
+      return _androidVisionOcr(imageBytes: imageBytes, prompt: prompt);
+    }
     return _remoteVisionOcr(
       imageBytes: imageBytes,
       prompt: prompt,
       timeoutSeconds: timeoutSeconds,
+    );
+  }
+
+  Future<VisionOcrResult> _androidVisionOcr({
+    required Uint8List imageBytes,
+    required String prompt,
+  }) async {
+    await _androidService!.ensureServerRunning();
+    final stopwatch = Stopwatch()..start();
+    final text = await _androidService.runVisionOcr(
+      imageBytes: imageBytes,
+      prompt: prompt,
+    );
+    stopwatch.stop();
+    return VisionOcrResult(
+      text: text,
+      elapsedSeconds: stopwatch.elapsedMilliseconds / 1000.0,
+      backend: 'llama-mtmd-cli (Android)',
     );
   }
 
@@ -205,15 +240,34 @@ class InferenceService {
     void Function(int completedWords, int totalWords,
         List<EnrichWordResult> chunkResults)? onChunkDone,
   }) async {
+    final defLang = definitionLanguage ?? _settings.definitionLanguage;
+    final exLang = examplesLanguage ?? _settings.examplesLanguage;
+    final termLang = termLanguage ?? _settings.termLanguage;
+    final temp = temperature ?? _settings.temperature;
+    final tokens = maxTokens ?? 256;
+
+    if (_isAndroid) {
+      return _androidEnrichChunked(
+        words: words,
+        definitionLanguage: defLang,
+        examplesLanguage: exLang,
+        termLanguage: termLang,
+        wordLanguages: wordLanguages,
+        maxTokens: tokens,
+        temperature: temp,
+        chunkSize: chunkSize,
+        onChunkDone: onChunkDone,
+      );
+    }
+
     return _remoteEnrichChunked(
       words: words,
-      definitionLanguage:
-          definitionLanguage ?? _settings.definitionLanguage,
-      examplesLanguage: examplesLanguage ?? _settings.examplesLanguage,
-      termLanguage: termLanguage ?? _settings.termLanguage,
+      definitionLanguage: defLang,
+      examplesLanguage: exLang,
+      termLanguage: termLang,
       wordLanguages: wordLanguages,
-      maxTokens: maxTokens ?? 256,
-      temperature: temperature ?? _settings.temperature,
+      maxTokens: tokens,
+      temperature: temp,
       chunkSize: chunkSize,
       chunkTimeout: chunkTimeout,
       onChunkDone: onChunkDone,
@@ -316,4 +370,160 @@ class InferenceService {
     return allResults;
   }
 
+  // ---------------------------------------------------------------------------
+  // Android-native enrichment (direct llama-server)
+  // ---------------------------------------------------------------------------
+
+  Future<List<EnrichWordResult>> _androidEnrichChunked({
+    required List<String> words,
+    required String definitionLanguage,
+    required String examplesLanguage,
+    required String termLanguage,
+    required Map<String, String> wordLanguages,
+    required int maxTokens,
+    required double temperature,
+    required int chunkSize,
+    void Function(int completedWords, int totalWords,
+        List<EnrichWordResult> chunkResults)? onChunkDone,
+  }) async {
+    final allResults = <EnrichWordResult>[];
+    final chunks = <List<String>>[];
+
+    for (var i = 0; i < words.length; i += chunkSize) {
+      chunks.add(words.sublist(i, (i + chunkSize).clamp(0, words.length)));
+    }
+
+    for (var ci = 0; ci < chunks.length; ci++) {
+      final chunk = chunks[ci];
+      final prevCount = allResults.length;
+
+      // Resolve per-chunk term_language.
+      final chunkLangs = chunk
+          .map((w) => wordLanguages[w.toLowerCase()])
+          .whereType<String>()
+          .toSet();
+      final effectiveLang =
+          chunkLangs.length == 1 ? chunkLangs.first : termLanguage;
+
+      try {
+        await _androidService!.ensureServerRunning();
+        final prompt = _buildEnrichPrompt(
+          chunk,
+          definitionLanguage,
+          examplesLanguage,
+          effectiveLang,
+        );
+        final response = await _androidService.generate(
+          prompt: prompt,
+          maxTokens: maxTokens,
+          temperature: temperature,
+        );
+        final parsed = _parseEnrichResponse(response, chunk);
+        allResults.addAll(parsed);
+      } catch (e) {
+        for (final w in chunk) {
+          allResults.add(EnrichWordResult(
+            word: w,
+            definition: '',
+            examples: '',
+            warning: 'not_found',
+          ));
+        }
+      }
+
+      onChunkDone?.call(
+        allResults.length.clamp(0, words.length),
+        words.length,
+        allResults.sublist(prevCount),
+      );
+    }
+
+    return allResults;
+  }
+
+  String _buildEnrichPrompt(
+    List<String> words,
+    String defLang,
+    String exLang,
+    String termLang,
+  ) {
+    final wordList = words.map((w) => '- $w').join('\n');
+    final langHint = termLang.toLowerCase() != 'auto'
+        ? 'The word is in $termLang. '
+        : '';
+    return (
+        '$langHint'
+        'For each word, give a definition in $defLang and 2 example sentences in $exLang.\n'
+        'WORD: must contain the EXACT original word, unchanged. Do NOT translate, correct, or modify it.\n'
+        'No asterisks, no bold, no markdown. Plain text only.\n\n'
+        'If unrecognizable, write DEF: UNKNOWN and skip examples.\n\n'
+        'Format (labels must be in English):\n'
+        'WORD: <original word, unchanged>\n'
+        'DEF: <$defLang definition>\n'
+        'EX1: <$exLang sentence>\n'
+        'EX2: <$exLang sentence>\n\n'
+        'Words:\n$wordList');
+  }
+
+  List<EnrichWordResult> _parseEnrichResponse(String text, List<String> words) {
+    final results = <EnrichWordResult>[];
+    final lines = text.split('\n');
+    String? currentWord;
+    String? currentDef;
+    String? currentEx1;
+    String? currentEx2;
+
+    void flush() {
+      if (currentWord != null) {
+        final examples = [currentEx1, currentEx2]
+            .whereType<String>()
+            .join('\n');
+        results.add(EnrichWordResult(
+          word: currentWord!,
+          definition: currentDef ?? '',
+          examples: examples,
+          warning: (currentDef == null || currentDef!.isEmpty) ? 'not_found' : '',
+        ));
+      }
+      currentWord = null;
+      currentDef = null;
+      currentEx1 = null;
+      currentEx2 = null;
+    }
+
+    for (final rawLine in lines) {
+      final line = rawLine.trim();
+      if (line.isEmpty) continue;
+
+      final upper = line.toUpperCase();
+      if (upper.startsWith('WORD:')) {
+        flush();
+        currentWord = line.substring(5).trim();
+      } else if (upper.startsWith('DEF:')) {
+        currentDef = line.substring(4).trim();
+      } else if (upper.startsWith('EX1:')) {
+        currentEx1 = line.substring(4).trim();
+      } else if (upper.startsWith('EX2:')) {
+        currentEx2 = line.substring(4).trim();
+      }
+    }
+    flush();
+
+    // If parsing produced fewer results than words, fill gaps with not_found.
+    if (results.length < words.length) {
+      final parsedWords = results.map((r) => r.word.toLowerCase()).toSet();
+      for (final w in words) {
+        if (!parsedWords.contains(w.toLowerCase())) {
+          results.add(EnrichWordResult(
+            word: w,
+            definition: '',
+            examples: '',
+            warning: 'not_found',
+          ));
+        }
+      }
+    }
+
+    return results;
+  }
 }

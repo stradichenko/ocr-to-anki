@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -119,12 +120,14 @@ class SettingsScreen extends ConsumerWidget {
           // ---------------------------------------------------------------
           // Inference
           // ---------------------------------------------------------------
-          _SectionHeader('Inference'),
-          _TextFieldTile(
-            label: 'Server URL',
-            value: settings.serverUrl,
-            onChanged: (v) => notifier.update((s) => s..serverUrl = v),
-          ),
+          if (!Platform.isAndroid) ...[
+            _SectionHeader('Inference'),
+            _TextFieldTile(
+              label: 'Server URL',
+              value: settings.serverUrl,
+              onChanged: (v) => notifier.update((s) => s..serverUrl = v),
+            ),
+          ],
 
           // ---------------------------------------------------------------
           // Language
@@ -153,32 +156,34 @@ class SettingsScreen extends ConsumerWidget {
           // ---------------------------------------------------------------
           // Anki
           // ---------------------------------------------------------------
-          _SectionHeader('Anki Export'),
-          _TextFieldTile(
-            label: 'AnkiConnect URL',
-            value: settings.ankiConnectUrl,
-            onChanged: (v) =>
-                notifier.update((s) => s..ankiConnectUrl = v),
-          ),
-          _AnkiDropdownTile(
-            label: 'Default deck',
-            value: settings.defaultDeck,
-            fetcher: () => ref.read(ankiExportServiceProvider).getDecks(),
-            onChanged: (v) => notifier.update((s) => s..defaultDeck = v),
-          ),
-          _AnkiDropdownTile(
-            label: 'Default note model',
-            value: settings.defaultModel,
-            fetcher: () => ref.read(ankiExportServiceProvider).getModels(),
-            onChanged: (v) =>
-                notifier.update((s) => s..defaultModel = v),
-          ),
-          SwitchListTile(
-            title: const Text('Allow duplicates'),
-            value: settings.allowDuplicates,
-            onChanged: (v) =>
-                notifier.update((s) => s..allowDuplicates = v),
-          ),
+          if (!Platform.isAndroid) ...[
+            _SectionHeader('Anki Export'),
+            _TextFieldTile(
+              label: 'AnkiConnect URL',
+              value: settings.ankiConnectUrl,
+              onChanged: (v) =>
+                  notifier.update((s) => s..ankiConnectUrl = v),
+            ),
+            _AnkiDropdownTile(
+              label: 'Default deck',
+              value: settings.defaultDeck,
+              fetcher: () => ref.read(ankiExportServiceProvider).getDecks(),
+              onChanged: (v) => notifier.update((s) => s..defaultDeck = v),
+            ),
+            _AnkiDropdownTile(
+              label: 'Default note model',
+              value: settings.defaultModel,
+              fetcher: () => ref.read(ankiExportServiceProvider).getModels(),
+              onChanged: (v) =>
+                  notifier.update((s) => s..defaultModel = v),
+            ),
+            SwitchListTile(
+              title: const Text('Allow duplicates'),
+              value: settings.allowDuplicates,
+              onChanged: (v) =>
+                  notifier.update((s) => s..allowDuplicates = v),
+            ),
+          ],
 
           // ---------------------------------------------------------------
           // Highlight detection
@@ -246,44 +251,46 @@ class SettingsScreen extends ConsumerWidget {
           // OCR Performance
           // ---------------------------------------------------------------
           _SectionHeader('OCR Performance'),
-          ListTile(
-            title: const Text('GPU acceleration'),
-            subtitle: Text(
-              switch (settings.gpuMode) {
-                'gpu'  => 'Force GPU — use for discrete NVIDIA / AMD GPUs.',
-                'cpu'  => 'Force CPU — slower but stable on all hardware.',
-                _      => 'Auto — GPU on Linux/macOS, CPU on Windows.',
-              },
+          if (!Platform.isAndroid) ...[
+            ListTile(
+              title: const Text('GPU acceleration'),
+              subtitle: Text(
+                switch (settings.gpuMode) {
+                  'gpu'  => 'Force GPU — use for discrete NVIDIA / AMD GPUs.',
+                  'cpu'  => 'Force CPU — slower but stable on all hardware.',
+                  _      => 'Auto — GPU on Linux/macOS, CPU on Windows.',
+                },
+              ),
+              trailing: DropdownButton<String>(
+                value: settings.gpuMode,
+                items: const [
+                  DropdownMenuItem(value: 'auto', child: Text('Auto')),
+                  DropdownMenuItem(value: 'gpu',  child: Text('GPU')),
+                  DropdownMenuItem(value: 'cpu',  child: Text('CPU')),
+                ],
+                onChanged: (v) {
+                  if (v == null) return;
+                  notifier.update((s) => s..gpuMode = v);
+                  // Notify backend to reinit with the new GPU mode.
+                  http.post(
+                    Uri.parse('${settings.serverUrl}/config/gpu'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonEncode({'mode': v}),
+                  ).catchError((_) => http.Response('', 500));
+                },
+              ),
             ),
-            trailing: DropdownButton<String>(
-              value: settings.gpuMode,
-              items: const [
-                DropdownMenuItem(value: 'auto', child: Text('Auto')),
-                DropdownMenuItem(value: 'gpu',  child: Text('GPU')),
-                DropdownMenuItem(value: 'cpu',  child: Text('CPU')),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                notifier.update((s) => s..gpuMode = v);
-                // Notify backend to reinit with the new GPU mode.
-                http.post(
-                  Uri.parse('${settings.serverUrl}/config/gpu'),
-                  headers: {'Content-Type': 'application/json'},
-                  body: jsonEncode({'mode': v}),
-                ).catchError((_) => http.Response('', 500));
-              },
+            SwitchListTile(
+              title: const Text('Prefer discrete GPU'),
+              subtitle: const Text(
+                'When available, use a discrete GPU (e.g. NVIDIA, AMD, Arc) '
+                'instead of the integrated one.',
+              ),
+              value: settings.preferDiscreteGpu,
+              onChanged: (v) =>
+                  notifier.update((s) => s..preferDiscreteGpu = v),
             ),
-          ),
-          SwitchListTile(
-            title: const Text('Prefer discrete GPU'),
-            subtitle: const Text(
-              'When available, use a discrete GPU (e.g. NVIDIA, AMD, Arc) '
-              'instead of the integrated one.',
-            ),
-            value: settings.preferDiscreteGpu,
-            onChanged: (v) =>
-                notifier.update((s) => s..preferDiscreteGpu = v),
-          ),
+          ],
           SwitchListTile(
             title: const Text('Parallel crop processing'),
             subtitle: const Text(
@@ -364,29 +371,47 @@ class SettingsScreen extends ConsumerWidget {
           // ---------------------------------------------------------------
           // Updates
           // ---------------------------------------------------------------
-          _SectionHeader('Updates'),
-          SwitchListTile(
-            title: const Text('Auto-check for updates'),
-            subtitle: const Text('Check on startup if a new release is available'),
-            value: settings.autoCheckUpdates,
-            onChanged: (v) =>
-                notifier.update((s) => s..autoCheckUpdates = v),
-          ),
-          const _UpdateCheckTile(),
+          if (!Platform.isAndroid) ...[
+            _SectionHeader('Updates'),
+            SwitchListTile(
+              title: const Text('Auto-check for updates'),
+              subtitle: const Text('Check on startup if a new release is available'),
+              value: settings.autoCheckUpdates,
+              onChanged: (v) =>
+                  notifier.update((s) => s..autoCheckUpdates = v),
+            ),
+            const _UpdateCheckTile(),
+            const SizedBox(height: 32),
+          ],
+          if (Platform.isAndroid) ...[
+            _SectionHeader('Downloads'),
+            SwitchListTile(
+              title: const Text('WiFi-only downloads'),
+              subtitle: const Text(
+                'Only download the AI model when connected to WiFi '
+                '(~3.2 GB, recommended).',
+              ),
+              value: settings.wifiOnlyDownloads,
+              onChanged: (v) =>
+                  notifier.update((s) => s..wifiOnlyDownloads = v),
+            ),
+            const SizedBox(height: 32),
+          ],
 
           const SizedBox(height: 32),
 
           // ---------------------------------------------------------------
           // Connection test
           // ---------------------------------------------------------------
-          _SectionHeader('Connection'),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _ConnectionTestButton(),
-          ),
-
-          const SizedBox(height: 32),
+          if (!Platform.isAndroid) ...[
+            _SectionHeader('Connection'),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _ConnectionTestButton(),
+            ),
+            const SizedBox(height: 32),
+          ],
         ],
       ),
     );

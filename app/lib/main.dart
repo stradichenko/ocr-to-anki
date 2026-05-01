@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,11 +11,41 @@ void main() {
   runApp(const ProviderScope(child: OcrToAnkiApp()));
 }
 
-class OcrToAnkiApp extends ConsumerWidget {
+class OcrToAnkiApp extends ConsumerStatefulWidget {
   const OcrToAnkiApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OcrToAnkiApp> createState() => _OcrToAnkiAppState();
+}
+
+class _OcrToAnkiAppState extends ConsumerState<OcrToAnkiApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // On Android, proactively restart llama-server when the app is
+    // foregrounded in case Doze mode killed it while backgrounded.
+    if (Platform.isAndroid && state == AppLifecycleState.resumed) {
+      final llama = ref.read(llamaCppAndroidProvider);
+      llama.ensureServerRunning().catchError((_) {
+        // Silently ignore — the next inference call will retry anyway.
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
     final colorSeed = ref.watch(colorSeedProvider);
 
@@ -240,6 +272,14 @@ class _ServerStartupGate extends ConsumerWidget {
                         },
                         icon: const Icon(Icons.copy),
                         label: const Text('Copy'),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pushNamed('/settings');
+                        },
+                        icon: const Icon(Icons.settings),
+                        label: const Text('Settings'),
                       ),
                     ],
                   ),

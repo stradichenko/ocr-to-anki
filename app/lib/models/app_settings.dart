@@ -37,6 +37,7 @@ class AppSettings {
     this.customColorHex = '',
     this.autoCheckUpdates = true,
     this.skipVersion = '',
+    this.wifiOnlyDownloads = true,
   });
 
   // -- Appearance --
@@ -106,6 +107,9 @@ class AppSettings {
   /// Version string the user chose to skip (e.g. "0.2.0"). Empty = none.
   String skipVersion;
 
+  /// On Android, only download models when connected to WiFi.
+  bool wifiOnlyDownloads;
+
   Map<String, dynamic> toJson() => {
         'themeMode': themeMode.name,
         'colorSchemeSeed': colorSchemeSeed,
@@ -140,6 +144,7 @@ class AppSettings {
         'gpuMode': gpuMode,
         'autoCheckUpdates': autoCheckUpdates,
         'skipVersion': skipVersion,
+        'wifiOnlyDownloads': wifiOnlyDownloads,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -188,6 +193,7 @@ class AppSettings {
       gpuMode: json['gpuMode'] as String? ?? 'auto',
       autoCheckUpdates: json['autoCheckUpdates'] as bool? ?? true,
       skipVersion: json['skipVersion'] as String? ?? '',
+      wifiOnlyDownloads: json['wifiOnlyDownloads'] as bool? ?? true,
     );
   }
 }

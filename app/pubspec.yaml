@@ -25,10 +25,13 @@ dependencies:
 
   # Networking (for AnkiConnect + optional FastAPI)
   http: ^1.4.0
+  connectivity_plus: ^6.0.0
 
   # UI utilities
   file_picker: ^10.0.0
   desktop_drop: ^0.7.0
+  share_plus: ^10.0.0
+  flutter_foreground_task: ^9.2.2
 
 dev_dependencies:
   flutter_test:
@@ -42,3 +45,4 @@ flutter:
 
   assets:
     - assets/
+    - assets/llama-binaries/arm64-v8a/

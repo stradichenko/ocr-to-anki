@@ -179,16 +179,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 const SizedBox(height: 16),
 
                 // -- Image upload area ----------------------------------------
-                _ImageDropZone(
-                  onImagesSelected: (images) => setState(() {
-                    _imageQueue.addAll(
-                      images.map((img) => ImageEntry(
-                        bytes: img.bytes,
-                        name: img.name,
-                      )),
-                    );
-                  }),
-                ),
+                if (Platform.isAndroid)
+                  _MobileImagePicker(
+                    onImagesSelected: (images) => setState(() {
+                      _imageQueue.addAll(
+                        images.map((img) => ImageEntry(
+                          bytes: img.bytes,
+                          name: img.name,
+                        )),
+                      );
+                    }),
+                  )
+                else
+                  _ImageDropZone(
+                    onImagesSelected: (images) => setState(() {
+                      _imageQueue.addAll(
+                        images.map((img) => ImageEntry(
+                          bytes: img.bytes,
+                          name: img.name,
+                        )),
+                      );
+                    }),
+                  ),
 
                 // -- Queued image thumbnails ----------------------------------
                 if (_imageQueue.isNotEmpty) ...[
@@ -219,7 +231,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       scrollDirection: Axis.horizontal,
                       padding: const EdgeInsets.only(bottom: 10),
                       itemCount: _imageQueue.length,
-                      separatorBuilder: (_, __) =>
+                      separatorBuilder: (_, _) =>
                           const SizedBox(width: 8),
                       itemBuilder: (ctx, i) {
                         final entry = _imageQueue[i];
@@ -812,6 +824,88 @@ class _ImageDropZoneState extends State<_ImageDropZone> {
       final bytes = await xfile.readAsBytes();
       widget.onImagesSelected([(bytes: bytes, name: xfile.name)]);
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mobile image picker (Camera + Gallery buttons for Android)
+// ---------------------------------------------------------------------------
+
+class _MobileImagePicker extends StatelessWidget {
+  const _MobileImagePicker({required this.onImagesSelected});
+
+  final void Function(List<({Uint8List bytes, String name})>) onImagesSelected;
+
+  Future<void> _pickFromCamera(BuildContext context) async {
+    final picker = ImagePicker();
+    final xfile = await picker.pickImage(source: ImageSource.camera);
+    if (xfile != null) {
+      final bytes = await xfile.readAsBytes();
+      onImagesSelected([(bytes: bytes, name: xfile.name)]);
+    }
+  }
+
+  Future<void> _pickFromGallery(BuildContext context) async {
+    final picker = ImagePicker();
+    // Try multi-select first
+    final xfiles = await picker.pickMultiImage();
+    if (xfiles.isNotEmpty) {
+      final images = <({Uint8List bytes, String name})>[];
+      for (final xfile in xfiles) {
+        final bytes = await xfile.readAsBytes();
+        images.add((bytes: bytes, name: xfile.name));
+      }
+      onImagesSelected(images);
+      return;
+    }
+    // Fallback to single-select
+    final xfile = await picker.pickImage(source: ImageSource.gallery);
+    if (xfile != null) {
+      final bytes = await xfile.readAsBytes();
+      onImagesSelected([(bytes: bytes, name: xfile.name)]);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: () => _pickFromCamera(context),
+                icon: const Icon(Icons.camera_alt),
+                label: const Text('Camera'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: () => _pickFromGallery(context),
+                icon: const Icon(Icons.photo_library),
+                label: const Text('Gallery'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Supports JPG, PNG, BMP, TIFF',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
   }
 }
 

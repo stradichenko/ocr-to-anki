@@ -193,11 +193,69 @@ jobs:
           path: output/release/${{ env.ARTIFACT }}
 
   # ════════════════════════════════════════════════════════════════════════════
+  # Android: builds native llama.cpp binaries + Flutter APK
+  # ════════════════════════════════════════════════════════════════════════════
+  build-android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;27.0.11718014"
+          echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/27.0.11718014" >> "$GITHUB_ENV"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Build llama.cpp Android binaries
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y cmake ninja-build
+          ./scripts/build-llama-android.sh
+
+      - name: Build Flutter APK
+        run: |
+          cd app
+          flutter config --no-analytics
+          flutter pub get
+          flutter build apk --release
+
+      - name: Assemble Android release
+        run: |
+          VERSION="${GITHUB_REF_NAME:-${{ github.event.inputs.version || 'dev' }}}"
+          ARCHIVE="ocr-to-anki-${VERSION}-android-arm64"
+          mkdir -p "output/release/$ARCHIVE"
+
+          cp "app/build/app/outputs/flutter-apk/app-release.apk" \
+             "output/release/$ARCHIVE/ocr-to-anki-${VERSION}.apk"
+
+          cd output/release
+          zip -qr "${ARCHIVE}.zip" "$ARCHIVE"
+          echo "ARTIFACT=${ARCHIVE}.zip" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: output/release/${{ env.ARTIFACT }}
+
+  # ════════════════════════════════════════════════════════════════════════════
   # Create GitHub Release (only on tag push)
   # ════════════════════════════════════════════════════════════════════════════
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux, build-macos, build-windows]
+    needs: [build-linux, build-macos, build-windows, build-android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -213,5 +271,6 @@ jobs:
             artifacts/linux-release/*
             artifacts/macos-release/*
             artifacts/windows-release/*
+            artifacts/android-release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

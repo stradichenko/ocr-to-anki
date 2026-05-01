@@ -38,7 +38,7 @@ void main() {
       final json = s.toJson();
       final restored = AppSettings.fromJson(json);
       expect(restored.defaultDeck, s.defaultDeck);
-      expect(restored.inferenceMode, s.inferenceMode);
+      expect(restored.serverUrl, s.serverUrl);
     });
   });
 }

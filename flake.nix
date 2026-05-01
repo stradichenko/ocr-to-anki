@@ -15,6 +15,7 @@
           config = {
             allowUnfree = true;
             cudaSupport = true;  # Enable CUDA support globally
+            android_sdk.accept_license = true;  # Required for Android SDK/NDK
           };
         };
         
@@ -747,7 +748,79 @@
             echo ""
           '';
         };
-        
+
+        # ── Android development shell (cross-compile + APK build) ──
+        devShells.android = let
+          androidComposition = pkgs.androidenv.composeAndroidPackages {
+            toolsVersion = "26.1.1";
+            platformToolsVersion = "35.0.1";
+            buildToolsVersions = [ "34.0.0" ];
+            platformVersions = [ "28" "33" "34" ];
+            abiVersions = [ "arm64-v8a" ];
+            cmakeVersions = [ "3.22.1" ];
+            includeNDK = true;
+            ndkVersions = [ "26.1.10909125" ];
+            useGoogleAPIs = false;
+            includeEmulator = false;
+            includeSources = false;
+            includeSystemImages = false;
+          };
+          androidSdk = androidComposition.androidsdk;
+          ndkBase = "${androidSdk}/libexec/android-sdk/ndk";
+        in pkgs.mkShell {
+          packages = [
+            pkgs.flutter
+            pkgs.cmake
+            pkgs.ninja
+            pkgs.pkg-config
+            pkgs.git
+            pkgs.jdk17
+            androidSdk
+          ];
+
+          ANDROID_HOME = "${androidSdk}/libexec/android-sdk";
+          ANDROID_SDK_ROOT = "${androidSdk}/libexec/android-sdk";
+          JAVA_HOME = "${pkgs.jdk17.home}";
+
+          shellHook = ''
+            # Auto-detect NDK path (versioned subdir or legacy ndk-bundle)
+            if [ -d "${ndkBase}/26.1.10909125" ]; then
+              export ANDROID_NDK="${ndkBase}/26.1.10909125"
+            elif [ -d "${ndkBase}-bundle" ]; then
+              export ANDROID_NDK="${ndkBase}-bundle"
+            else
+              export ANDROID_NDK=$(find "${ndkBase}" -maxdepth 1 -type d | head -n 2 | tail -n 1)
+            fi
+
+            # Flutter needs to know where the SDK is
+            flutter config --android-sdk "$ANDROID_HOME" --no-analytics 2>/dev/null || true
+
+            echo "╔══════════════════════════════════════════════════╗"
+            echo "║       Android Dev Shell (Nix)                    ║"
+            echo "╚══════════════════════════════════════════════════╝"
+            echo ""
+            echo "  Flutter: $(flutter --version 2>/dev/null | head -1)"
+            echo "  SDK:     $ANDROID_HOME"
+            echo "  NDK:     $ANDROID_NDK"
+            echo ""
+            echo "  Build llama.cpp for Android:"
+            echo "    ./scripts/build-llama-android.sh [--gpu]"
+            echo ""
+            echo "  Build APK:"
+            echo "    cd app && flutter build apk --release"
+            echo ""
+            echo "  Run on connected device:"
+            echo "    cd app && flutter run"
+            echo ""
+
+            # Verify NDK toolchain exists
+            if [ ! -f "$ANDROID_NDK/build/cmake/android.toolchain.cmake" ]; then
+              echo "[WARN] CMake toolchain not found at expected NDK path."
+              echo "       You may need to adjust ANDROID_NDK manually."
+            fi
+          '';
+        };
+
         packages.default = pkgs.stdenv.mkDerivation {
           pname = "anki-ocr";
           version = "0.1.0";

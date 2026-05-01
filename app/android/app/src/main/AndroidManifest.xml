@@ -1,4 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Camera permission for taking photos -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Internet permission for backend connectivity -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Storage permissions for older Android versions -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- Foreground service to keep inference alive during long OCR sessions -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <application
         android:label="ocr_to_anki"
         android:name="${applicationName}"

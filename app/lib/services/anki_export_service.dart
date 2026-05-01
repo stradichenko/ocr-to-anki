@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/anki_note.dart';
 import '../models/app_settings.dart';
@@ -222,6 +224,29 @@ class AnkiExportService {
     };
 
     return const JsonEncoder.withIndent('  ').convert(output);
+  }
+
+  /// Share notes as a TSV file with AnkiDroid (Android only).
+  ///
+  /// Writes a temporary file and opens the Android share sheet so the user
+  /// can select AnkiDroid to import the cards.
+  Future<void> shareToAnkiDroid(List<AnkiNote> notes) async {
+    final tsv = exportToTsv(notes);
+    final tmpDir = await getTemporaryDirectory();
+    final timestamp = DateTime.now()
+        .toIso8601String()
+        .replaceAll(':', '-')
+        .split('.')
+        .first;
+    final filePath = '${tmpDir.path}/anki_cards_$timestamp.txt';
+    final file = File(filePath);
+    await file.writeAsString(tsv);
+
+    await Share.shareXFiles(
+      [XFile(filePath, mimeType: 'text/tab-separated-values')],
+      subject: 'Anki cards',
+      text: '${notes.length} Anki card(s) to import',
+    );
   }
 
   /// Full import flow: create deck → batch-add notes → return summary.

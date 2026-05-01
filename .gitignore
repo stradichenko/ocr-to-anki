@@ -113,6 +113,10 @@ result-*
 .build/
 data/ollama_ocr_results/
 
+# Docs
+docs/
+
 # Claude Code
 CLAUDE.md
 claude.md
+.claude/

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../models/anki_note.dart';
 import '../models/models.dart';
@@ -227,6 +228,18 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
 
     final service = ref.read(ankiExportServiceProvider);
 
+    // On Android, share TSV with AnkiDroid instead of using AnkiConnect.
+    if (Platform.isAndroid) {
+      try {
+        await service.shareToAnkiDroid(notes);
+      } catch (e) {
+        if (mounted) {
+          _showCopyableError(context, 'Share Failed', e.toString());
+        }
+      }
+      return;
+    }
+
     // Show loading.
     showDialog(
       context: context,
@@ -298,17 +311,21 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
     final tsv = service.exportToTsv(notes);
 
     try {
-      // Write directly to ~/Downloads (avoids zenity dependency).
-      final home = Platform.environment['HOME'] ?? '/tmp';
-      final downloadsDir = Directory('$home/Downloads');
-      if (!downloadsDir.existsSync()) downloadsDir.createSync(recursive: true);
+      final Directory outDir;
+      if (Platform.isAndroid) {
+        outDir = await getApplicationDocumentsDirectory();
+      } else {
+        final home = Platform.environment['HOME'] ?? '/tmp';
+        outDir = Directory('$home/Downloads');
+      }
+      if (!outDir.existsSync()) outDir.createSync(recursive: true);
 
       final timestamp = DateTime.now()
           .toIso8601String()
           .replaceAll(':', '-')
           .split('.')
           .first;
-      final filePath = '${downloadsDir.path}/anki_cards_$timestamp.txt';
+      final filePath = '${outDir.path}/anki_cards_$timestamp.txt';
 
       await File(filePath).writeAsString(tsv);
 

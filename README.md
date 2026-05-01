@@ -28,11 +28,13 @@
 
 ## About
 
-Cross-platform desktop application for extracting vocabulary from images and
-creating [Anki](https://apps.ankiweb.net/) flashcards. Everything runs locally
-using [llama.cpp](https://github.com/ggerganov/llama.cpp) and the
+Cross-platform application for extracting vocabulary from images and creating
+[Anki](https://apps.ankiweb.net/) flashcards. Everything runs locally using
+[llama.cpp](https://github.com/ggerganov/llama.cpp) and the
 [Gemma 3 4B](https://ai.google.dev/gemma/docs/gemma3) model. No cloud
 dependencies, no API keys, fully offline.
+
+Supports **Linux, macOS, Windows, and Android**.
 
 The application is composed of two layers: a Flutter GUI that provides the user
 interface and a Python FastAPI backend that handles vision OCR and vocabulary
@@ -40,7 +42,7 @@ enrichment through llama.cpp.
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| Flutter GUI | Dart, Material 3 | Desktop interface (Linux, macOS, Windows) |
+| Flutter GUI | Dart, Material 3 | Interface (Linux, macOS, Windows, Android) |
 | Python API | FastAPI, llama.cpp | Vision OCR and text enrichment backend |
 | Vision OCR | llama-mtmd-cli | Extract text from images (GPU accelerated) |
 | Text tasks | llama-server | Definitions, examples, vocabulary enrichment |
@@ -64,6 +66,48 @@ The only system requirement is **GTK 3** on Linux.
 
 > For building from source, have [Nix](https://zero-to-nix.com/start/install)
 > installed with flakes enabled.
+
+### Download a release (Android)
+
+#### 1. Download the APK
+
+Grab the latest APK (`ocr-to-anki-vX.Y.Z-android-arm64.apk`) from the
+[releases page](https://github.com/stradichenko/ocr-to-anki/releases)
+and transfer it to your phone:
+
+- **Option A — Direct download on phone:** Open the releases page in your
+  mobile browser and tap the APK file.
+- **Option B — Transfer from PC:** Download on your computer, then transfer
+  via USB, Bluetooth, or cloud storage (Google Drive, Nextcloud, etc.).
+
+#### 2. Install the APK
+
+- Open the file manager on your phone, navigate to the APK, and tap it.
+- If prompted, allow **"Install from unknown sources"** for your file manager
+  or browser. This is a standard Android security prompt for apps outside the
+  Play Store.
+- Tap **Install** and wait for the process to complete.
+
+> adb alternative (for developers):
+>
+> ```bash
+> adb install ocr-to-anki-v0.2.0-android-arm64.apk
+> ```
+
+#### 3. First launch setup
+
+On first run the app performs a one-time setup:
+
+1. **Extracts native binaries** — The bundled `llama-server` and
+   `llama-mtmd-cli` are copied to the app's private storage (~100 MB).
+2. **Downloads the AI model** — The Gemma 3 4B model (~2.4 GB) and vision
+   projector (~812 MB) are downloaded directly to your device.
+
+> **WiFi is required for the model download** unless you disabled
+> "WiFi-only downloads" in Settings. The download supports resume, so if
+> interrupted it will continue from where it left off.
+>
+> **Requirements:** Android 9+ (API 28), ARM64 device, ~4 GB free storage.
 
 ### Download a release (Linux)
 
@@ -134,6 +178,30 @@ nix build .#flutter-app
 ./result/bin/ocr-to-anki
 ```
 
+### Build for Android
+
+Requires the Android SDK and NDK:
+
+```bash
+# 1. Install Android NDK (via Android Studio or sdkmanager)
+export ANDROID_NDK=$HOME/Android/Sdk/ndk/27.0.11718014
+
+# 2. Build llama.cpp native binaries for Android
+cd ocr-to-anki
+./scripts/build-llama-android.sh
+
+# 3. Build the Flutter APK
+cd app
+flutter pub get
+flutter build apk --release
+
+# The APK is at: app/build/app/outputs/flutter-apk/app-release.apk
+```
+
+The build script cross-compiles `llama-server` and `llama-mtmd-cli` for ARM64
+and bundles them as Flutter assets. On first launch the app copies them to the
+device's private storage and sets executable permissions.
+
 See [docs/building.md](docs/building.md) for macOS, Windows, and advanced build
 options.
 
@@ -157,19 +225,27 @@ also fixes broken control token metadata.
 
 1. Select context: handwritten or printed text, or highlighted words (pick
    colour)
-2. Add images through the file picker or drag and drop
+2. Add images:
+   - **Desktop:** drag and drop, or use the file picker
+   - **Android:** tap **Camera** to take a photo, or **Gallery** to pick
+     existing photos (multi-select supported)
 3. Vision OCR: Gemma 3 extracts words from the image
 4. Enrich: the LLM generates definitions and example sentences
 5. Review: edit the generated cards before export
-6. Export: send to Anki via AnkiConnect, or save as TSV/JSON
+6. Export:
+   - **Desktop:** send to Anki via AnkiConnect, or save as TSV/JSON
+   - **Android:** share TSV directly to AnkiDroid via the share sheet
 
 ### Starting the backend
 
-The Flutter app manages the backend process automatically. When you launch the
-app, it spawns the FastAPI server and waits until it reports healthy. No manual
-server management is needed.
+The Flutter app manages the backend process automatically. No manual server
+management is needed.
 
-If you prefer to run the backend separately:
+- **Desktop:** spawns the Python FastAPI server on startup
+- **Android:** extracts bundled `llama-server` and `llama-mtmd-cli` binaries,
+  downloads the model on first launch, then starts `llama-server` directly
+
+If you prefer to run the backend separately on desktop:
 
 ```bash
 nix develop
@@ -200,11 +276,11 @@ Flutter desktop does not support cross-compilation. Each platform must be built
 on its native OS. The CI/CD workflow at `.github/workflows/build.yml` handles
 this using platform-specific runners.
 
-| Build host | Linux | macOS | Windows |
-|------------|-------|-------|---------|
-| Linux | yes | no | no |
-| macOS | no | yes | no |
-| Windows | no | no | yes |
+| Build host | Linux | macOS | Windows | Android             |
+|------------|-------|-------|---------|---------------------|
+| Linux      | yes   | no    | no      | yes (cross-compile) |
+| macOS      | no    | yes   | no      | no                  |
+| Windows    | no    | no    | yes     | no                  |
 
 ### macOS
 
@@ -234,7 +310,7 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-This creates a draft GitHub Release with Linux, macOS, and Windows artifacts.
+This creates a draft GitHub Release with Linux, macOS, Windows, and Android artifacts.
 See [docs/building.md](docs/building.md) for the full reference.
 
 ## Building llama-mtmd-cli (vision)
@@ -295,18 +371,59 @@ POST /enrich                  Vocabulary enrichment (definitions + examples)
 POST /pipeline/image-to-cards Full pipeline: image to OCR to enrich to Anki cards
 ```
 
+## Android Notes
+
+### Architecture
+
+On Android the app does **not** use the Python FastAPI backend. Instead, it
+bundles native `llama-server` and `llama-mtmd-cli` binaries compiled for ARM64.
+The Flutter app spawns these directly and communicates with `llama-server` over
+HTTP on `localhost:8090`. Vision OCR runs `llama-mtmd-cli` as a subprocess.
+
+This avoids the need for a Python runtime on Android while keeping all
+inference fully local and offline.
+
+### Camera and Gallery
+
+The Android home screen shows two prominent buttons:
+
+- **Camera** — opens the system camera to take a photo for OCR
+- **Gallery** — opens the photo picker (multi-select supported on Android 13+)
+
+No runtime permissions are needed on Android 13+; the photo picker uses the
+system UI. Camera access is handled automatically by the `image_picker` plugin.
+
+### Model Download
+
+The first time you launch the Android app, it downloads the Gemma 3 4B model
+(~2.4 GB) and vision projector (~812 MB) directly to the app's private storage.
+Downloads support resume, so if interrupted they will continue from where they
+left off.
+
+### AnkiDroid Export
+
+On Android, the "Export to Anki" button in the review screen generates a TSV
+file and opens the Android share sheet. Select **AnkiDroid** from the share
+sheet to import the cards. AnkiDroid must be installed on the device.
+
 ## Project Structure
 
 ```
 app/                        Flutter GUI application
+  android/                  Android platform files
+    app/src/main/
+      AndroidManifest.xml   Permissions (camera, storage, internet)
+      assets/               Bundled native llama.cpp binaries (ARM64)
   lib/
     main.dart               Entry point and routing
     models/                 Data models (AnkiNote, AppSettings, HighlightColor)
     services/               Business logic
-      inference_service.dart      LLM inference (talks to FastAPI)
-      highlight_detector.dart     HSV highlight colour detection
-      anki_export_service.dart    AnkiConnect and JSON export
-      backend_server_service.dart Backend process lifecycle
+      inference_service.dart        LLM inference (FastAPI or native)
+      highlight_detector.dart       HSV highlight colour detection
+      anki_export_service.dart      AnkiConnect / AnkiDroid / JSON export
+      backend_server_service.dart   Python backend process lifecycle
+      llama_cpp_android_service.dart Native binary management (Android)
+      model_download_service.dart   Resume-capable model downloads (Android)
     database/               Drift (SQLite) local storage
     providers/              Riverpod state management
     screens/                Home, Processing, Review, Settings, History
@@ -326,6 +443,7 @@ config/
   settings.yaml             All configuration
 scripts/                    Build and setup scripts
   build-flutter.sh          Build Flutter for Linux/macOS/Windows
+  build-llama-android.sh    Cross-compile llama.cpp for Android ARM64
   bundle-backend.sh         Bundle Python backend with PyInstaller
   setup-llama-cpp.sh        Download model and vision projector
   build-llama-mtmd-*.sh     Build llama-mtmd-cli with various GPU backends

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -161,6 +162,20 @@ final backendServerProvider = Provider<BackendServerService>((ref) {
   return server;
 });
 
+/// Android-native llama.cpp service (binaries + server lifecycle).
+final llamaCppAndroidProvider = Provider<LlamaCppAndroidService>((ref) {
+  final service = LlamaCppAndroidService();
+  ref.onDispose(() {
+    service.stopServer(); // fire-and-forget
+  });
+  return service;
+});
+
+/// Model download service for Android.
+final modelDownloadProvider = Provider<ModelDownloadService>((ref) {
+  return ModelDownloadService();
+});
+
 /// Tracks whether the backend server is ready.
 ///
 /// The [ServerStartupNotifier] is initialised eagerly by the startup gate
@@ -216,6 +231,129 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
   }
 
   Future<void> _boot() async {
+    if (Platform.isAndroid) {
+      await _bootAndroid();
+      return;
+    }
+    await _bootDesktop();
+  }
+
+  /// Android boot sequence: extract native binaries, download models, start llama-server.
+  Future<void> _bootAndroid() async {
+    try {
+      final llama = ref.read(llamaCppAndroidProvider);
+
+      // Step 1: Extract native binaries from assets.
+      state = const ServerStartupState(
+        status: ServerStatus.starting,
+        message: 'Extracting native binaries…',
+      );
+      await llama.ensureBinaries();
+      if (_disposed) return;
+
+      // Step 2: Check / download models.
+      final modelsExist = await llama.modelsExist;
+      if (_disposed) return;
+
+      if (!modelsExist) {
+        final settings = ref.read(settingsProvider);
+
+        // WiFi-only download guard.
+        if (settings.wifiOnlyDownloads) {
+          final connectivity = await Connectivity().checkConnectivity();
+          final hasWifi = connectivity.contains(ConnectivityResult.wifi);
+          if (!hasWifi) {
+            state = const ServerStartupState(
+              status: ServerStatus.error,
+              message:
+                  'WiFi required for model download (~3.2 GB). '
+                  'Connect to WiFi and tap retry, or disable "WiFi-only downloads" in Settings.',
+            );
+            return;
+          }
+        }
+
+        final downloader = ref.read(modelDownloadProvider);
+        state = const ServerStartupState(
+          status: ServerStatus.downloading,
+          message: 'Downloading AI model (~3.2 GB, one-time setup)…',
+        );
+        try {
+          await downloader.downloadAll(
+            onProgress: (downloaded, total, file) {
+              if (_disposed) return;
+              state = ServerStartupState(
+                status: ServerStatus.downloading,
+                message: 'Downloading $file…',
+                downloadFile: file,
+                downloadedBytes: downloaded,
+                totalBytes: total,
+              );
+            },
+          );
+          if (_disposed) return;
+        } catch (dlErr) {
+          if (_disposed) return;
+          final dlMsg = dlErr.toString().toLowerCase();
+          String dlUserMessage;
+          if (dlMsg.contains('cancelled')) {
+            dlUserMessage = 'Download cancelled by user.';
+          } else if (dlMsg.contains('no space') || dlMsg.contains('nospace')) {
+            dlUserMessage = 'Download failed: not enough storage space. Free up ~3.5 GB and retry.';
+          } else if (dlMsg.contains('socket') || dlMsg.contains('connection') || dlMsg.contains('http')) {
+            dlUserMessage = 'Download failed: network error. Check your internet connection and retry.';
+          } else {
+            dlUserMessage = 'Model download failed: $dlErr';
+          }
+          state = ServerStartupState(
+            status: ServerStatus.error,
+            message: dlUserMessage,
+          );
+          return;
+        }
+      }
+
+      // Step 3: Start llama-server.
+      state = const ServerStartupState(
+        status: ServerStatus.starting,
+        message: 'Starting language model server…',
+      );
+      await llama.startServer();
+      if (_disposed) return;
+
+      state = const ServerStartupState(
+        status: ServerStatus.ready,
+        message: 'Backend ready.',
+      );
+
+      // Opportunistic update check (fire-and-forget).
+      ref.read(updateProvider.notifier).check();
+    } catch (e) {
+      if (_disposed) return;
+      final msg = e.toString().toLowerCase();
+      String userMessage;
+      if (msg.contains('no space') || msg.contains('nospace')) {
+        userMessage = 'Storage full: not enough space to extract binaries or download models. Free up space and retry.';
+      } else if (msg.contains('permission') || msg.contains('denied')) {
+        userMessage = 'Permission denied: the app cannot write to storage. Check app permissions in Settings.';
+      } else if (msg.contains(' prematurely') || msg.contains('exit code')) {
+        userMessage = 'AI server crashed during startup. This may be due to insufficient RAM or a corrupted model file. Try restarting the app.';
+      } else if (msg.contains('model not found') || msg.contains('vision projector')) {
+        userMessage = 'Model files missing or corrupted. The app will try re-downloading on next launch.';
+      } else if (msg.contains('socket') || msg.contains('connection refused')) {
+        userMessage = 'Cannot connect to the local AI server. It may have been killed by the system. Tap retry to restart it.';
+      } else {
+        userMessage = 'Failed to start Android backend: $e';
+      }
+      state = ServerStartupState(
+        status: ServerStatus.error,
+        message: userMessage,
+      );
+    }
+  }
+
+  /// Desktop boot sequence: Python backend + auto-downloads.
+  Future<void> _bootDesktop() async {
     try {
       final server = ref.read(backendServerProvider);
       state = const ServerStartupState(
@@ -499,7 +637,10 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
 
 final inferenceServiceProvider = Provider<InferenceService>((ref) {
   final settings = ref.watch(settingsProvider);
-  return InferenceService(settings: settings);
+  final android = Platform.isAndroid
+      ? ref.read(llamaCppAndroidProvider)
+      : null;
+  return InferenceService(settings: settings, androidService: android);
 });
 
 final ankiExportServiceProvider = Provider<AnkiExportService>((ref) {
@@ -571,6 +712,9 @@ class UpdateNotifier extends Notifier<UpdateState> {
 
   /// Check for updates if auto-check is enabled and not already checked.
   Future<void> check({bool force = false}) async {
+    // Android uses APK sideloading — in-app auto-updater is desktop-only.
+    if (Platform.isAndroid) return;
+
     final settings = ref.read(settingsProvider);
     if (!force && !settings.autoCheckUpdates) return;
     if (state.status == UpdateStatus.checking) return;
@@ -828,6 +972,10 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     );
 
     try {
+      if (Platform.isAndroid) {
+        await ForegroundTaskService.start(detail: 'Enriching words…');
+      }
+
       state = const ProcessingState().copyWith(
         phase: ProcessingPhase.wordReview,
         progress: 0.62,
@@ -884,9 +1032,11 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           final serverOk = await inference.isAvailable();
           if (!serverOk) {
             final detail = inference.debugMessage ?? 'no details';
+            final hint = Platform.isAndroid
+                ? 'Make sure the app finished its initial setup.'
+                : 'Make sure the FastAPI backend is running.';
             throw Exception(
-              'Cannot reach inference server at ${settings.serverUrl} ($detail). '
-              'Make sure the FastAPI backend is running.',
+              'Cannot reach inference server ($detail). $hint',
             );
           }
 
@@ -1028,6 +1178,9 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
         );
       }
     } finally {
+      if (Platform.isAndroid) {
+        await ForegroundTaskService.stop();
+      }
       stopwatch.stop();
       _heartbeat?.cancel();
       _heartbeat = null;
@@ -1081,6 +1234,12 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     );
 
     try {
+      if (Platform.isAndroid) {
+        await ForegroundTaskService.start(
+          detail: 'Processing ${images.length} image(s)...',
+        );
+      }
+
       final names = images.map((i) => i.name).join(', ');
       state = const ProcessingState().copyWith(
         phase: ProcessingPhase.ocr,
@@ -1118,12 +1277,14 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       final serverOk = await inference.isAvailable();
       if (!serverOk) {
         final detail = inference.debugMessage ?? 'no details';
+        final hint = Platform.isAndroid
+            ? 'Make sure the app finished its initial setup.'
+            : 'Make sure the FastAPI backend is running.';
         throw Exception(
-          'Cannot reach inference server at ${settings.serverUrl} ($detail). '
-          'Make sure the FastAPI backend is running.',
+          'Cannot reach inference server ($detail). $hint',
         );
       }
-      _log('Server is online (${settings.serverUrl})', progress: 0.08);
+      _log('Server is online', progress: 0.08);
 
       // Steps 2-3: For each image → crop (if highlighted) → OCR.
       final allWords = <String>[];
@@ -1781,6 +1942,10 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           statusMessage: 'Error: $e',
           activityLog: log,
         );
+      }
+    } finally {
+      if (Platform.isAndroid) {
+        await ForegroundTaskService.stop();
       }
     }
   }
