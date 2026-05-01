@@ -164,6 +164,7 @@ jobs:
       - name: Build Flutter Windows release
         run: |
           cd app
+          flutter config --no-analytics
           flutter pub get
           flutter build windows --release
 
@@ -175,6 +176,11 @@ jobs:
           mkdir -p "output/release/$ARCHIVE"
 
           BUNDLE_DIR="$(find app/build/windows -path '*/runner/Release' -type d | head -1)"
+          if [[ -z "$BUNDLE_DIR" ]] || [[ ! -d "$BUNDLE_DIR" ]]; then
+            echo "[ERR] Windows release bundle not found in app/build/windows"
+            find app/build/windows -type d || true
+            exit 1
+          fi
           cp -r "$BUNDLE_DIR"/* "output/release/$ARCHIVE/"
 
           mkdir -p "output/release/$ARCHIVE/backend"
@@ -188,6 +194,7 @@ jobs:
           echo "ARTIFACT=${ARCHIVE}.zip" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: windows-release
           path: output/release/${{ env.ARTIFACT }}
@@ -238,14 +245,20 @@ jobs:
           ARCHIVE="ocr-to-anki-${VERSION}-android-arm64"
           mkdir -p "output/release/$ARCHIVE"
 
-          cp "app/build/app/outputs/flutter-apk/app-release.apk" \
-             "output/release/$ARCHIVE/ocr-to-anki-${VERSION}.apk"
+          APK="app/build/app/outputs/flutter-apk/app-release.apk"
+          if [[ ! -f "$APK" ]]; then
+            echo "[ERR] APK not found at $APK"
+            find app/build -name "*.apk" || true
+            exit 1
+          fi
+          cp "$APK" "output/release/$ARCHIVE/ocr-to-anki-${VERSION}.apk"
 
           cd output/release
           zip -qr "${ARCHIVE}.zip" "$ARCHIVE"
           echo "ARTIFACT=${ARCHIVE}.zip" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: android-release
           path: output/release/${{ env.ARTIFACT }}

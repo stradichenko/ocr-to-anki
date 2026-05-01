@@ -103,34 +103,29 @@ fi
 
 mkdir -p "$BUILD_DIR"
 
-clone_or_update() {
-    if [[ -d "$SRC_DIR/.git" ]]; then
-        echo ":: Updating llama.cpp..."
-        cd "$SRC_DIR"
-        git fetch origin "$LLAMA_CPP_REF" 2>/dev/null || git fetch origin
-        git checkout "$LLAMA_CPP_REF"
-    else
-        echo ":: Cloning llama.cpp ($LLAMA_CPP_REF)..."
-        # Shallow clone first for speed; fall back to full clone if the
-        # commit is not reachable from recent refs (common in CI).
-        if git clone --depth 1 "$LLAMA_CPP_REPO" "$SRC_DIR" 2>/dev/null; then
-            cd "$SRC_DIR"
-            if git fetch --depth 1 origin "$LLAMA_CPP_REF" 2>/dev/null; then
-                git checkout FETCH_HEAD
-                return
-            fi
-            # Shallow fetch failed — deepen history
-            echo ":: Deepening clone to reach $LLAMA_CPP_REF..."
-            git fetch origin
-            git checkout "$LLAMA_CPP_REF"
-        else
-            git clone "$LLAMA_CPP_REPO" "$SRC_DIR"
-            cd "$SRC_DIR"
-            git checkout "$LLAMA_CPP_REF"
-        fi
-    fi
-}
-clone_or_update
+# ------------------------------------------------------------------
+# 3. Clone / update llama.cpp
+# ------------------------------------------------------------------
+SRC_DIR="$BUILD_DIR/llama.cpp"
+
+if [[ "$CLEAN" == true ]] && [[ -d "$BUILD_DIR" ]]; then
+    echo ":: Cleaning previous build..."
+    rm -rf "$BUILD_DIR"
+fi
+
+mkdir -p "$BUILD_DIR"
+
+if [[ -d "$SRC_DIR/.git" ]]; then
+    echo ":: Updating llama.cpp..."
+    cd "$SRC_DIR"
+    git fetch origin
+    git checkout "$LLAMA_CPP_REF"
+else
+    echo ":: Cloning llama.cpp ($LLAMA_CPP_REF)..."
+    git clone "$LLAMA_CPP_REPO" "$SRC_DIR"
+    cd "$SRC_DIR"
+    git checkout "$LLAMA_CPP_REF"
+fi
 
 cd "$SRC_DIR"
 COMMIT=$(git rev-parse --short HEAD)
