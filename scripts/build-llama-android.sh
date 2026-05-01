@@ -110,10 +110,10 @@ if [[ -d "$SRC_DIR/.git" ]]; then
     git checkout FETCH_HEAD
 else
     echo ":: Cloning llama.cpp ($LLAMA_CPP_REF)..."
-    git clone --depth 1 --branch "$LLAMA_CPP_REF" "$LLAMA_CPP_REPO" "$SRC_DIR" 2>/dev/null \
-        || git clone --depth 1 "$LLAMA_CPP_REPO" "$SRC_DIR"
+    git clone --depth 1 "$LLAMA_CPP_REPO" "$SRC_DIR"
     cd "$SRC_DIR"
-    git checkout "$LLAMA_CPP_REF"
+    git fetch --depth 1 origin "$LLAMA_CPP_REF"
+    git checkout FETCH_HEAD
 fi
 
 cd "$SRC_DIR"
