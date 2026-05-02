@@ -58,6 +58,7 @@ data/*
 *.jpeg
 *.png
 !app/macos/Runner/Assets.xcassets/AppIcon.appiconset/*.png
+!app/android/app/src/main/res/mipmap-*/ic_launcher.png
 *.gif
 *.bmp
 *.tiff
