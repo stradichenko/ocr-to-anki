@@ -17,8 +17,8 @@ BUILD_DIR="$PROJECT_DIR/.build/llama-cpp-android"
 ASSETS_DIR="$PROJECT_DIR/app/assets/llama-binaries/arm64-v8a"
 LLAMA_CPP_REPO="https://github.com/ggerganov/llama.cpp.git"
 
-# Use a known-good tag (update when desktop builds move to a newer ref)
-LLAMA_CPP_REF="${LLAMA_CPP_REF:-master-fff0e0e}"
+# Track master; override via LLAMA_CPP_REF env var to pin a commit/tag.
+LLAMA_CPP_REF="${LLAMA_CPP_REF:-master}"
 
 CLEAN=false
 GPU=false
