@@ -197,6 +197,7 @@ class ServerStartupState {
     this.downloadFile = '',
     this.downloadedBytes = 0,
     this.totalBytes = 0,
+    this.technicalDetail,
   });
   final ServerStatus status;
   final String message;
@@ -209,6 +210,10 @@ class ServerStartupState {
 
   /// Total bytes expected (0 = unknown).
   final int totalBytes;
+
+  /// Raw exception text + stderr/log buffer for the error screen's
+  /// "technical details" panel and "Copy diagnostics" button.
+  final String? technicalDetail;
 
   /// Convenience: download progress as 0..1 (or 0 when unknown).
   double get downloadProgress =>
@@ -292,7 +297,7 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
             },
           );
           if (_disposed) return;
-        } catch (dlErr) {
+        } catch (dlErr, dlStack) {
           if (_disposed) return;
           final dlMsg = dlErr.toString().toLowerCase();
           String dlUserMessage;
@@ -303,11 +308,12 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
           } else if (dlMsg.contains('socket') || dlMsg.contains('connection') || dlMsg.contains('http')) {
             dlUserMessage = 'Download failed: network error. Check your internet connection and retry.';
           } else {
-            dlUserMessage = 'Model download failed: $dlErr';
+            dlUserMessage = 'Model download failed. See technical details below.';
           }
           state = ServerStartupState(
             status: ServerStatus.error,
             message: dlUserMessage,
+            technicalDetail: '$dlErr\n\nStack trace:\n$dlStack',
           );
           return;
         }
@@ -328,26 +334,34 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
 
       // Opportunistic update check (fire-and-forget).
       ref.read(updateProvider.notifier).check();
-    } catch (e) {
+    } catch (e, stack) {
       if (_disposed) return;
-      final msg = e.toString().toLowerCase();
+      final errStr = e.toString();
+      final msg = errStr.toLowerCase();
       String userMessage;
-      if (msg.contains('no space') || msg.contains('nospace')) {
+      // Order matters: check "exited prematurely / exec failed" before
+      // "permission" because the noexec EACCES case ends up matching both
+      // and the exec story is more accurate.
+      if (msg.contains('exited prematurely') ||
+          msg.contains('exit code') ||
+          msg.contains('failed to launch') ||
+          msg.contains('did not become healthy')) {
+        userMessage = 'AI server failed to start. The native binary may not be executable on this Android device. See technical details below.';
+      } else if (msg.contains('no space') || msg.contains('nospace')) {
         userMessage = 'Storage full: not enough space to extract binaries or download models. Free up space and retry.';
-      } else if (msg.contains('permission') || msg.contains('denied')) {
-        userMessage = 'Permission denied: the app cannot write to storage. Check app permissions in Settings.';
-      } else if (msg.contains(' prematurely') || msg.contains('exit code')) {
-        userMessage = 'AI server crashed during startup. This may be due to insufficient RAM or a corrupted model file. Try restarting the app.';
       } else if (msg.contains('model not found') || msg.contains('vision projector')) {
         userMessage = 'Model files missing or corrupted. The app will try re-downloading on next launch.';
       } else if (msg.contains('socket') || msg.contains('connection refused')) {
         userMessage = 'Cannot connect to the local AI server. It may have been killed by the system. Tap retry to restart it.';
+      } else if (msg.contains('permission') || msg.contains('denied') || msg.contains('eacces')) {
+        userMessage = 'Permission denied. Most likely Android is blocking the binary from being executed from app storage. See technical details below.';
       } else {
-        userMessage = 'Failed to start Android backend: $e';
+        userMessage = 'Failed to start Android backend. See technical details below.';
       }
       state = ServerStartupState(
         status: ServerStatus.error,
         message: userMessage,
+        technicalDetail: '$errStr\n\nStack trace:\n$stack',
       );
     }
   }
@@ -377,11 +391,12 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
         try {
           await _downloadLlamaAuto(server.url);
           if (_disposed) return;
-        } catch (dlErr) {
+        } catch (dlErr, dlStack) {
           if (_disposed) return;
           state = ServerStartupState(
             status: ServerStatus.error,
-            message: 'Vision engine download failed: $dlErr',
+            message: 'Vision engine download failed. See technical details below.',
+            technicalDetail: '$dlErr\n\nStack trace:\n$dlStack',
           );
           return;
         }
@@ -396,11 +411,12 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
         try {
           await _downloadModelsAuto(server.url);
           if (_disposed) return;
-        } catch (dlErr) {
+        } catch (dlErr, dlStack) {
           if (_disposed) return;
           state = ServerStartupState(
             status: ServerStatus.error,
-            message: 'Model download failed: $dlErr',
+            message: 'Model download failed. See technical details below.',
+            technicalDetail: '$dlErr\n\nStack trace:\n$dlStack',
           );
           return;
         }

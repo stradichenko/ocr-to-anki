@@ -220,70 +220,123 @@ class _ServerStartupGate extends ConsumerWidget {
           ),
         ),
       ServerStatus.error => Scaffold(
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.error_outline,
-                      size: 48, color: theme.colorScheme.error),
-                  const SizedBox(height: 16),
-                  Text('Backend failed to start',
-                      style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 260),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: SingleChildScrollView(
-                      child: SelectableText(
-                        startup.message,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontFamily: 'monospace',
+          body: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Icon(Icons.error_outline,
+                          size: 48, color: theme.colorScheme.error),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Backend failed to start',
+                        style: theme.textTheme.titleLarge,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: SingleChildScrollView(
+                          child: SelectableText(
+                            startup.message,
+                            style: theme.textTheme.bodyMedium,
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: () =>
-                            ref.read(serverStartupProvider.notifier).retry(),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Retry'),
-                      ),
-                      const SizedBox(width: 12),
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          Clipboard.setData(
-                              ClipboardData(text: startup.message));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Error copied to clipboard'),
-                              duration: Duration(seconds: 2),
+                      if (startup.technicalDetail != null) ...[
+                        const SizedBox(height: 12),
+                        Theme(
+                          data: theme.copyWith(
+                            dividerColor: Colors.transparent,
+                          ),
+                          child: ExpansionTile(
+                            tilePadding:
+                                const EdgeInsets.symmetric(horizontal: 8),
+                            childrenPadding: EdgeInsets.zero,
+                            title: Text(
+                              'Technical details',
+                              style: theme.textTheme.labelLarge,
                             ),
-                          );
-                        },
-                        icon: const Icon(Icons.copy),
-                        label: const Text('Copy'),
-                      ),
-                      const SizedBox(width: 12),
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).pushNamed('/settings');
-                        },
-                        icon: const Icon(Icons.settings),
-                        label: const Text('Settings'),
+                            children: [
+                              Container(
+                                constraints:
+                                    const BoxConstraints(maxHeight: 320),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.surfaceContainerLow,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: theme.colorScheme.outlineVariant,
+                                  ),
+                                ),
+                                child: SingleChildScrollView(
+                                  child: SelectableText(
+                                    startup.technicalDetail!,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontFamily: 'monospace',
+                                      fontFamilyFallback: const [
+                                        'Courier',
+                                        'monospace'
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 12,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () => ref
+                                .read(serverStartupProvider.notifier)
+                                .retry(),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Retry'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              final diagnostics = _buildDiagnostics(startup);
+                              Clipboard.setData(
+                                  ClipboardData(text: diagnostics));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content:
+                                      Text('Diagnostics copied to clipboard'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.copy),
+                            label: const Text('Copy diagnostics'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).pushNamed('/settings');
+                            },
+                            icon: const Icon(Icons.settings),
+                            label: const Text('Settings'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -294,4 +347,22 @@ class _ServerStartupGate extends ConsumerWidget {
 
   static String _megabytes(int bytes) =>
       (bytes / (1024 * 1024)).toStringAsFixed(1);
+
+  /// Build a diagnostics blob the user can paste into a bug report.
+  static String _buildDiagnostics(ServerStartupState startup) {
+    final buf = StringBuffer()
+      ..writeln('=== OCR-to-Anki diagnostics ===')
+      ..writeln('Time:    ${DateTime.now().toIso8601String()}')
+      ..writeln('OS:      ${Platform.operatingSystem} '
+          '${Platform.operatingSystemVersion}')
+      ..writeln('Locale:  ${Platform.localeName}')
+      ..writeln('Status:  ${startup.status.name}')
+      ..writeln()
+      ..writeln('--- User-facing message ---')
+      ..writeln(startup.message)
+      ..writeln()
+      ..writeln('--- Technical details ---')
+      ..writeln(startup.technicalDetail ?? '(none captured)');
+    return buf.toString();
+  }
 }

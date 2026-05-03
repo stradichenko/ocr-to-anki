@@ -23,6 +23,10 @@ class LlamaCppAndroidService {
   /// Whether binaries have been extracted from assets.
   bool _binariesReady = false;
 
+  /// Rolling buffer of llama-server stderr lines, kept while the process
+  /// is alive so we can surface them on health-check failure.
+  final List<String> _serverStderrLines = [];
+
   /// URL of the running llama-server, or null if not running.
   String? get serverUrl => _serverUrl;
 
@@ -120,27 +124,79 @@ class LlamaCppAndroidService {
     }
 
     final port = 8090;
+    final binaryPath = '$_binDir/llama-server';
     final env = Map<String, String>.from(Platform.environment);
     // Help the dynamic linker find libc++_shared.so if needed.
     if (Directory(_libDir).existsSync()) {
       env['LD_LIBRARY_PATH'] = _libDir;
     }
 
-    _serverProcess = await Process.start(
-      '$_binDir/llama-server',
-      [
-        '-m', model,
-        '--host', '127.0.0.1',
-        '--port', '$port',
-        '-c', '4096',
-        '-np', '1',
-        '--cache-type-k', 'q4_0',
-        '--slots',
-      ],
-      environment: env,
-    );
+    // Diagnostics about the binary itself — captured up front so error
+    // paths can attach them.
+    final binFile = File(binaryPath);
+    final binExists = binFile.existsSync();
+    final binSize = binExists ? binFile.lengthSync() : 0;
+    String binStat = '(stat unavailable)';
+    try {
+      final r = await Process.run('ls', ['-l', binaryPath]);
+      if (r.exitCode == 0) binStat = (r.stdout as String).trim();
+    } catch (_) {}
+
+    String binDiagnostics() => [
+          'binary:   $binaryPath',
+          'exists:   $binExists',
+          'size:     $binSize bytes',
+          'ls -l:    $binStat',
+          'libDir:   $_libDir (exists=${Directory(_libDir).existsSync()})',
+          'model:    $model (size=${File(model).existsSync() ? File(model).lengthSync() : 0} bytes)',
+        ].join('\n');
+
+    _serverStderrLines.clear();
+    try {
+      _serverProcess = await Process.start(
+        binaryPath,
+        [
+          '-m', model,
+          '--host', '127.0.0.1',
+          '--port', '$port',
+          '-c', '4096',
+          '-np', '1',
+          '--cache-type-k', 'q4_0',
+          '--slots',
+        ],
+        environment: env,
+      );
+    } on ProcessException catch (pe) {
+      throw StateError(
+        'Failed to launch llama-server.\n'
+        'ProcessException: ${pe.message}\n'
+        'errno:    ${pe.errorCode}\n'
+        'executable: ${pe.executable}\n'
+        '${binDiagnostics()}',
+      );
+    } catch (e) {
+      throw StateError(
+        'Failed to launch llama-server: $e\n${binDiagnostics()}',
+      );
+    }
 
     _serverUrl = 'http://127.0.0.1:$port';
+
+    // Tee stderr into a rolling buffer so we have context even when
+    // the process is alive but failing health checks.
+    _serverProcess!.stderr
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+      _serverStderrLines.add(line);
+      if (_serverStderrLines.length > 200) {
+        _serverStderrLines.removeAt(0);
+      }
+    }, onError: (_) {});
+
+    // Drain stdout to avoid the OS pipe buffer filling up and blocking
+    // the child process. We don't need the content.
+    _serverProcess!.stdout.drain<void>().catchError((_) {});
 
     // Wait for server to be ready with detailed diagnostics.
     String? lastError;
@@ -162,28 +218,30 @@ class LlamaCppAndroidService {
             .then((_) => true)
             .catchError((_) => false);
         if (exited) {
-          final stderr = _serverProcess?.stderr;
-          var errText = '';
-          if (stderr != null) {
-            try {
-              errText = await stderr
-                  .transform(const Utf8Decoder())
-                  .take(50)
-                  .join('\n');
-            } catch (_) {}
-          }
+          final exitCode = await _serverProcess!.exitCode
+              .catchError((_) => -1);
+          final errText = _serverStderrLines.isNotEmpty
+              ? _serverStderrLines.join('\n')
+              : '(empty)';
           _serverProcess = null;
           _serverUrl = null;
           throw StateError(
-            'llama-server exited prematurely.\n'
-            'Stderr: ${errText.isNotEmpty ? errText : "(empty)"}',
+            'llama-server exited prematurely (exit code $exitCode).\n'
+            '${binDiagnostics()}\n\n'
+            '--- stderr ---\n$errText',
           );
         }
       }
     }
 
+    final errText = _serverStderrLines.isNotEmpty
+        ? _serverStderrLines.join('\n')
+        : '(empty)';
     throw StateError(
-      'llama-server failed to start within 30s. Last error: $lastError',
+      'llama-server did not become healthy within 30s.\n'
+      'Last health-check error: $lastError\n'
+      '${binDiagnostics()}\n\n'
+      '--- stderr ---\n$errText',
     );
   }
 
