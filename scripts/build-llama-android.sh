@@ -14,7 +14,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/.build/llama-cpp-android"
-ASSETS_DIR="$PROJECT_DIR/app/assets/llama-binaries/arm64-v8a"
+# Binaries are placed under jniLibs so Android extracts them to nativeLibraryDir
+# at install time. App-private storage is mounted noexec on modern Android, so
+# files copied to /data/user/0/<pkg>/ cannot be execve'd. nativeLibraryDir
+# (/data/app/.../lib/arm64/) is the only place execve works from.
+JNILIBS_DIR="$PROJECT_DIR/app/android/app/src/main/jniLibs/arm64-v8a"
 LLAMA_CPP_REPO="https://github.com/ggerganov/llama.cpp.git"
 
 # Track master; override via LLAMA_CPP_REF env var to pin a commit/tag.
@@ -242,17 +246,19 @@ echo "   llama-server:     $(du -h "$SERVER_BIN" | cut -f1)"
 echo "   llama-mtmd-cli:   $(du -h "$MTMD_BIN" | cut -f1)"
 
 # ------------------------------------------------------------------
-# 7. Copy binaries and libraries to assets
+# 7. Copy binaries and libraries to jniLibs (renamed lib*.so so the
+#    Android packager treats them as native libraries and extracts
+#    them to nativeLibraryDir at install time)
 # ------------------------------------------------------------------
-mkdir -p "$ASSETS_DIR"
-cp "$SERVER_BIN" "$ASSETS_DIR/llama-server"
-cp "$MTMD_BIN" "$ASSETS_DIR/llama-mtmd-cli"
+mkdir -p "$JNILIBS_DIR"
+cp "$SERVER_BIN" "$JNILIBS_DIR/libllama-server.so"
+cp "$MTMD_BIN" "$JNILIBS_DIR/libllama-mtmd-cli.so"
 
 # Copy libc++_shared.so if needed (for c++_shared STL)
 # The NDK build uses c++_shared by default
 STL_LIB=$(find "$ANDROID_NDK" -path "*/libc++_shared.so" 2>/dev/null | grep "aarch64-linux-android" | head -1)
 if [[ -n "$STL_LIB" ]]; then
-    cp "$STL_LIB" "$ASSETS_DIR/libc++_shared.so"
+    cp "$STL_LIB" "$JNILIBS_DIR/libc++_shared.so"
     echo "   libc++_shared.so: $(du -h "$STL_LIB" | cut -f1)"
 fi
 
@@ -262,12 +268,13 @@ fi
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
-echo "║  [OK] Binaries copied to app assets:             ║"
-echo "║     $ASSETS_DIR"
+echo "║  [OK] Binaries copied to jniLibs:                ║"
+echo "║     $JNILIBS_DIR"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 echo "Next steps:"
-echo "  1. Ensure pubspec.yaml includes: assets/llama-binaries/"
+echo "  1. Ensure app/android/app/build.gradle.kts has:"
+echo "     packaging { jniLibs { useLegacyPackaging = true } }"
 echo "  2. Build Flutter app: cd app && flutter build apk"
 echo ""
 if [[ "$GPU" == true ]]; then

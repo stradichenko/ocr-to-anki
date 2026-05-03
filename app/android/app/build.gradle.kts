@@ -37,6 +37,17 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // Native binaries (llama-server, llama-mtmd-cli) ship as lib*.so under
+    // jniLibs/arm64-v8a. Modern Android (API 23+) keeps native libs inside
+    // the APK and serves them via mmap for dlopen, but execve needs a real
+    // file path. useLegacyPackaging=true forces extraction to nativeLibraryDir
+    // (/data/app/.../lib/arm64/) at install time so we can spawn them.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 flutter {

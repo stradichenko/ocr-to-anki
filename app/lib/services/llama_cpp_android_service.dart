@@ -1,26 +1,36 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 /// Manages llama.cpp native binaries on Android.
 ///
-/// On first use, copies the bundled ARM64 binaries from Flutter assets
-/// to the app's private storage and sets executable permissions.
-/// Then spawns llama-server and runs llama-mtmd-cli for vision OCR.
+/// The binaries ship as `lib*.so` files under `jniLibs/arm64-v8a/` and are
+/// extracted by Android to `applicationInfo.nativeLibraryDir` at install
+/// time. App-private storage (`/data/user/0/<pkg>/`) is mounted `noexec`
+/// on modern Android, so files copied there cannot be `execve`'d — only
+/// the native lib dir is exec-allowed.
+///
+/// We invoke `llama-server` (renamed `libllama-server.so`) and
+/// `llama-mtmd-cli` (renamed `libllama-mtmd-cli.so`) directly from that dir.
 class LlamaCppAndroidService {
   LlamaCppAndroidService();
+
+  static const _channel =
+      MethodChannel('com.ocrtoanki.ocr_to_anki/native_lib_dir');
 
   Process? _serverProcess;
   String? _serverUrl;
 
-  /// Directory where binaries and models are stored.
+  /// Directory for downloaded GGUF models and temp files.
   Directory? _appDir;
 
-  /// Whether binaries have been extracted from assets.
+  /// Path to the Android nativeLibraryDir, where lib*.so files are extracted.
+  String? _nativeLibDir;
+
+  /// Whether binaries have been located.
   bool _binariesReady = false;
 
   /// Rolling buffer of llama-server stderr lines, kept while the process
@@ -34,65 +44,50 @@ class LlamaCppAndroidService {
   bool get isServerRunning => _serverProcess != null;
 
   // ---------------------------------------------------------------------------
-  // Binary extraction
+  // Native lib dir lookup
   // ---------------------------------------------------------------------------
 
-  /// Copy native binaries from Flutter assets to app storage.
+  /// Resolve the nativeLibraryDir from Android and verify the binaries are there.
   Future<void> ensureBinaries() async {
     if (_binariesReady) return;
 
+    // App docs dir is still used for downloaded models and temp files.
     final appDir = await getApplicationDocumentsDirectory();
     _appDir = Directory('${appDir.path}/llama_cpp');
     await _appDir!.create(recursive: true);
 
-    final binDir = Directory('${_appDir!.path}/bin');
-    await binDir.create(recursive: true);
-
-    const binaries = ['llama-server', 'llama-mtmd-cli'];
-    for (final name in binaries) {
-      final assetPath = 'assets/llama-binaries/arm64-v8a/$name';
-      final destPath = '${binDir.path}/$name';
-
-      final destFile = File(destPath);
-      if (await destFile.exists()) {
-        // Already extracted — verify it's executable.
-        await _chmod(destPath, '755');
-        continue;
-      }
-
-      final byteData = await rootBundle.load(assetPath);
-      final bytes = byteData.buffer.asUint8List();
-      await destFile.writeAsBytes(bytes);
-      await _chmod(destPath, '755');
+    // Ask Android for nativeLibraryDir via the method channel registered in
+    // MainActivity.kt. This is the only directory on modern Android where
+    // app-shipped binaries can be exec'd.
+    final dir = await _channel.invokeMethod<String>('getNativeLibDir');
+    if (dir == null || dir.isEmpty) {
+      throw StateError(
+        'Android nativeLibraryDir is unavailable. '
+        'Method channel returned null/empty.',
+      );
     }
+    _nativeLibDir = dir;
 
-    // Copy libc++_shared.so if bundled.
-    final stlAsset = 'assets/llama-binaries/arm64-v8a/libc++_shared.so';
-    try {
-      final byteData = await rootBundle.load(stlAsset);
-      final libDir = Directory('${_appDir!.path}/lib');
-      await libDir.create(recursive: true);
-      final destFile = File('${libDir.path}/libc++_shared.so');
-      if (!await destFile.exists()) {
-        await destFile.writeAsBytes(byteData.buffer.asUint8List());
+    // Verify the expected lib*.so files were extracted by the installer.
+    const expected = ['libllama-server.so', 'libllama-mtmd-cli.so'];
+    for (final name in expected) {
+      final f = File('$_nativeLibDir/$name');
+      if (!f.existsSync()) {
+        throw StateError(
+          'Native binary missing: $_nativeLibDir/$name\n'
+          'The APK may have been built without llama.cpp jniLibs, '
+          'or Android did not extract them at install (useLegacyPackaging=false?).',
+        );
       }
-    } catch (_) {
-      // libc++_shared.so may not be bundled if statically linked.
     }
 
     _binariesReady = true;
   }
 
-  Future<void> _chmod(String path, String mode) async {
-    try {
-      await Process.run('chmod', [mode, path]);
-    } catch (_) {
-      // Best effort — may fail on some devices.
-    }
-  }
+  String get _libDir => _nativeLibDir!;
 
-  String get _binDir => '${_appDir!.path}/bin';
-  String get _libDir => '${_appDir!.path}/lib';
+  String get _serverBinary => '$_nativeLibDir/libllama-server.so';
+  String get _mtmdBinary => '$_nativeLibDir/libllama-mtmd-cli.so';
 
   // ---------------------------------------------------------------------------
   // Model paths
@@ -124,12 +119,10 @@ class LlamaCppAndroidService {
     }
 
     final port = 8090;
-    final binaryPath = '$_binDir/llama-server';
+    final binaryPath = _serverBinary;
     final env = Map<String, String>.from(Platform.environment);
-    // Help the dynamic linker find libc++_shared.so if needed.
-    if (Directory(_libDir).existsSync()) {
-      env['LD_LIBRARY_PATH'] = _libDir;
-    }
+    // Help the dynamic linker find libc++_shared.so — it's in the same dir.
+    env['LD_LIBRARY_PATH'] = _libDir;
 
     // Diagnostics about the binary itself — captured up front so error
     // paths can attach them.
@@ -323,7 +316,7 @@ class LlamaCppAndroidService {
       }
 
       final result = await Process.run(
-        '$_binDir/llama-mtmd-cli',
+        _mtmdBinary,
         [
           '-m', modelPath,
           '--mmproj', mmprojPath,
