@@ -324,7 +324,6 @@ class LlamaCppAndroidService {
           '-p', prompt,
           '-n', '512',
           '--temp', '0.1',
-          '--no-display-prompt',
         ],
         environment: env,
         stdoutEncoding: utf8,
