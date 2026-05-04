@@ -157,6 +157,34 @@ class LlamaCppAndroidService {
           'model:    $model (size=${File(model).existsSync() ? File(model).lengthSync() : 0} bytes)',
         ].join('\n');
 
+    // Quick sanity check: run the binary with --version to verify it
+    // executes at all and to capture any dynamic-linker errors.
+    try {
+      final versionResult = await Process.run(
+        binaryPath,
+        ['--version'],
+        environment: env,
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
+      );
+      if (versionResult.exitCode != 0) {
+        throw StateError(
+          'llama-server --version failed (exit ${versionResult.exitCode}).\n'
+          '${binDiagnostics()}\n\n'
+          '--- stdout ---\n${versionResult.stdout}\n'
+          '--- stderr ---\n${versionResult.stderr}',
+        );
+      }
+    } on ProcessException catch (pe) {
+      throw StateError(
+        'Failed to launch llama-server (binary sanity check).\n'
+        'ProcessException: ${pe.message}\n'
+        'errno:    ${pe.errorCode}\n'
+        'executable: ${pe.executable}\n'
+        '${binDiagnostics()}',
+      );
+    }
+
     _serverStderrLines.clear();
     try {
       _serverProcess = await Process.start(
@@ -165,10 +193,12 @@ class LlamaCppAndroidService {
           '-m', model,
           '--host', '127.0.0.1',
           '--port', '$port',
-          '-c', '4096',
-          '-np', '1',
+          '--ctx-size', '4096',
+          '--parallel', '1',
+          '--jinja',
+          '--cache-ram', '0',
           '--cache-type-k', 'q4_0',
-          '--slots',
+          '--no-webui',
         ],
         environment: env,
       );
@@ -204,15 +234,23 @@ class LlamaCppAndroidService {
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) {
-      _serverStderrLines.add(line);
+      _serverStderrLines.add('[stderr] $line');
       if (_serverStderrLines.length > 200) {
         _serverStderrLines.removeAt(0);
       }
     }, onError: (_) {});
 
-    // Drain stdout to avoid the OS pipe buffer filling up and blocking
-    // the child process. We don't need the content.
-    _serverProcess!.stdout.drain<void>().catchError((_) {});
+    // Tee stdout into the same buffer — llama.cpp logs INFO messages to
+    // stdout and ERROR messages to stderr. We need both for diagnostics.
+    _serverProcess!.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((line) {
+      _serverStderrLines.add('[stdout] $line');
+      if (_serverStderrLines.length > 200) {
+        _serverStderrLines.removeAt(0);
+      }
+    }, onError: (_) {});
 
     // Wait up to 120 s for the server to be healthy. A 2.4 GB Q4_0 model
     // mmap'd from app-private storage can take 30-60 s to be ready on
@@ -239,6 +277,9 @@ class LlamaCppAndroidService {
 
       // Non-blocking check: did the process exit?
       if (earlyExitCode != null) {
+        // Give the stdout/stderr stream listeners a moment to process
+        // any pending data on the Dart event loop before reading the buffer.
+        await Future<void>.delayed(const Duration(milliseconds: 800));
         final errText = _serverStderrLines.isNotEmpty
             ? _serverStderrLines.join('\n')
             : '(empty)';
@@ -247,7 +288,7 @@ class LlamaCppAndroidService {
         throw StateError(
           'llama-server exited prematurely (exit code $earlyExitCode).\n'
           '${binDiagnostics()}\n\n'
-          '--- stderr ---\n$errText',
+          '--- output ---\n$errText',
         );
       }
     }
@@ -259,7 +300,7 @@ class LlamaCppAndroidService {
       'llama-server did not become healthy within 120s.\n'
       'Last health-check error: $lastError\n'
       '${binDiagnostics()}\n\n'
-      '--- stderr ---\n$errText',
+      '--- output ---\n$errText',
     );
   }
 
