@@ -324,7 +324,27 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
         status: ServerStatus.starting,
         message: 'Starting language model server…',
       );
-      await llama.startServer();
+
+      // Start a foreground service so Android (especially aggressive OEM
+      // skins like Samsung One UI) does not SIGTERM the llama-server child
+      // process during the multi-GB model load. Best-effort — non-fatal
+      // if the service can't start.
+      try {
+        await ForegroundTaskService.start(
+          detail: 'Loading AI model — this may take up to a minute…',
+        );
+      } catch (_) {}
+
+      try {
+        await llama.startServer();
+      } finally {
+        // Stop the boot-phase foreground notification regardless of
+        // outcome. Per-job notifications are restarted around each
+        // OCR / enrichment run.
+        try {
+          await ForegroundTaskService.stop();
+        } catch (_) {}
+      }
       if (_disposed) return;
 
       state = const ServerStartupState(

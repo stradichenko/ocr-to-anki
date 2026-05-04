@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -175,6 +176,16 @@ class LlamaCppAndroidService {
 
     _serverUrl = 'http://127.0.0.1:$port';
 
+    // Capture the exit code asynchronously so the polling loop can check
+    // for early termination without blocking on the exitCode Future.
+    // Awaiting `process.exitCode` directly would block until the process
+    // exits, which defeats the point of a polling loop while the process
+    // is still alive but loading a multi-GB model.
+    int? earlyExitCode;
+    unawaited(_serverProcess!.exitCode.then((code) {
+      earlyExitCode = code;
+    }));
+
     // Tee stderr into a rolling buffer so we have context even when
     // the process is alive but failing health checks.
     _serverProcess!.stderr
@@ -191,9 +202,12 @@ class LlamaCppAndroidService {
     // the child process. We don't need the content.
     _serverProcess!.stdout.drain<void>().catchError((_) {});
 
-    // Wait for server to be ready with detailed diagnostics.
+    // Wait up to 120 s for the server to be healthy. A 2.4 GB Q4_0 model
+    // mmap'd from app-private storage can take 30-60 s to be ready on
+    // mid-range Android phones, especially on first launch when the file
+    // is still in flash and not in the page cache.
     String? lastError;
-    for (var i = 0; i < 60; i++) {
+    for (var i = 0; i < 240; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 500));
       try {
         final resp = await http
@@ -202,28 +216,20 @@ class LlamaCppAndroidService {
         if (resp.statusCode == 200) return;
       } catch (e) {
         lastError = e.toString();
-        // Not ready yet.
       }
 
-      // Check if process died early.
-      if (_serverProcess != null) {
-        final exited = await _serverProcess!.exitCode
-            .then((_) => true)
-            .catchError((_) => false);
-        if (exited) {
-          final exitCode = await _serverProcess!.exitCode
-              .catchError((_) => -1);
-          final errText = _serverStderrLines.isNotEmpty
-              ? _serverStderrLines.join('\n')
-              : '(empty)';
-          _serverProcess = null;
-          _serverUrl = null;
-          throw StateError(
-            'llama-server exited prematurely (exit code $exitCode).\n'
-            '${binDiagnostics()}\n\n'
-            '--- stderr ---\n$errText',
-          );
-        }
+      // Non-blocking check: did the process exit?
+      if (earlyExitCode != null) {
+        final errText = _serverStderrLines.isNotEmpty
+            ? _serverStderrLines.join('\n')
+            : '(empty)';
+        _serverProcess = null;
+        _serverUrl = null;
+        throw StateError(
+          'llama-server exited prematurely (exit code $earlyExitCode).\n'
+          '${binDiagnostics()}\n\n'
+          '--- stderr ---\n$errText',
+        );
       }
     }
 
@@ -231,7 +237,7 @@ class LlamaCppAndroidService {
         ? _serverStderrLines.join('\n')
         : '(empty)';
     throw StateError(
-      'llama-server did not become healthy within 30s.\n'
+      'llama-server did not become healthy within 120s.\n'
       'Last health-check error: $lastError\n'
       '${binDiagnostics()}\n\n'
       '--- stderr ---\n$errText',
