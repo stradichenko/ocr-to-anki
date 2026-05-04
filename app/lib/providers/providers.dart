@@ -325,26 +325,8 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
         message: 'Starting language model server…',
       );
 
-      // Start a foreground service so Android (especially aggressive OEM
-      // skins like Samsung One UI) does not SIGTERM the llama-server child
-      // process during the multi-GB model load. Best-effort — non-fatal
-      // if the service can't start.
-      try {
-        await ForegroundTaskService.start(
-          detail: 'Loading AI model — this may take up to a minute…',
-        );
-      } catch (_) {}
-
-      try {
-        await llama.startServer();
-      } finally {
-        // Stop the boot-phase foreground notification regardless of
-        // outcome. Per-job notifications are restarted around each
-        // OCR / enrichment run.
-        try {
-          await ForegroundTaskService.stop();
-        } catch (_) {}
-      }
+      // The server will start its own foreground service to stay alive.
+      await llama.startServer();
       if (_disposed) return;
 
       state = const ServerStartupState(
@@ -1009,7 +991,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
 
     try {
       if (Platform.isAndroid) {
-        await ForegroundTaskService.start(detail: 'Enriching words…');
+        await ForegroundTaskService.update(detail: 'Enriching words…');
       }
 
       state = const ProcessingState().copyWith(
@@ -1215,7 +1197,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       }
     } finally {
       if (Platform.isAndroid) {
-        await ForegroundTaskService.stop();
+        await ForegroundTaskService.update(detail: 'AI model ready');
       }
       stopwatch.stop();
       _heartbeat?.cancel();
@@ -1271,7 +1253,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
 
     try {
       if (Platform.isAndroid) {
-        await ForegroundTaskService.start(
+        await ForegroundTaskService.update(
           detail: 'Processing ${images.length} image(s)...',
         );
       }
@@ -1981,7 +1963,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       }
     } finally {
       if (Platform.isAndroid) {
-        await ForegroundTaskService.stop();
+        await ForegroundTaskService.update(detail: 'AI model ready');
       }
     }
   }

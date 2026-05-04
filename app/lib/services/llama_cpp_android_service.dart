@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import 'foreground_task_service.dart';
+
 /// Manages llama.cpp native binaries on Android.
 ///
 /// The binaries ship as `lib*.so` files under `jniLibs/arm64-v8a/` and are
@@ -114,6 +116,16 @@ class LlamaCppAndroidService {
 
     if (_serverProcess != null) return;
 
+    // Start a foreground service so Android (especially aggressive OEM
+    // skins like Samsung One UI) does not SIGTERM the child process
+    // during the multi-GB model load. The service stays alive as long as
+    // the server is running.
+    try {
+      await ForegroundTaskService.start(
+        detail: 'Loading AI model — this may take up to a minute…',
+      );
+    } catch (_) {}
+
     final model = modelPath;
     if (!File(model).existsSync()) {
       throw StateError('Model not found: $model');
@@ -213,7 +225,14 @@ class LlamaCppAndroidService {
         final resp = await http
             .get(Uri.parse('$_serverUrl/health'))
             .timeout(const Duration(seconds: 2));
-        if (resp.statusCode == 200) return;
+        if (resp.statusCode == 200) {
+          try {
+            await ForegroundTaskService.update(
+              detail: 'AI model ready',
+            );
+          } catch (_) {}
+          return;
+        }
       } catch (e) {
         lastError = e.toString();
       }
@@ -284,6 +303,11 @@ class LlamaCppAndroidService {
 
     _serverProcess = null;
     _serverUrl = null;
+
+    // Stop the foreground service now that the server is down.
+    try {
+      await ForegroundTaskService.stop();
+    } catch (_) {}
   }
 
   // ---------------------------------------------------------------------------

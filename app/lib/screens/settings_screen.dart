@@ -326,6 +326,17 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ),
+          if (Platform.isAndroid)
+            SwitchListTile(
+              title: const Text('Compress large images'),
+              subtitle: const Text(
+                'Downscale images larger than 1 MB before OCR to reduce '
+                'memory usage and speed up vision encoding.',
+              ),
+              value: settings.compressLargeImages,
+              onChanged: (v) =>
+                  notifier.update((s) => s..compressLargeImages = v),
+            ),
 
           // ---------------------------------------------------------------
           // LLM parameters

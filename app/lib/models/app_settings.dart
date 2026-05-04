@@ -38,6 +38,7 @@ class AppSettings {
     this.autoCheckUpdates = true,
     this.skipVersion = '',
     this.wifiOnlyDownloads = true,
+    this.compressLargeImages = true,
   });
 
   // -- Appearance --
@@ -110,6 +111,9 @@ class AppSettings {
   /// On Android, only download models when connected to WiFi.
   bool wifiOnlyDownloads;
 
+  /// Compress images larger than 1 MB before vision OCR on Android.
+  bool compressLargeImages;
+
   Map<String, dynamic> toJson() => {
         'themeMode': themeMode.name,
         'colorSchemeSeed': colorSchemeSeed,
@@ -145,6 +149,7 @@ class AppSettings {
         'autoCheckUpdates': autoCheckUpdates,
         'skipVersion': skipVersion,
         'wifiOnlyDownloads': wifiOnlyDownloads,
+        'compressLargeImages': compressLargeImages,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -194,6 +199,7 @@ class AppSettings {
       autoCheckUpdates: json['autoCheckUpdates'] as bool? ?? true,
       skipVersion: json['skipVersion'] as String? ?? '',
       wifiOnlyDownloads: json['wifiOnlyDownloads'] as bool? ?? true,
+      compressLargeImages: json['compressLargeImages'] as bool? ?? true,
     );
   }
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 
 import '../models/app_settings.dart';
 import 'llama_cpp_android_service.dart';
@@ -162,8 +163,12 @@ class InferenceService {
   }) async {
     await _androidService!.ensureServerRunning();
     final stopwatch = Stopwatch()..start();
+    Uint8List bytesToOcr = imageBytes;
+    if (_settings.compressLargeImages && imageBytes.length > 1024 * 1024) {
+      bytesToOcr = _maybeCompressImage(imageBytes);
+    }
     final text = await _androidService.runVisionOcr(
-      imageBytes: imageBytes,
+      imageBytes: bytesToOcr,
       prompt: prompt,
     );
     stopwatch.stop();
@@ -211,6 +216,30 @@ class InferenceService {
     } finally {
       _ocrClient?.close();
       _ocrClient = null;
+    }
+  }
+
+  /// Compress an image if it exceeds 1 MB by resizing so the long edge is
+  /// at most 1024 px and re-encoding as JPEG at quality 85.
+  Uint8List _maybeCompressImage(Uint8List bytes) {
+    try {
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return bytes;
+
+      const maxDimension = 1024;
+      if (decoded.width <= maxDimension && decoded.height <= maxDimension) {
+        return bytes;
+      }
+
+      final resized = img.copyResize(
+        decoded,
+        width: decoded.width > decoded.height ? maxDimension : null,
+        height: decoded.height >= decoded.width ? maxDimension : null,
+      );
+      return Uint8List.fromList(img.encodeJpg(resized, quality: 85));
+    } catch (_) {
+      // If anything goes wrong, fall back to the original bytes.
+      return bytes;
     }
   }
 

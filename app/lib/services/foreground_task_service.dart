@@ -48,6 +48,15 @@ class ForegroundTaskService {
     );
   }
 
+  /// Update both title and text of the foreground notification.
+  static Future<void> update({String? title, String? detail}) async {
+    if (!await FlutterForegroundTask.isRunningService) return;
+    await FlutterForegroundTask.updateService(
+      notificationTitle: title,
+      notificationText: detail,
+    );
+  }
+
   /// Stop the foreground service.
   static Future<void> stop() async {
     if (!await FlutterForegroundTask.isRunningService) return;

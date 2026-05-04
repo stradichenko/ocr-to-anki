@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'providers/providers.dart';
 import 'screens/screens.dart';
+import 'services/foreground_task_service.dart';
 
 void main() {
   runApp(const ProviderScope(child: OcrToAnkiApp()));
@@ -34,13 +35,23 @@ class _OcrToAnkiAppState extends ConsumerState<OcrToAnkiApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // On Android, proactively restart llama-server when the app is
-    // foregrounded in case Doze mode killed it while backgrounded.
-    if (Platform.isAndroid && state == AppLifecycleState.resumed) {
-      final llama = ref.read(llamaCppAndroidProvider);
+    if (!Platform.isAndroid) return;
+
+    final llama = ref.read(llamaCppAndroidProvider);
+
+    if (state == AppLifecycleState.resumed) {
+      // Proactively restart llama-server when foregrounded in case Doze
+      // mode killed it while backgrounded.
       llama.ensureServerRunning().catchError((_) {
         // Silently ignore — the next inference call will retry anyway.
       });
+    } else if (state == AppLifecycleState.paused) {
+      // Keep the foreground service alive while the model server is running
+      // so Android does not kill the process when the user backgrounds the
+      // app mid-process.
+      if (llama.isServerRunning) {
+        ForegroundTaskService.start(detail: 'AI model ready').catchError((_) {});
+      }
     }
   }
 
