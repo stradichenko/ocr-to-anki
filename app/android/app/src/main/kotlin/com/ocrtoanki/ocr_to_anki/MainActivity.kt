@@ -2,6 +2,7 @@ package com.ocrtoanki.ocr_to_anki
 
 import android.Manifest
 import android.app.Activity
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -11,7 +12,6 @@ import android.os.StatFs
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.ichi2.anki.api.AddContentApi
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -328,32 +328,77 @@ class MainActivity : FlutterActivity() {
         r.success(resultCode == Activity.RESULT_OK)
     }
 
+    // AnkiDroid content provider constants (from com.ichi2.anki.FlashCardsContract)
+    private val ankiAuthority = "com.ichi2.anki.flashcards"
+    private val deckUri get() = Uri.parse("content://$ankiAuthority/decks")
+    private val modelUri get() = Uri.parse("content://$ankiAuthority/models")
+    private val noteUri get() = Uri.parse("content://$ankiAuthority/notes")
+    private val fieldSeparator = ""
+
     private fun getAnkiDroidDecks(): List<Map<String, Any>> {
         return try {
-            val api = AddContentApi(this)
-            api.deckList.map { (id, name) ->
-                mapOf("id" to id, "name" to name)
-            }.toList()
+            contentResolver.query(deckUri, null, null, null, null)?.use { cursor ->
+                val out = mutableListOf<Map<String, Any>>()
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow("deck_id"))
+                    val name = cursor.getString(cursor.getColumnIndexOrThrow("deck_name"))
+                    out.add(mapOf("id" to id, "name" to name))
+                }
+                out
+            } ?: emptyList()
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    private fun currentModelId(): Long {
+        return try {
+            val uri = Uri.withAppendedPath(modelUri, "current")
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getLong(cursor.getColumnIndexOrThrow("_id"))
+                } else {
+                    -1L
+                }
+            } ?: -1L
+        } catch (_: Exception) {
+            -1L
         }
     }
 
     private fun addNotesToAnkiDroid(call: MethodCall): Int {
         val notes = call.argument<List<Map<String, Any>>>("notes") ?: return 0
         val deckId = call.argument<Long>("deckId") ?: return 0
-        return try {
-            val api = AddContentApi(this)
-            var added = 0
-            for (note in notes) {
-                val fields = note["fields"] as? List<String> ?: continue
-                val tags = (note["tags"] as? List<String>)?.toSet() ?: emptySet()
-                val id = api.addNote(api.currentModelId, deckId, fields, tags)
-                if (id != null) added++
+        val modelId = currentModelId()
+        if (modelId < 0) return 0
+
+        var added = 0
+        for (note in notes) {
+            val fields = note["fields"] as? List<String> ?: continue
+            val tagsSet = (note["tags"] as? List<String>)?.toSet() ?: emptySet()
+            val tags = if (tagsSet.isEmpty()) "" else tagsSet.joinToString(" ") { it.replace(" ", "_") }
+            val values = ContentValues().apply {
+                put("mid", modelId)
+                put("flds", fields.joinToString(fieldSeparator))
+                if (tags.isNotEmpty()) put("tags", tags)
             }
-            added
-        } catch (_: Exception) {
-            0
+            try {
+                val newNoteUri = contentResolver.insert(noteUri, values) ?: continue
+                // Move cards to the requested deck
+                val cardsUri = Uri.withAppendedPath(newNoteUri, "cards")
+                contentResolver.query(cardsUri, null, null, null, null)?.use { cardsCursor ->
+                    while (cardsCursor.moveToNext()) {
+                        val ord = cardsCursor.getString(cardsCursor.getColumnIndexOrThrow("ord"))
+                        val cardValues = ContentValues().apply { put("deck_id", deckId) }
+                        val cardUri = Uri.withAppendedPath(cardsUri, ord)
+                        contentResolver.update(cardUri, cardValues, null, null)
+                    }
+                }
+                added++
+            } catch (_: Exception) {
+                // Skip failed notes
+            }
         }
+        return added
     }
 }
