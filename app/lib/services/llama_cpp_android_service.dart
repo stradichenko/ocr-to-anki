@@ -21,6 +21,16 @@ import 'foreground_task_service.dart';
 ///
 /// We invoke `llama-server` (renamed `libllama-server.so`) and
 /// `llama-mtmd-cli` (renamed `libllama-mtmd-cli.so`) directly from that dir.
+/// Simple [Sink<Digest>] for the crypto package's chunked hashing.
+class _DigestSink implements Sink<Digest> {
+  Digest? _digest;
+  @override
+  void add(Digest digest) => _digest = digest;
+  @override
+  void close() {}
+  Digest get digest => _digest!;
+}
+
 class LlamaCppAndroidService {
   LlamaCppAndroidService();
 
@@ -230,8 +240,13 @@ class LlamaCppAndroidService {
       final actualSize = file.lengthSync();
       if (actualSize != expectedSize) return false;
 
-      final bytes = await file.readAsBytes();
-      final actualHash = sha256.convert(bytes).toString();
+      final sink = _DigestSink();
+      final input = sha256.startChunkedConversion(sink);
+      await for (final chunk in file.openRead()) {
+        input.add(chunk);
+      }
+      input.close();
+      final actualHash = sink.digest.toString();
       if (actualHash != expectedHash) return false;
     }
 
