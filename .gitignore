@@ -34,6 +34,7 @@ ENV/
 # files created in the pipeline.
 *.json
 !app/macos/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
+!app/assets/models.json
 
 # IDE
 .vscode/

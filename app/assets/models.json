@@ -1,0 +1,20 @@
+{
+  "models": [
+    {
+      "id": "gemma-3-4b-q4",
+      "name": "Gemma 3 4B IT (Q4_0)",
+      "description": "Balanced quality and speed. Recommended for most devices.",
+      "modelUrl": "https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small/resolve/main/gemma-3-4b-it-q4_0_s.gguf",
+      "mmprojUrl": "https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small/resolve/main/mmproj-google_gemma-3-4b-it-f16.gguf",
+      "modelFilename": "gemma-3-4b-it-q4_0_s.gguf",
+      "mmprojFilename": "mmproj-model-f16-4B.gguf",
+      "modelSizeBytes": 2363376544,
+      "mmprojSizeBytes": 851251104,
+      "sha256Model": "39aa05414c108054524fba42f96fa8f4f7486fa00f01888e9c064a4ea00b0dd8",
+      "sha256Mmproj": "8c0fb064b019a6972856aaae2c7e4792858af3ca4561be2dbf649123ba6c40cb",
+      "supportsVision": true,
+      "contextSize": 4096,
+      "tags": ["recommended", "vision"]
+    }
+  ]
+}
