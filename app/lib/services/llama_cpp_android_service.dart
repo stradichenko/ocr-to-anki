@@ -114,19 +114,36 @@ class LlamaCppAndroidService {
     _resolvedBackend = _resolveBackend();
 
     // Verify the variant-specific binaries were extracted by the installer.
-    final expected = [
-      'libllama-server-$_resolvedBackend.so',
-      'libllama-mtmd-cli-$_resolvedBackend.so',
-    ];
-    for (final name in expected) {
-      final f = File('$_nativeLibDir/$name');
-      if (!f.existsSync()) {
-        throw StateError(
-          'Native binary missing: $_nativeLibDir/$name\n'
-          'The APK may have been built without llama.cpp jniLibs, '
-          'or Android did not extract them at install (useLegacyPackaging=false?).',
-        );
+    // Fall back to CPU if the resolved backend binaries are missing (e.g.
+    // the APK was built without Vulkan support).
+    final variants = [_resolvedBackend, 'cpu'];
+    var backendFound = false;
+    for (final variant in variants) {
+      final expected = [
+        'libllama-server-$variant.so',
+        'libllama-mtmd-cli-$variant.so',
+      ];
+      var allExist = true;
+      for (final name in expected) {
+        if (!File('$_nativeLibDir/$name').existsSync()) {
+          allExist = false;
+          break;
+        }
       }
+      if (allExist) {
+        _resolvedBackend = variant;
+        backendFound = true;
+        break;
+      }
+    }
+
+    if (!backendFound) {
+      throw StateError(
+        'Native binaries missing: no libllama-server-*.so or '
+        'libllama-mtmd-cli-*.so found in $_nativeLibDir.\n'
+        'The APK may have been built without llama.cpp jniLibs, '
+        'or Android did not extract them at install (useLegacyPackaging=false?).',
+      );
     }
 
     _binariesReady = true;
