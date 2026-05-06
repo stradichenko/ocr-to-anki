@@ -7,9 +7,11 @@ import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 import '../database/database.dart';
 import '../models/models.dart';
+import '../models/pending_batch.dart';
 import '../services/services.dart';
 
 // ---------------------------------------------------------------------------
@@ -176,6 +178,11 @@ final modelDownloadProvider = Provider<ModelDownloadService>((ref) {
   return ModelDownloadService();
 });
 
+/// Model registry service (loads assets/models.json).
+final modelRegistryProvider = Provider<ModelRegistryService>((ref) {
+  return ModelRegistryService();
+});
+
 /// Tracks whether the backend server is ready.
 ///
 /// The [ServerStartupNotifier] is initialised eagerly by the startup gate
@@ -247,6 +254,19 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
   Future<void> _bootAndroid() async {
     try {
       final llama = ref.read(llamaCppAndroidProvider);
+      final settings = ref.read(settingsProvider);
+      final registry = ref.read(modelRegistryProvider);
+
+      // Resolve the active model from settings (falls back to default).
+      final model = await registry.getModel(settings.activeModelId) ??
+          await registry.getDefaultModel();
+      llama.setActiveModel(model);
+
+      // Pass GPU preference so ensureBinaries can verify the right variant.
+      llama.setGpuConfig(
+        gpuMode: settings.gpuMode,
+        nGpuLayers: settings.nGpuLayers,
+      );
 
       // Step 1: Extract native binaries from assets.
       state = const ServerStartupState(
@@ -257,34 +277,82 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
       if (_disposed) return;
 
       // Step 2: Check / download models.
-      final modelsExist = await llama.modelsExist;
+      var modelsExist = await llama.modelsExist;
       if (_disposed) return;
+
+      // Verify checksums if files exist — corrupted downloads cause cryptic
+      // crashes inside llama-server, so we catch them early.
+      if (modelsExist) {
+        state = const ServerStartupState(
+          status: ServerStatus.starting,
+          message: 'Verifying model integrity…',
+        );
+        final ok = await llama.verifyModels();
+        if (_disposed) return;
+        if (!ok) {
+          // Delete corrupt files so the download path below re-fetches them.
+          try {
+            File(llama.modelPath).deleteSync();
+          } catch (_) {}
+          try {
+            File(llama.mmprojPath).deleteSync();
+          } catch (_) {}
+          modelsExist = false;
+        }
+      }
 
       if (!modelsExist) {
         final settings = ref.read(settingsProvider);
+
+        final totalGb = (model.totalSizeBytes / (1024 * 1024 * 1024))
+            .toStringAsFixed(1);
+
+        // Storage guard — refuse to start a download when the partition
+        // does not have enough headroom (models + ~1 GB for .part files,
+        // OS overhead, and post-download mv into place).
+        final freeBytes = await SystemChannel.getAvailableStorageBytes();
+        final requiredBytes = model.totalSizeBytes + 1024 * 1024 * 1024;
+        if (freeBytes >= 0 && freeBytes < requiredBytes) {
+          final freeGb = (freeBytes / 1e9).toStringAsFixed(1);
+          state = ServerStartupState(
+            status: ServerStatus.error,
+            message:
+                'Not enough storage. The AI model needs ~$totalGb GB free '
+                '(only $freeGb GB available). Free some space and tap retry.',
+          );
+          return;
+        }
 
         // WiFi-only download guard.
         if (settings.wifiOnlyDownloads) {
           final connectivity = await Connectivity().checkConnectivity();
           final hasWifi = connectivity.contains(ConnectivityResult.wifi);
           if (!hasWifi) {
-            state = const ServerStartupState(
+            state = ServerStartupState(
               status: ServerStatus.error,
               message:
-                  'WiFi required for model download (~3.2 GB). '
-                  'Connect to WiFi and tap retry, or disable "WiFi-only downloads" in Settings.',
+                  'WiFi required for model download (~$totalGb GB). '
+                'Connect to WiFi and tap retry, or disable "WiFi-only downloads" in Settings.',
             );
             return;
           }
         }
 
         final downloader = ref.read(modelDownloadProvider);
-        state = const ServerStartupState(
+        state = ServerStartupState(
           status: ServerStatus.downloading,
-          message: 'Downloading AI model (~3.2 GB, one-time setup)…',
+          message: 'Downloading ${model.name} (~$totalGb GB, one-time setup)…',
+        );
+        // Start the foreground service so Android does not kill the
+        // download when the user backgrounds the app.  The service stays
+        // up through the subsequent server-load phase via the existing
+        // [LlamaCppAndroidService.startServer] path.
+        await ForegroundTaskService.start(
+          detail: 'Downloading ${model.name} — ~$totalGb GB',
         );
         try {
-          await downloader.downloadAll(
+          await downloader.downloadModel(
+            model,
             onProgress: (downloaded, total, file) {
               if (_disposed) return;
               state = ServerStartupState(
@@ -304,7 +372,7 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
           if (dlMsg.contains('cancelled')) {
             dlUserMessage = 'Download cancelled by user.';
           } else if (dlMsg.contains('no space') || dlMsg.contains('nospace')) {
-            dlUserMessage = 'Download failed: not enough storage space. Free up ~3.5 GB and retry.';
+            dlUserMessage = 'Download failed: not enough storage space. Free up ~$totalGb GB and retry.';
           } else if (dlMsg.contains('socket') || dlMsg.contains('connection') || dlMsg.contains('http')) {
             dlUserMessage = 'Download failed: network error. Check your internet connection and retry.';
           } else {
@@ -819,8 +887,6 @@ class UpdateNotifier extends Notifier<UpdateState> {
 // Processing state
 // ---------------------------------------------------------------------------
 
-enum ProcessingPhase { idle, cropping, ocr, wordReview, enriching, done, error }
-
 class ProcessingState {
   const ProcessingState({
     this.phase = ProcessingPhase.idle,
@@ -942,7 +1008,10 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
 
   /// Append a line to the activity log and update the status message.
   void _log(String message, {ProcessingPhase? phase, double? progress}) {
-    final log = [...state.activityLog, message];
+    var log = [...state.activityLog, message];
+    if (log.length > 100) {
+      log = log.sublist(log.length - 100);
+    }
     state = state.copyWith(
       activityLog: log,
       statusMessage: message,
@@ -977,6 +1046,471 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       }();
     }
     // macOS / Windows could be added later.
+  }
+
+  // -------------------------------------------------------------------------
+  // Session persistence (in-flight recovery)
+  // -------------------------------------------------------------------------
+
+  static const _pendingBatchKey = 'pending_batch';
+
+  /// Directory where pending-batch image temp files are stored.
+  Future<Directory> _pendingBatchTempDir() async {
+    final tmp = await getTemporaryDirectory();
+    final dir = Directory('${tmp.path}/pending_batch_images');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  /// Save the current processing state so it can survive app restarts.
+  Future<void> _savePendingBatch({
+    required List<ImageEntry> images,
+    List<String>? ocrResults,
+    List<String>? words,
+    Map<String, String>? wordLanguages,
+    List<EnrichWordResult>? enrichedWords,
+  }) async {
+    final db = ref.read(databaseProvider);
+    final tmpDir = await _pendingBatchTempDir();
+
+    // Write image bytes to temp files.
+    final pendingImages = <PendingImageEntry>[];
+    for (var i = 0; i < images.length; i++) {
+      final entry = images[i];
+      final path = '${tmpDir.path}/img_$i.jpg';
+      await File(path).writeAsBytes(entry.bytes);
+      pendingImages.add(PendingImageEntry(
+        path: path,
+        name: entry.name,
+        cropRegion: entry.cropRegion,
+        hsvOverride: entry.hsvOverride,
+        termLanguage: entry.termLanguage,
+      ));
+    }
+
+    final batch = PendingBatch(
+      phase: state.phase,
+      imageEntries: pendingImages,
+      ocrResults: ocrResults ?? [],
+      words: words ?? state.words,
+      wordLanguages: wordLanguages ?? {},
+      enrichedWords: enrichedWords ?? state.enrichedWords,
+      ocrText: state.ocrText,
+      progress: state.progress,
+      statusMessage: state.statusMessage,
+      activityLog: state.activityLog,
+    );
+
+    await db.setSetting(_pendingBatchKey, batch.toJsonString());
+  }
+
+  /// Update the persisted batch after a phase transition, preserving the
+  /// existing image entries and OCR results.
+  Future<void> _updatePendingBatch({
+    ProcessingPhase? phase,
+    List<String>? words,
+    Map<String, String>? wordLanguages,
+    List<EnrichWordResult>? enrichedWords,
+    String? ocrText,
+    double? progress,
+    String? statusMessage,
+    List<String>? activityLog,
+  }) async {
+    final db = ref.read(databaseProvider);
+    final existingJson = await db.getSetting(_pendingBatchKey);
+    if (existingJson == null || existingJson.isEmpty) return;
+
+    try {
+      final existing = PendingBatch.fromJsonString(existingJson);
+      final updated = PendingBatch(
+        phase: phase ?? state.phase,
+        imageEntries: existing.imageEntries,
+        ocrResults: existing.ocrResults,
+        words: words ?? state.words,
+        wordLanguages: wordLanguages ?? existing.wordLanguages,
+        enrichedWords: enrichedWords ?? state.enrichedWords,
+        ocrText: ocrText ?? state.ocrText,
+        progress: progress ?? state.progress,
+        statusMessage: statusMessage ?? state.statusMessage,
+        activityLog: activityLog ?? state.activityLog,
+      );
+      await db.setSetting(_pendingBatchKey, updated.toJsonString());
+    } catch (_) {
+      // Ignore parse errors.
+    }
+  }
+
+  /// Clear the persisted batch and delete temp files.
+  Future<void> clearPendingBatch() async {
+    final db = ref.read(databaseProvider);
+    await db.setSetting(_pendingBatchKey, '');
+
+    try {
+      final tmpDir = await _pendingBatchTempDir();
+      if (await tmpDir.exists()) {
+        await tmpDir.delete(recursive: true);
+      }
+    } catch (_) {}
+  }
+
+  /// Check for an existing pending batch.
+  static Future<PendingBatch?> loadPendingBatch(AppDatabase db) async {
+    final json = await db.getSetting(_pendingBatchKey);
+    if (json == null || json.isEmpty) return null;
+    try {
+      final batch = PendingBatch.fromJsonString(json);
+      if (batch.isTerminal) return null;
+      return batch;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Resume an interrupted batch from the given [PendingBatch].
+  ///
+  /// Reconstructs the state and continues processing from the saved phase.
+  Future<void> resumeBatch(PendingBatch batch) async {
+    state = ProcessingState(
+      phase: batch.phase,
+      progress: batch.progress,
+      statusMessage: batch.statusMessage,
+      words: batch.words,
+      enrichedWords: batch.enrichedWords,
+      ocrText: batch.ocrText,
+      activityLog: batch.activityLog,
+      startTime: DateTime.now(),
+    );
+
+    try {
+      if (batch.phase == ProcessingPhase.cropping ||
+          batch.phase == ProcessingPhase.ocr) {
+        // Re-run the full pipeline from the saved images.
+        final images = <ImageEntry>[];
+        for (final p in batch.imageEntries) {
+          final bytes = await p.loadBytes();
+          images.add(ImageEntry(
+            bytes: bytes,
+            name: p.name,
+            cropRegion: p.cropRegion,
+            hsvOverride: p.hsvOverride,
+            termLanguage: p.termLanguage,
+          ));
+        }
+        // Reconstruct global HSV range from first override or null.
+        HsvRange? hsvRange;
+        if (batch.imageEntries.isNotEmpty) {
+          hsvRange = batch.imageEntries.first.hsvOverride;
+        }
+        await processImages(images: images, hsvRange: hsvRange);
+        return;
+      }
+
+      if (batch.phase == ProcessingPhase.wordReview) {
+        // Re-establish the word-review gate.
+        _wordReviewCompleter = Completer<WordReviewResult?>();
+        final reviewResult = await _wordReviewCompleter!.future;
+        _wordReviewCompleter = null;
+
+        _checkCancelled();
+
+        final confirmedWords = reviewResult?.words;
+        final wordLanguages = reviewResult?.wordLanguages ?? {};
+
+        if (confirmedWords == null || confirmedWords.isEmpty) {
+          _log('Enrichment skipped by user.', progress: 0.95);
+          final wordsToKeep = confirmedWords ?? state.words;
+          final stubCards = wordsToKeep
+              .map((w) => EnrichWordResult(
+                    word: w, definition: '', examples: ''))
+              .toList();
+          state = state.copyWith(
+            words: wordsToKeep,
+            enrichedWords: stubCards,
+            enrichmentSkipped: true,
+          );
+        } else {
+          state = state.copyWith(words: confirmedWords);
+          await _doEnrichment(
+            allWords: confirmedWords,
+            wordLanguages: wordLanguages,
+          );
+        }
+
+        await _persistSession(
+          imageNames: batch.imageEntries.map((e) => e.name).toList(),
+          hsvRange: batch.imageEntries.isNotEmpty
+              ? batch.imageEntries.first.hsvOverride
+              : null,
+        );
+        await clearPendingBatch();
+        return;
+      }
+
+      if (batch.phase == ProcessingPhase.enriching) {
+        // Continue enrichment for words that don't have results yet.
+        final missingWords = batch.words
+            .where((w) => !batch.enrichedWords
+                .any((e) => e.word.toLowerCase() == w.toLowerCase()))
+            .toList();
+
+        if (missingWords.isNotEmpty) {
+          await _doEnrichment(
+            allWords: batch.words,
+            wordsToEnrich: missingWords,
+            wordLanguages: batch.wordLanguages,
+          );
+        } else {
+          state = state.copyWith(
+            phase: ProcessingPhase.enriching,
+            enrichedWords: batch.enrichedWords,
+          );
+        }
+
+        await _persistSession(
+          imageNames: batch.imageEntries.map((e) => e.name).toList(),
+          hsvRange: batch.imageEntries.isNotEmpty
+              ? batch.imageEntries.first.hsvOverride
+              : null,
+        );
+        await clearPendingBatch();
+        return;
+      }
+
+      // Any other phase — clear and done.
+      await clearPendingBatch();
+    } catch (e) {
+      _heartbeat?.cancel();
+      _heartbeat = null;
+      if (_cancelled) {
+        _log('Processing cancelled.', progress: 0);
+        state = state.copyWith(
+          phase: ProcessingPhase.done,
+          statusMessage: 'Cancelled',
+        );
+      } else {
+        _log('Error: $e');
+        state = state.copyWith(
+          phase: ProcessingPhase.error,
+          error: e.toString(),
+          statusMessage: 'Error: $e',
+        );
+      }
+    } finally {
+      if (Platform.isAndroid) {
+        await ForegroundTaskService.update(detail: 'AI model ready');
+      }
+      _heartbeat?.cancel();
+      _heartbeat = null;
+    }
+  }
+
+  /// Shared enrichment pipeline used by [processImages], [processWordsOnly],
+  /// and [resumeBatch].
+  ///
+  /// [allWords] is the full ordered word list.  [wordsToEnrich] is the subset
+  /// that actually needs LLM calls (defaults to [allWords]).
+  Future<void> _doEnrichment({
+    required List<String> allWords,
+    Map<String, String> wordLanguages = const {},
+    List<String>? wordsToEnrich,
+  }) async {
+    final settings = ref.read(settingsProvider);
+    final db = ref.read(databaseProvider);
+    final inference = ref.read(inferenceServiceProvider);
+    final targetWords = wordsToEnrich ?? allWords;
+
+    _checkCancelled();
+    if (targetWords.isEmpty) return;
+
+    // Cache lookup
+    final cachedMap = await db.getCachedEnrichments(
+      words: targetWords,
+      definitionLanguage: settings.definitionLanguage,
+      examplesLanguage: settings.examplesLanguage,
+    );
+
+    final cachedResults = <EnrichWordResult>[];
+    final uncachedWords = <String>[];
+    for (final w in targetWords) {
+      final hit = cachedMap[w.toLowerCase()];
+      if (hit != null && hit.warning != 'not_found') {
+        cachedResults.add(EnrichWordResult(
+          word: w,
+          definition: hit.definition.replaceAll('*', ''),
+          examples: hit.examples.replaceAll('*', ''),
+          warning: hit.warning,
+          fromCache: true,
+        ));
+      } else {
+        uncachedWords.add(w);
+      }
+    }
+
+    if (cachedResults.isNotEmpty) {
+      _log(
+        '${cachedResults.length} word(s) found in cache, '
+        '${uncachedWords.length} word(s) need enrichment',
+        progress: 0.64,
+      );
+      state = state.copyWith(
+        enrichedWords: [...state.enrichedWords, ...cachedResults],
+      );
+    }
+
+    if (uncachedWords.isNotEmpty) {
+      final wordCount = uncachedWords.length;
+      _log(
+        'Enriching $wordCount word(s) with definitions '
+        '(${settings.definitionLanguage})...',
+        phase: ProcessingPhase.enriching,
+        progress: 0.65,
+      );
+      _log(
+        'Generating definitions and example sentences via LLM '
+        '(1 word per call, 10 min timeout each)...',
+        progress: 0.68,
+      );
+
+      final enrichStopwatch = Stopwatch()..start();
+
+      _heartbeat?.cancel();
+      _heartbeat = Timer.periodic(
+        const Duration(seconds: 15),
+        (timer) {
+          final secs = enrichStopwatch.elapsed.inSeconds;
+          _log(
+            'Enrichment in progress... ${secs}s elapsed '
+            '(chunked LLM calls for $wordCount word(s))',
+            progress: 0.68 + 0.20 * (secs / 120).clamp(0.0, 1.0),
+          );
+        },
+      );
+
+      try {
+        final enriched = await inference.enrichWords(
+          words: uncachedWords,
+          definitionLanguage: settings.definitionLanguage,
+          examplesLanguage: settings.examplesLanguage,
+          termLanguage: settings.termLanguage,
+          wordLanguages: wordLanguages,
+          chunkSize: 1,
+          chunkTimeout: const Duration(minutes: 10),
+          onChunkDone: (completed, total, chunkResults) {
+            state = state.copyWith(
+              enrichedWords: [...state.enrichedWords, ...chunkResults],
+            );
+            _log(
+              'Enrichment: $completed/$total word(s) done',
+              progress: 0.68 + 0.20 * (completed / total),
+            );
+          },
+        );
+        enrichStopwatch.stop();
+        _heartbeat?.cancel();
+        _heartbeat = null;
+
+        final enrichElapsed =
+            (enrichStopwatch.elapsedMilliseconds / 1000).toStringAsFixed(1);
+
+        _log(
+          'Enrichment complete: ${enriched.length} card(s) in ${enrichElapsed}s',
+          progress: 0.90,
+        );
+
+        // Cache new results
+        final toCache = enriched
+            .where((e) => e.warning != 'not_found')
+            .map((e) => EnrichmentCacheEntriesCompanion.insert(
+                  word: e.word.toLowerCase(),
+                  definitionLanguage: settings.definitionLanguage,
+                  examplesLanguage: settings.examplesLanguage,
+                  definition: e.definition,
+                  examples: e.examples,
+                  warning: Value(e.warning),
+                ))
+            .toList();
+        if (toCache.isNotEmpty) {
+          await db.cacheEnrichments(toCache);
+          _log('Cached ${toCache.length} enrichment(s) for future re-use');
+        }
+
+        // Merge cached + fresh in original order
+        final allResultsMap = <String, EnrichWordResult>{};
+        for (final r in cachedResults) {
+          allResultsMap[r.word.toLowerCase()] = r;
+        }
+        for (final r in enriched) {
+          allResultsMap[r.word.toLowerCase()] = r;
+        }
+        final orderedResults = allWords
+            .map((w) => allResultsMap[w.toLowerCase()])
+            .whereType<EnrichWordResult>()
+            .toList();
+
+        state = state.copyWith(enrichedWords: orderedResults);
+      } catch (e) {
+        _heartbeat?.cancel();
+        _heartbeat = null;
+        rethrow;
+      }
+    } else {
+      _log('All words served from cache!', progress: 0.90);
+      state = state.copyWith(
+        phase: ProcessingPhase.enriching,
+        enrichedWords: cachedResults,
+      );
+    }
+  }
+
+  /// Persist the completed session to the database.
+  ///
+  /// [imageNames] and [hsvRange] are used to populate the session record.
+  Future<void> _persistSession({
+    required List<String> imageNames,
+    HsvRange? hsvRange,
+  }) async {
+    final db = ref.read(databaseProvider);
+    _log('Saving session to local database...', progress: 0.92);
+
+    final sessionId = await db.insertSession(
+      ProcessingSessionsCompanion.insert(
+        imagePath: imageNames.join(', '),
+        context: hsvRange != null ? 'highlighted' : 'handwrittenOrPrinted',
+        highlightColor: Value(hsvRange?.label),
+        ocrText: Value(state.ocrText),
+      ),
+    );
+
+    final wordCompanions = state.enrichedWords
+        .map((e) => WordEntriesCompanion.insert(
+              sessionId: sessionId,
+              word: e.word,
+              definition: Value(e.definition),
+              examples: Value(e.examples),
+            ))
+        .toList();
+
+    if (wordCompanions.isNotEmpty) {
+      await db.insertWords(wordCompanions);
+      _log('Saved ${wordCompanions.length} word(s) to database',
+          progress: 0.96);
+    }
+
+    if (state.enrichedWords.isNotEmpty) {
+      _log(
+        'Done! ${state.enrichedWords.length} card(s) ready for export',
+        phase: ProcessingPhase.done,
+        progress: 1.0,
+      );
+    } else {
+      _log(
+        'Done. No words to process',
+        phase: ProcessingPhase.done,
+        progress: 1.0,
+      );
+    }
   }
 
   /// Skip OCR and go straight to word review → enrichment.
@@ -1014,6 +1548,9 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
         progress: 0.62,
       );
 
+      // Persist so a kill during word review can be resumed.
+      await _savePendingBatch(images: [], words: words);
+
       // Reuse the same word-review gate and enrichment pipeline as
       // processImages (everything from the Completer onwards).
       _wordReviewCompleter = Completer<WordReviewResult?>();
@@ -1039,6 +1576,13 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
         );
       } else {
         state = state.copyWith(words: confirmedWords);
+
+        // Persist so a kill during enrichment can be resumed.
+        await _updatePendingBatch(
+          phase: ProcessingPhase.enriching,
+          words: confirmedWords,
+          wordLanguages: wordLanguages,
+        );
 
         _checkCancelled();
         if (confirmedWords.isNotEmpty) {
@@ -1196,6 +1740,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
         );
       }
     } finally {
+      await clearPendingBatch();
       if (Platform.isAndroid) {
         await ForegroundTaskService.update(detail: 'AI model ready');
       }
@@ -1242,6 +1787,11 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     HsvRange? hsvRange,
     Map<int, List<HighlightBBox>>? confirmedBoxes,
   }) async {
+    const maxImages = 10;
+    if (images.length > maxImages) {
+      images = images.sublist(0, maxImages);
+    }
+
     final stopwatch = Stopwatch()..start();
 
     // Benchmark data collector.
@@ -1668,6 +2218,18 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
         ocrText: ocrTexts.join('\n---\n'),
       );
 
+      // Persist so a kill during word review can be resumed.
+      await _savePendingBatch(
+        images: images,
+        words: uniqueWords,
+        ocrResults: ocrTexts,
+      );
+
+      // Release image bytes after saving to reduce memory pressure.
+      for (var i = 0; i < images.length; i++) {
+        images[i].bytes = Uint8List(0);
+      }
+
       // ── Word Review gate ────────────────────────────────────────────
       // Pause the pipeline so the user can edit / remove words before
       // spending GPU time on enrichment.
@@ -1707,6 +2269,13 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
       } else {
         // Update the word list with whatever the user confirmed.
         state = state.copyWith(words: confirmedWords);
+
+        // Persist so a kill during enrichment can be resumed.
+        await _updatePendingBatch(
+          phase: ProcessingPhase.enriching,
+          words: confirmedWords,
+          wordLanguages: wordLanguages,
+        );
 
       // Step 4: Enrich words (with cache integration).
       _checkCancelled();
@@ -1962,9 +2531,69 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
         );
       }
     } finally {
+      await clearPendingBatch();
       if (Platform.isAndroid) {
         await ForegroundTaskService.update(detail: 'AI model ready');
       }
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Android system permission state
+// ---------------------------------------------------------------------------
+
+/// Live observation of POST_NOTIFICATIONS grant.  Returns true on
+/// non-Android platforms and on Android API < 33.  Invalidate this
+/// provider after the user returns from app-details settings to refresh
+/// the home-screen banner.
+final notificationsGrantedProvider = FutureProvider<bool>((ref) {
+  return SystemChannel.isPostNotificationsGranted();
+});
+
+/// Per-session dismissal flag for the "notifications denied" banner on
+/// the home screen.  Resets to false on every app launch.
+final notificationsBannerDismissedProvider =
+    NotifierProvider<_NotificationsBannerDismissedNotifier, bool>(
+        _NotificationsBannerDismissedNotifier.new);
+
+class _NotificationsBannerDismissedNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+  void dismiss() => state = true;
+}
+
+/// Live observation of battery-optimisation whitelist state.  Used by the
+/// settings screen tile and refreshed on app resume.
+final batteryOptimizationDisabledProvider = FutureProvider<bool>((ref) {
+  return SystemChannel.isBatteryOptimizationDisabled();
+});
+
+// ---------------------------------------------------------------------------
+// Inbound share intents (Android only)
+// ---------------------------------------------------------------------------
+
+/// Which screen is shown in the detail pane of a two-pane layout.
+/// Driven by pipeline state rather than navigation routes.
+enum DetailScreen { none, processing, review }
+
+final detailScreenProvider =
+    NotifierProvider<_DetailScreenNotifier, DetailScreen>(
+        _DetailScreenNotifier.new);
+
+class _DetailScreenNotifier extends Notifier<DetailScreen> {
+  @override
+  DetailScreen build() => DetailScreen.none;
+  void show(DetailScreen screen) => state = screen;
+  void clear() => state = DetailScreen.none;
+}
+
+/// Singleton handler for `ACTION_SEND` / `ACTION_SEND_MULTIPLE` image
+/// intents.  Constructed eagerly during app boot via [OcrToAnkiApp.initState]
+/// so neither the cold-launch share intent nor warm-launch onNewIntent
+/// events are dropped.  No-op on non-Android platforms.
+final shareIntentHandlerProvider = Provider<ShareIntentHandler>((ref) {
+  final handler = ShareIntentHandler();
+  ref.onDispose(handler.dispose);
+  return handler;
+});

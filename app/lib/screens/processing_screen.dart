@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/app_settings.dart' show kSupportedLanguages;
+import '../models/models.dart';
 import '../providers/providers.dart';
+import '../utils/responsive.dart';
 
 class ProcessingScreen extends ConsumerStatefulWidget {
   const ProcessingScreen({super.key});
@@ -82,6 +83,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(processingProvider);
     final theme = Theme.of(context);
+    final compact = isCompact(context);
     final isFinished =
         state.phase == ProcessingPhase.done ||
         state.phase == ProcessingPhase.error;
@@ -95,7 +97,13 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
         leading: isFinished
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
-                onPressed: () => Navigator.of(context).pop(),
+                onPressed: () {
+                  if (useTwoPane(context)) {
+                    ref.read(detailScreenProvider.notifier).clear();
+                  } else {
+                    Navigator.of(context).pop();
+                  }
+                },
               )
             : null,
         automaticallyImplyLeading: false,
@@ -136,12 +144,15 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
             ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
-            child: Column(
+      body: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.all(compact ? 16 : 24),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: compact ? double.infinity : 600,
+              ),
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // Phase indicator
@@ -350,8 +361,11 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
                   const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: () {
-                      Navigator.of(context)
-                          .pushNamed('/review');
+                      if (useTwoPane(context)) {
+                        ref.read(detailScreenProvider.notifier).show(DetailScreen.review);
+                      } else {
+                        Navigator.of(context).pushNamed('/review');
+                      }
                     },
                     icon: const Icon(Icons.rate_review),
                     label: const Text('Review Cards'),
@@ -362,7 +376,13 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
                 if (state.phase == ProcessingPhase.error) ...[
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () {
+                      if (useTwoPane(context)) {
+                        ref.read(detailScreenProvider.notifier).clear();
+                      } else {
+                        Navigator.of(context).pop();
+                      }
+                    },
                     icon: const Icon(Icons.refresh),
                     label: const Text('Go Back'),
                   ),
@@ -372,6 +392,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 }

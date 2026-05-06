@@ -5,4 +5,7 @@ export 'highlight_detector.dart';
 export 'inference_service.dart';
 export 'llama_cpp_android_service.dart';
 export 'model_download_service.dart';
+export 'model_registry_service.dart';
+export 'share_intent_handler.dart';
+export 'system_channel.dart';
 export 'update_service.dart';

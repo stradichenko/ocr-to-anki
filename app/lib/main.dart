@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/providers.dart';
 import 'screens/screens.dart';
 import 'services/foreground_task_service.dart';
+import 'services/system_channel.dart';
+import 'utils/responsive.dart';
 
 void main() {
   runApp(const ProviderScope(child: OcrToAnkiApp()));
@@ -25,6 +27,13 @@ class _OcrToAnkiAppState extends ConsumerState<OcrToAnkiApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (Platform.isAndroid) {
+      // Eagerly construct the share-intent handler so a cold-launch
+      // share intent is captured before HomeScreen mounts.
+      ref.read(shareIntentHandlerProvider);
+      // Enable edge-to-edge drawing behind status and navigation bars.
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
   }
 
   @override
@@ -45,6 +54,11 @@ class _OcrToAnkiAppState extends ConsumerState<OcrToAnkiApp>
       llama.ensureServerRunning().catchError((_) {
         // Silently ignore — the next inference call will retry anyway.
       });
+      // Refresh OS-level grant state — the user may have toggled
+      // notifications or battery optimisation in system settings while
+      // we were backgrounded.
+      ref.invalidate(notificationsGrantedProvider);
+      ref.invalidate(batteryOptimizationDisabledProvider);
     } else if (state == AppLifecycleState.paused) {
       // Keep the foreground service alive while the model server is running
       // so Android does not kill the process when the user backgrounds the
@@ -85,6 +99,81 @@ class _OcrToAnkiAppState extends ConsumerState<OcrToAnkiApp>
   }
 }
 
+/// Navigation destinations for the adaptive layout.
+const _kNavDestinations = [
+  NavigationRailDestination(
+    icon: Icon(Icons.home_outlined),
+    selectedIcon: Icon(Icons.home),
+    label: Text('Home'),
+  ),
+  NavigationRailDestination(
+    icon: Icon(Icons.history_outlined),
+    selectedIcon: Icon(Icons.history),
+    label: Text('History'),
+  ),
+  NavigationRailDestination(
+    icon: Icon(Icons.settings_outlined),
+    selectedIcon: Icon(Icons.settings),
+    label: Text('Settings'),
+  ),
+];
+
+/// Adaptive scaffold for medium/expanded screens.
+///
+/// Shows a [NavigationRail] on the left and a detail pane on the right.
+/// The detail pane is driven by [detailScreenProvider] when processing or
+/// review is active, otherwise by the rail selection.
+class _AdaptiveLayout extends ConsumerStatefulWidget {
+  const _AdaptiveLayout();
+
+  @override
+  ConsumerState<_AdaptiveLayout> createState() => _AdaptiveLayoutState();
+}
+
+class _AdaptiveLayoutState extends ConsumerState<_AdaptiveLayout> {
+  int _selectedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final detail = ref.watch(detailScreenProvider);
+
+    Widget body;
+    if (detail == DetailScreen.processing) {
+      body = const ProcessingScreen();
+    } else if (detail == DetailScreen.review) {
+      body = const ReviewScreen();
+    } else {
+      body = switch (_selectedIndex) {
+        0 => const HomeScreen(),
+        1 => const HistoryScreen(),
+        2 => const SettingsScreen(),
+        _ => const HomeScreen(),
+      };
+    }
+
+    return Scaffold(
+      body: Row(
+        children: [
+          NavigationRail(
+            backgroundColor: theme.colorScheme.surfaceContainerLow,
+            selectedIndex:
+                detail != DetailScreen.none ? null : _selectedIndex,
+            onDestinationSelected: (index) {
+              ref.read(detailScreenProvider.notifier).clear();
+              setState(() => _selectedIndex = index);
+            },
+            destinations: _kNavDestinations,
+            labelType: NavigationRailLabelType.all,
+          ),
+          const VerticalDivider(thickness: 1, width: 1),
+          Expanded(child: body),
+        ],
+      ),
+    );
+  }
+}
+
 /// Shows a loading / error screen while the backend is booting.
 /// Once the server is healthy, it shows the normal [HomeScreen].
 class _ServerStartupGate extends ConsumerWidget {
@@ -94,6 +183,17 @@ class _ServerStartupGate extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final startup = ref.watch(serverStartupProvider);
     final theme = Theme.of(context);
+
+    // One-time Android system prompts at first transition to ready.
+    // Fires the OS POST_NOTIFICATIONS dialog and the battery-optimisation
+    // exemption dialog, persisting the asked flags so we never re-prompt
+    // across launches.
+    ref.listen<ServerStartupState>(serverStartupProvider, (prev, next) {
+      if (!Platform.isAndroid) return;
+      if (next.status != ServerStatus.ready) return;
+      if (prev?.status == ServerStatus.ready) return;
+      _maybePromptFirstRunPermissions(context, ref);
+    });
 
     return switch (startup.status) {
       ServerStatus.starting => Scaffold(
@@ -352,12 +452,77 @@ class _ServerStartupGate extends ConsumerWidget {
             ),
           ),
         ),
-      ServerStatus.ready => const HomeScreen(),
+      ServerStatus.ready =>
+          useTwoPane(context) ? const _AdaptiveLayout() : const HomeScreen(),
     };
   }
 
   static String _megabytes(int bytes) =>
       (bytes / (1024 * 1024)).toStringAsFixed(1);
+
+  /// Run the one-time Android first-launch system prompts.  Called from
+  /// the build-time `ref.listen` on the first transition to
+  /// [ServerStatus.ready].  Persists the "asked" flags so the OS dialogs
+  /// never show twice across launches, regardless of the user's choice.
+  ///
+  /// The order is intentional: notifications first (cheap, no-op on
+  /// non-Doze devices), battery-optimisation second (heavier, only if
+  /// Android can actually kill us).
+  static Future<void> _maybePromptFirstRunPermissions(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final settings = ref.read(settingsProvider);
+
+    // -- 1) POST_NOTIFICATIONS (Android 13+) --------------------------------
+    if (!settings.notificationsPermissionAsked) {
+      await SystemChannel.requestPostNotifications();
+      await ref.read(settingsProvider.notifier).update((s) {
+        s.notificationsPermissionAsked = true;
+        return s;
+      });
+      ref.invalidate(notificationsGrantedProvider);
+    }
+
+    if (!context.mounted) return;
+
+    // -- 2) Battery-optimisation whitelist ----------------------------------
+    final updated = ref.read(settingsProvider);
+    if (updated.batteryOptimizationPromptShown) return;
+
+    final batteryOk = await SystemChannel.isBatteryOptimizationDisabled();
+    if (!batteryOk && context.mounted) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Keep OCR running in background?'),
+          content: const Text(
+            'Long OCR jobs can take a minute on a phone CPU. To prevent '
+            'Android from interrupting them when the screen turns off, '
+            'allow this app to skip battery optimisation.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Not now'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                SystemChannel.requestIgnoreBatteryOptimizations();
+              },
+              child: const Text('Allow'),
+            ),
+          ],
+        ),
+      );
+    }
+    await ref.read(settingsProvider.notifier).update((s) {
+      s.batteryOptimizationPromptShown = true;
+      return s;
+    });
+    ref.invalidate(batteryOptimizationDisabledProvider);
+  }
 
   /// Build a diagnostics blob the user can paste into a bug report.
   static String _buildDiagnostics(ServerStartupState startup) {

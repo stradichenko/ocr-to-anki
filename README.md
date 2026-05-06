@@ -46,7 +46,7 @@ enrichment through llama.cpp.
 | Python API | FastAPI, llama.cpp | Vision OCR and text enrichment backend |
 | Vision OCR | llama-mtmd-cli | Extract text from images (GPU accelerated) |
 | Text tasks | llama-server | Definitions, examples, vocabulary enrichment |
-| Model | Gemma 3 4B QAT Q4_0 | Single model for both vision and text |
+| Model | Gemma 3 4B QAT Q4_0 (default) | User-switchable model registry |
 
 <h3 align="center">
   <a href="https://github.com/stradichenko/ocr-to-anki/releases">Download</a>
@@ -100,8 +100,9 @@ On first run the app performs a one-time setup:
 
 1. **Extracts native binaries** — The bundled `llama-server` and
    `llama-mtmd-cli` are copied to the app's private storage (~100 MB).
-2. **Downloads the AI model** — The Gemma 3 4B model (~2.4 GB) and vision
-   projector (~812 MB) are downloaded directly to your device.
+2. **Downloads the AI model** — The default Gemma 3 4B model (~2.4 GB) and
+   vision projector (~812 MB) are downloaded directly to your device. Other
+   models can be downloaded later from **Settings → AI Model**.
 
 > **WiFi is required for the model download** unless you disabled
 > "WiFi-only downloads" in Settings. The download supports resume, so if
@@ -134,10 +135,11 @@ cd ocr-to-anki-v0.2.0-linux-x86_64
 >
 > 1. *"Python runtime needed — Download Python"* (~30 MB, if Python is not
 >    already installed)
-> 2. *"Model download required — Download now"* (~3.2 GB)
+> 2. *"Model download required — Download now"* (~3.2 GB, the default model)
 >
 > Both downloads are cached locally and only happen once. After that the
-> app starts instantly.
+> app starts instantly. Additional models can be downloaded and switched
+> between from **Settings → AI Model**.
 >
 > You can also download the model manually with the bundled script:
 >
@@ -383,6 +385,15 @@ HTTP on `localhost:8090`. Vision OCR runs `llama-mtmd-cli` as a subprocess.
 This avoids the need for a Python runtime on Android while keeping all
 inference fully local and offline.
 
+### Tablets and foldables
+
+On tablets (10"+) and foldables in unfolded mode, the app uses a two-pane
+layout with a `NavigationRail` on the left and a detail pane on the right.
+Processing and review screens appear in the detail pane without pushing
+full-screen routes, so you can still see the home screen queue while a batch
+runs. Rotate to portrait or use a phone-sized screen to get the single-pane
+layout.
+
 ### Camera and Gallery
 
 The Android home screen shows two prominent buttons:
@@ -395,10 +406,11 @@ system UI. Camera access is handled automatically by the `image_picker` plugin.
 
 ### Model Download
 
-The first time you launch the Android app, it downloads the Gemma 3 4B model
-(~2.4 GB) and vision projector (~812 MB) directly to the app's private storage.
-Downloads support resume, so if interrupted they will continue from where they
-left off.
+The first time you launch the Android app, it downloads the default Gemma 3 4B
+model (~2.4 GB) and vision projector (~812 MB) directly to the app's private
+storage. Downloads support resume, so if interrupted they will continue from
+where they left off. Additional models can be downloaded and switched between
+from **Settings → AI Model**.
 
 ### AnkiDroid Export
 
@@ -424,6 +436,7 @@ app/                        Flutter GUI application
       backend_server_service.dart   Python backend process lifecycle
       llama_cpp_android_service.dart Native binary management (Android)
       model_download_service.dart   Resume-capable model downloads (Android)
+      model_registry_service.dart   Model registry and disk usage (Android)
     database/               Drift (SQLite) local storage
     providers/              Riverpod state management
     screens/                Home, Processing, Review, Settings, History

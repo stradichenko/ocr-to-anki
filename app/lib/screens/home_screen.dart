@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -10,8 +11,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/models.dart';
+import '../models/pending_batch.dart';
 import '../providers/providers.dart';
 import '../services/highlight_detector.dart';
+import '../services/share_intent_handler.dart';
+import '../services/system_channel.dart';
+import '../services/image_utils.dart';
+import '../utils/responsive.dart';
+import 'camera_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -34,10 +41,109 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// detection).  Stored in natural-image coordinates.
   HighlightBBox? _cropRegion;
 
+  /// Subscription to inbound share intents (Android only).
+  StreamSubscription<List<SharedImage>>? _shareSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isAndroid) {
+      final handler = ref.read(shareIntentHandlerProvider);
+
+      // Drain any cold-launch share intent on the first frame so the
+      // queue and snackbar appear after the screen is mounted.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (handler.pendingDrainable) {
+          _onSharedImages(handler.drainPending());
+        }
+      });
+
+      _shareSubscription = handler.stream.listen(_onSharedImages);
+    }
+
+    // Check for an interrupted session from a previous run.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkPendingBatch());
+  }
+
+  /// Show a resume dialog if a non-terminal pending batch exists.
+  Future<void> _checkPendingBatch() async {
+    final db = ref.read(databaseProvider);
+    final PendingBatch? batch = await ProcessingNotifier.loadPendingBatch(db);
+    if (batch == null || !mounted) return;
+
+    final notifier = ref.read(processingProvider.notifier);
+
+    final resume = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Resume interrupted session?'),
+        content: Text(
+          'A previous ${batch.hasImages ? 'image-processing' : 'word-enrichment'} '
+          'session was interrupted at the _${batch.phase.name}_ phase. '
+          'Would you like to resume where you left off?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Discard'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Resume'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+
+    if (resume != true) {
+      notifier.reset();
+      await notifier.clearPendingBatch();
+      return;
+    }
+
+    // Navigate to the processing screen and resume.
+    notifier.reset();
+    if (mounted) {
+      if (useTwoPane(context)) {
+        ref.read(detailScreenProvider.notifier).show(DetailScreen.processing);
+      } else {
+        Navigator.of(context).pushNamed('/processing');
+      }
+    }
+    await notifier.resumeBatch(batch);
+  }
+
   @override
   void dispose() {
+    _shareSubscription?.cancel();
     _queueScrollCtrl.dispose();
     super.dispose();
+  }
+
+  /// Add a batch of inbound-share images to the queue and surface a
+  /// snackbar so the user knows they landed.
+  void _onSharedImages(List<SharedImage> images) {
+    if (images.isEmpty || !mounted) return;
+    setState(() {
+      _imageQueue.addAll(
+        images.map((img) => ImageEntry(bytes: img.bytes, name: img.name)),
+      );
+    });
+    final count = images.length;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          count == 1
+              ? '1 image added from share — tap Start Processing.'
+              : '$count images added from share — tap Start Processing.',
+        ),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   /// The global HSV range for highlight detection.
@@ -61,16 +167,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final compact = isCompact(context);
+
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(compact ? 16 : 24),
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 600),
+              constraints: BoxConstraints(
+                maxWidth: compact ? double.infinity : 600,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // -- Notifications-denied banner (Android only) -------------
+                  if (Platform.isAndroid) const _NotificationsDeniedBanner(),
                   // -- Header row with actions --------------------------------
                   Row(
                     children: [
@@ -222,7 +334,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                   const SizedBox(height: 8),
                   SizedBox(
-                    height: 110,
+                    height: compact ? 140 : 110,
                     child: Scrollbar(
                     controller: _queueScrollCtrl,
                     thumbVisibility: true,
@@ -536,7 +648,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     notifier.reset();
 
     if (mounted) {
-      Navigator.of(context).pushNamed('/processing');
+      if (useTwoPane(context)) {
+        ref.read(detailScreenProvider.notifier).show(DetailScreen.processing);
+      } else {
+        Navigator.of(context).pushNamed('/processing');
+      }
     }
 
     // Start with an empty word list — the word-review UI lets the user add.
@@ -582,7 +698,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     notifier.reset();
 
     if (mounted) {
-      Navigator.of(context).pushNamed('/processing');
+      if (useTwoPane(context)) {
+        ref.read(detailScreenProvider.notifier).show(DetailScreen.processing);
+      } else {
+        Navigator.of(context).pushNamed('/processing');
+      }
     }
 
     await notifier.processImages(
@@ -806,7 +926,8 @@ class _ImageDropZoneState extends State<_ImageDropZone> {
             bytes = await File(file.path!).readAsBytes();
           }
           if (bytes != null) {
-            images.add((bytes: bytes, name: file.name));
+            final normalized = await normalizeOrientation(bytes);
+            images.add((bytes: normalized, name: file.name));
           }
         }
         if (images.isNotEmpty) {
@@ -821,7 +942,7 @@ class _ImageDropZoneState extends State<_ImageDropZone> {
     final picker = ImagePicker();
     final xfile = await picker.pickImage(source: ImageSource.gallery);
     if (xfile != null) {
-      final bytes = await xfile.readAsBytes();
+      final bytes = await normalizeOrientation(await xfile.readAsBytes());
       widget.onImagesSelected([(bytes: bytes, name: xfile.name)]);
     }
   }
@@ -837,11 +958,22 @@ class _MobileImagePicker extends StatelessWidget {
   final void Function(List<({Uint8List bytes, String name})>) onImagesSelected;
 
   Future<void> _pickFromCamera(BuildContext context) async {
-    final picker = ImagePicker();
-    final xfile = await picker.pickImage(source: ImageSource.camera);
-    if (xfile != null) {
-      final bytes = await xfile.readAsBytes();
-      onImagesSelected([(bytes: bytes, name: xfile.name)]);
+    final result = await Navigator.push<dynamic>(
+      context,
+      MaterialPageRoute(builder: (_) => const CameraScreen()),
+    );
+    if (result == null) return;
+    if (result is Uint8List) {
+      final normalized = await normalizeOrientation(result);
+      onImagesSelected([(bytes: normalized, name: 'camera_${DateTime.now().millisecondsSinceEpoch}.jpg')]);
+    } else if (result is List<Uint8List>) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final normalized = <({Uint8List bytes, String name})>[];
+      for (var i = 0; i < result.length; i++) {
+        final bytes = await normalizeOrientation(result[i]);
+        normalized.add((bytes: bytes, name: 'camera_${now}_$i.jpg'));
+      }
+      onImagesSelected(normalized);
     }
   }
 
@@ -852,7 +984,7 @@ class _MobileImagePicker extends StatelessWidget {
     if (xfiles.isNotEmpty) {
       final images = <({Uint8List bytes, String name})>[];
       for (final xfile in xfiles) {
-        final bytes = await xfile.readAsBytes();
+        final bytes = await normalizeOrientation(await xfile.readAsBytes());
         images.add((bytes: bytes, name: xfile.name));
       }
       onImagesSelected(images);
@@ -861,7 +993,7 @@ class _MobileImagePicker extends StatelessWidget {
     // Fallback to single-select
     final xfile = await picker.pickImage(source: ImageSource.gallery);
     if (xfile != null) {
-      final bytes = await xfile.readAsBytes();
+      final bytes = await normalizeOrientation(await xfile.readAsBytes());
       onImagesSelected([(bytes: bytes, name: xfile.name)]);
     }
   }
@@ -869,34 +1001,45 @@ class _MobileImagePicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final compact = isCompact(context);
+
+    final cameraBtn = FilledButton.icon(
+      onPressed: () => _pickFromCamera(context),
+      icon: const Icon(Icons.camera_alt),
+      label: const Text('Camera'),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+      ),
+    );
+    final galleryBtn = FilledButton.icon(
+      onPressed: () => _pickFromGallery(context),
+      icon: const Icon(Icons.photo_library),
+      label: const Text('Gallery'),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+      ),
+    );
 
     return Column(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: () => _pickFromCamera(context),
-                icon: const Icon(Icons.camera_alt),
-                label: const Text('Camera'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: () => _pickFromGallery(context),
-                icon: const Icon(Icons.photo_library),
-                label: const Text('Gallery'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-            ),
-          ],
-        ),
+        if (compact)
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              cameraBtn,
+              const SizedBox(height: 8),
+              galleryBtn,
+            ],
+          )
+        else
+          Row(
+            children: [
+              Expanded(child: cameraBtn),
+              const SizedBox(width: 12),
+              Expanded(child: galleryBtn),
+            ],
+          ),
         const SizedBox(height: 8),
         Text(
           'Supports JPG, PNG, BMP, TIFF',
@@ -1068,10 +1211,11 @@ class _BoundingBoxPreviewDialogState extends State<_BoundingBoxPreviewDialog> {
 
     return AlertDialog(
       title: Text(titleText),
-      content: SizedBox(
-        width: 600,
-        height: 520,
-        child: Column(
+      content: ConstrainedBox(
+        constraints: dialogConstraints(context),
+        child: SizedBox(
+          height: 520,
+          child: Column(
           children: [
             // -- Image name + navigation --
             if (multi)
@@ -1180,7 +1324,8 @@ class _BoundingBoxPreviewDialogState extends State<_BoundingBoxPreviewDialog> {
           ],
         ),
       ),
-      actions: [
+    ),
+    actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, null),
           child: const Text('Cancel'),
@@ -1412,10 +1557,11 @@ class _CropRegionDialogState extends State<_CropRegionDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Select Crop Region'),
-      content: SizedBox(
-        width: 600,
-        height: 550,
-        child: Column(
+      content: ConstrainedBox(
+        constraints: dialogConstraints(context),
+        child: SizedBox(
+          height: 550,
+          child: Column(
           children: [
             Text(
               'Draw a rectangle on the image to select the region of interest.\n'
@@ -1474,25 +1620,26 @@ class _CropRegionDialogState extends State<_CropRegionDialog> {
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, null),
-          child: const Text('Cancel'),
-        ),
-        FilledButton.icon(
-          onPressed: _dragStart != null && _dragEnd != null
-              ? () {
-                  final region = _computeRegion(
-                    _lastDisplayW > 0 ? _lastDisplayW : _imageWidth,
-                    _lastDisplayH > 0 ? _lastDisplayH : _imageHeight,
-                  );
-                  Navigator.pop(context, region);
-                }
-              : null,
-          icon: const Icon(Icons.crop),
-          label: const Text('Set Crop Region'),
-        ),
-      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context, null),
+        child: const Text('Cancel'),
+      ),
+      FilledButton.icon(
+        onPressed: _dragStart != null && _dragEnd != null
+            ? () {
+                final region = _computeRegion(
+                  _lastDisplayW > 0 ? _lastDisplayW : _imageWidth,
+                  _lastDisplayH > 0 ? _lastDisplayH : _imageHeight,
+                );
+                Navigator.pop(context, region);
+              }
+            : null,
+        icon: const Icon(Icons.crop),
+        label: const Text('Set Crop Region'),
+      ),
+    ],
     );
   }
 
@@ -1722,14 +1869,15 @@ class _ColorSamplerDialogState extends State<_ColorSamplerDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Sample Highlight Colour'),
-      content: SizedBox(
-        width: 600,
-        height: 600,
-        child: Column(
-          children: [
-            Text(
-              'Draw a rectangle over a highlighted region to sample its colour.\n'
-              'Use the zoom buttons to magnify; scroll or drag the scrollbars to navigate.',
+      content: ConstrainedBox(
+        constraints: dialogConstraints(context),
+        child: SizedBox(
+          height: 600,
+          child: Column(
+            children: [
+              Text(
+                'Draw a rectangle over a highlighted region to sample its colour.\n'
+                'Use the zoom buttons to magnify; scroll or drag the scrollbars to navigate.',
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
@@ -1782,18 +1930,19 @@ class _ColorSamplerDialogState extends State<_ColorSamplerDialog> {
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, null),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _sampledRange != null
-              ? () => Navigator.pop(context, _sampledRange)
-              : null,
-          child: const Text('Use This Colour'),
-        ),
-      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context, null),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: _sampledRange != null
+            ? () => Navigator.pop(context, _sampledRange)
+            : null,
+        child: const Text('Use This Colour'),
+      ),
+    ],
     );
   }
 
@@ -2177,6 +2326,87 @@ class _PerImageSettingsSheet extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Notifications-denied banner (Android only)
+// ---------------------------------------------------------------------------
+
+/// Compact warning banner shown on the home screen when the user has denied
+/// (or not yet granted) the POST_NOTIFICATIONS permission.  Android may kill
+/// long-running OCR sessions without a foreground-service notification, so
+/// we surface a one-tap path to the OS settings page.  Dismissing hides the
+/// banner for the current session only.
+class _NotificationsDeniedBanner extends ConsumerWidget {
+  const _NotificationsDeniedBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    // Default to "granted" while the future is loading or errors so the
+    // banner does not flash on every cold start.
+    final granted =
+        ref.watch(notificationsGrantedProvider).value ?? true;
+    final dismissed = ref.watch(notificationsBannerDismissedProvider);
+    if (granted || dismissed) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: theme.colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      color: theme.colorScheme.onErrorContainer, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Notifications are off — Android may kill long OCR jobs '
+                      'when the screen is off. Enable to keep them running.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => ref
+                        .read(notificationsBannerDismissedProvider.notifier)
+                        .dismiss(),
+                    child: Text(
+                      'Dismiss',
+                      style: TextStyle(
+                          color: theme.colorScheme.onErrorContainer),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => SystemChannel.openAppDetailsSettings(),
+                    child: Text(
+                      'Open Settings',
+                      style: TextStyle(
+                          color: theme.colorScheme.onErrorContainer,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

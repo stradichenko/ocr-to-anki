@@ -8,6 +8,9 @@ import 'package:http/http.dart' as http;
 import '../database/database.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
+import '../services/model_registry_service.dart';
+import '../services/system_channel.dart';
+import '../utils/responsive.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -17,10 +20,16 @@ class SettingsScreen extends ConsumerWidget {
     final settings = ref.watch(settingsProvider);
     final notifier = ref.read(settingsProvider.notifier);
 
+    final compact = isCompact(context);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+      body: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.symmetric(
+            vertical: 8,
+            horizontal: compact ? 4 : 0,
+          ),
         children: [
           // ---------------------------------------------------------------
           // Appearance
@@ -256,17 +265,17 @@ class SettingsScreen extends ConsumerWidget {
               title: const Text('GPU acceleration'),
               subtitle: Text(
                 switch (settings.gpuMode) {
-                  'gpu'  => 'Force GPU — use for discrete NVIDIA / AMD GPUs.',
-                  'cpu'  => 'Force CPU — slower but stable on all hardware.',
-                  _      => 'Auto — GPU on Linux/macOS, CPU on Windows.',
+                  'gpu' => 'Force GPU — use for discrete NVIDIA / AMD GPUs.',
+                  'cpu' => 'Force CPU — slower but stable on all hardware.',
+                  _ => 'Auto — GPU on Linux/macOS, CPU on Windows.',
                 },
               ),
               trailing: DropdownButton<String>(
                 value: settings.gpuMode,
                 items: const [
                   DropdownMenuItem(value: 'auto', child: Text('Auto')),
-                  DropdownMenuItem(value: 'gpu',  child: Text('GPU')),
-                  DropdownMenuItem(value: 'cpu',  child: Text('CPU')),
+                  DropdownMenuItem(value: 'gpu', child: Text('GPU')),
+                  DropdownMenuItem(value: 'cpu', child: Text('CPU')),
                 ],
                 onChanged: (v) {
                   if (v == null) return;
@@ -289,6 +298,55 @@ class SettingsScreen extends ConsumerWidget {
               value: settings.preferDiscreteGpu,
               onChanged: (v) =>
                   notifier.update((s) => s..preferDiscreteGpu = v),
+            ),
+          ],
+          if (Platform.isAndroid) ...[
+            ListTile(
+              title: const Text('GPU backend'),
+              subtitle: Text(
+                switch (settings.gpuMode) {
+                  'vulkan' => 'Vulkan — GPU acceleration via Vulkan.',
+                  'cpu' => 'CPU only — slower but most compatible.',
+                  _ => 'Auto — use Vulkan if available, otherwise CPU.',
+                },
+              ),
+              trailing: DropdownButton<String>(
+                value: settings.gpuMode,
+                items: const [
+                  DropdownMenuItem(value: 'auto', child: Text('Auto')),
+                  DropdownMenuItem(value: 'vulkan', child: Text('Vulkan')),
+                  DropdownMenuItem(value: 'cpu', child: Text('CPU')),
+                ],
+                onChanged: (v) {
+                  if (v == null) return;
+                  notifier.update((s) => s..gpuMode = v);
+                },
+              ),
+            ),
+            ListTile(
+              title: const Text('GPU layers'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    settings.nGpuLayers >= 999
+                        ? 'All layers on GPU'
+                        : '${settings.nGpuLayers} layers',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  Slider(
+                    value: settings.nGpuLayers.toDouble(),
+                    min: 0,
+                    max: 999,
+                    divisions: 999,
+                    label: settings.nGpuLayers >= 999
+                        ? 'All'
+                        : '${settings.nGpuLayers}',
+                    onChanged: (v) =>
+                        notifier.update((s) => s..nGpuLayers = v.round()),
+                  ),
+                ],
+              ),
             ),
           ],
           SwitchListTile(
@@ -407,6 +465,22 @@ class SettingsScreen extends ConsumerWidget {
                   notifier.update((s) => s..wifiOnlyDownloads = v),
             ),
             const SizedBox(height: 32),
+            _SectionHeader('AI Model'),
+            const _AiModelTile(),
+            const SizedBox(height: 32),
+            _SectionHeader('Battery & Background'),
+            _BatteryOptimizationTile(),
+            ListTile(
+              leading: const Icon(Icons.help_outline),
+              title: const Text('Device-specific settings'),
+              subtitle: const Text(
+                'Some Xiaomi/Samsung/OnePlus devices need extra steps to '
+                'allow background OCR. Open the OS app info page.',
+              ),
+              trailing: const Icon(Icons.open_in_new),
+              onTap: () => SystemChannel.openAppDetailsSettings(),
+            ),
+            const SizedBox(height: 32),
           ],
 
           const SizedBox(height: 32),
@@ -424,6 +498,7 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 32),
           ],
         ],
+        ),
       ),
     );
   }
@@ -1458,6 +1533,499 @@ class _CacheEntryTile extends StatelessWidget {
         onPressed: onDelete,
       ),
       onTap: onTap,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI Model tile and picker (Android only)
+// ---------------------------------------------------------------------------
+
+class _AiModelTile extends ConsumerWidget {
+  const _AiModelTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(settingsProvider);
+    final registry = ref.watch(modelRegistryProvider);
+
+    return FutureBuilder<List<ModelInfo>>(
+      future: registry.listModels(),
+      builder: (context, snapshot) {
+        final models = snapshot.data;
+        final active = models?.firstWhere(
+          (m) => m.id == settings.activeModelId,
+          orElse: () => models.isNotEmpty ? models.first :
+              const ModelInfo(
+                id: '',
+                name: 'Loading…',
+                description: '',
+                modelUrl: '',
+                mmprojUrl: '',
+                modelFilename: '',
+                mmprojFilename: '',
+                modelSizeBytes: 0,
+                mmprojSizeBytes: 0,
+                sha256Model: '',
+                sha256Mmproj: '',
+                supportsVision: false,
+                contextSize: 4096,
+              ),
+        );
+
+        return ListTile(
+          leading: const Icon(Icons.model_training),
+          title: Text(active?.name ?? 'Loading…'),
+          subtitle: Text(
+            active?.description ?? '',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _showModelPicker(context, ref),
+        );
+      },
+    );
+  }
+
+  void _showModelPicker(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (ctx, scrollCtrl) => _ModelPickerSheet(
+          scrollController: scrollCtrl,
+        ),
+      ),
+    );
+  }
+}
+
+class _ModelPickerSheet extends ConsumerStatefulWidget {
+  const _ModelPickerSheet({required this.scrollController});
+  final ScrollController scrollController;
+
+  @override
+  ConsumerState<_ModelPickerSheet> createState() => _ModelPickerSheetState();
+}
+
+class _ModelPickerSheetState extends ConsumerState<_ModelPickerSheet> {
+  bool _downloading = false;
+  double? _downloadProgress;
+  String? _downloadFile;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final settings = ref.watch(settingsProvider);
+    final registry = ref.read(modelRegistryProvider);
+
+    return FutureBuilder<List<ModelInfo>>(
+      future: registry.listModels(),
+      builder: (context, modelsSnapshot) {
+        return FutureBuilder<int>(
+          future: registry.totalDiskUsageBytes(),
+          builder: (context, diskSnapshot) {
+            final models = modelsSnapshot.data ?? [];
+            final diskMb = diskSnapshot.data != null
+                ? (diskSnapshot.data! / (1024 * 1024)).toStringAsFixed(0)
+                : null;
+
+            return Column(
+              children: [
+                // Drag handle
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'Select AI Model',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.builder(
+                    controller: widget.scrollController,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: models.length + (diskMb != null ? 1 : 0),
+                    itemBuilder: (ctx, i) {
+                      if (i == models.length) {
+                        return Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            'Total disk usage: $diskMb MB',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        );
+                      }
+                      return _ModelCard(
+                        model: models[i],
+                        isActive: models[i].id == settings.activeModelId,
+                        isDownloading: _downloading,
+                        downloadProgress: _downloadProgress,
+                        downloadFile: _downloadFile,
+                        onSelect: () => _selectModel(models[i]),
+                        onDownload: () => _downloadModel(models[i]),
+                        onDelete: () => _deleteModel(models[i]),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _selectModel(ModelInfo model) async {
+    final notifier = ref.read(settingsProvider.notifier);
+    final currentId = ref.read(settingsProvider).activeModelId;
+
+    if (model.id == currentId) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    final registry = ref.read(modelRegistryProvider);
+    final isDownloaded = await registry.isDownloaded(model);
+
+    if (!isDownloaded) {
+      if (!mounted) return;
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Model not downloaded'),
+          content: Text(
+            '${model.name} is not on this device yet. '
+            'Download it now (~${(model.totalSizeBytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB)?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Download'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+      await _downloadModel(model);
+      if (!mounted) return;
+    }
+
+    // Update active model in settings.
+    await notifier.update((s) => s..activeModelId = model.id);
+
+    // Restart the server with the new model.
+    final llama = ref.read(llamaCppAndroidProvider);
+    llama.setActiveModel(model);
+    await llama.stopServer();
+    await llama.startServer();
+
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _downloadModel(ModelInfo model) async {
+    setState(() {
+      _downloading = true;
+      _downloadProgress = 0;
+    });
+
+    final downloader = ref.read(modelDownloadProvider);
+    try {
+      await downloader.downloadModel(
+        model,
+        onProgress: (downloaded, total, file) {
+          if (!mounted) return;
+          setState(() {
+            _downloadProgress = total > 0 ? downloaded / total : null;
+            _downloadFile = file;
+          });
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _downloading = false;
+          _downloadProgress = null;
+          _downloadFile = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _deleteModel(ModelInfo model) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${model.name}?'),
+        content: const Text(
+          'This will free up disk space. You can re-download it later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final registry = ref.read(modelRegistryProvider);
+    await registry.deleteModel(model);
+    if (mounted) setState(() {});
+  }
+}
+
+class _ModelCard extends StatelessWidget {
+  const _ModelCard({
+    required this.model,
+    required this.isActive,
+    required this.isDownloading,
+    this.downloadProgress,
+    this.downloadFile,
+    required this.onSelect,
+    required this.onDownload,
+    required this.onDelete,
+  });
+
+  final ModelInfo model;
+  final bool isActive;
+  final bool isDownloading;
+  final double? downloadProgress;
+  final String? downloadFile;
+  final VoidCallback onSelect;
+  final VoidCallback onDownload;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sizeGb = (model.totalSizeBytes / (1024 * 1024 * 1024))
+        .toStringAsFixed(1);
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      color: isActive
+          ? theme.colorScheme.primaryContainer.withValues(alpha: 0.5)
+          : null,
+      child: InkWell(
+        onTap: isDownloading ? null : onSelect,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      model.name,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (isActive)
+                    Chip(
+                      label: const Text('Active'),
+                      visualDensity: VisualDensity.compact,
+                      backgroundColor: theme.colorScheme.primary,
+                      labelStyle: TextStyle(
+                        color: theme.colorScheme.onPrimary,
+                        fontSize: 11,
+                      ),
+                      padding: EdgeInsets.zero,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                model.description,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                children: [
+                  ...model.tags.map((tag) {
+                    return Chip(
+                      label: Text(tag),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      labelStyle: const TextStyle(fontSize: 10),
+                    );
+                  }),
+                  Chip(
+                    label: Text('$sizeGb GB'),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    labelStyle: const TextStyle(fontSize: 10),
+                  ),
+                  if (model.supportsVision)
+                    Chip(
+                      label: const Text('Vision'),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      labelStyle: const TextStyle(fontSize: 10),
+                    ),
+                ],
+              ),
+              if (isDownloading) ...[
+                const SizedBox(height: 12),
+                LinearProgressIndicator(
+                  value: downloadProgress,
+                  minHeight: 6,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Downloading ${downloadFile ?? '…'}',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ] else ...[
+                const SizedBox(height: 8),
+                FutureBuilder<bool>(
+                  future: ModelRegistryService().isDownloaded(model),
+                  builder: (context, snap) {
+                    final downloaded = snap.data ?? false;
+                    return Row(
+                      children: [
+                        if (downloaded) ...[
+                          Icon(Icons.check_circle,
+                              size: 16, color: theme.colorScheme.primary),
+                          const SizedBox(width: 4),
+                          Text('Downloaded',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.primary,
+                              )),
+                          const Spacer(),
+                          if (!isActive)
+                            TextButton(
+                              onPressed: onDelete,
+                              child: Text(
+                                'Delete',
+                                style: TextStyle(
+                                  color: theme.colorScheme.error,
+                                ),
+                              ),
+                            ),
+                        ] else ...[
+                          Icon(Icons.download,
+                              size: 16,
+                              color: theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 4),
+                          Text('Not downloaded',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              )),
+                          const Spacer(),
+                          FilledButton(
+                            onPressed: onDownload,
+                            child: const Text('Download'),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Battery optimization tile (Android only)
+// ---------------------------------------------------------------------------
+
+/// Live status tile that shows whether the app is whitelisted from Doze /
+/// battery optimisation, and on tap opens the system dialog to fix it.
+/// Reflects state changes immediately on app resume thanks to the
+/// invalidation in [didChangeAppLifecycleState].
+class _BatteryOptimizationTile extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final asyncOk = ref.watch(batteryOptimizationDisabledProvider);
+
+    return asyncOk.when(
+      loading: () => const ListTile(
+        leading: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        title: Text('Battery optimization'),
+        subtitle: Text('Checking…'),
+      ),
+      error: (_, _) => ListTile(
+        leading: Icon(Icons.error_outline, color: theme.colorScheme.error),
+        title: const Text('Battery optimization'),
+        subtitle: const Text('Could not read system state'),
+      ),
+      data: (ok) => ListTile(
+        leading: Icon(
+          ok ? Icons.check_circle : Icons.warning_amber_rounded,
+          color: ok
+              ? theme.colorScheme.primary
+              : theme.colorScheme.error,
+        ),
+        title: const Text('Battery optimization'),
+        subtitle: Text(
+          ok
+              ? 'Disabled — long OCR sessions are protected from Doze.'
+              : 'Enabled — Android may interrupt long OCR sessions.',
+        ),
+        trailing: ok ? null : const Icon(Icons.chevron_right),
+        onTap: ok
+            ? null
+            : () async {
+                await SystemChannel.requestIgnoreBatteryOptimizations();
+                // The state refreshes automatically on resume via
+                // _OcrToAnkiAppState.didChangeAppLifecycleState.
+              },
+      ),
     );
   }
 }

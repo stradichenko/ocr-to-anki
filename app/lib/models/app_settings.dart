@@ -33,12 +33,17 @@ class AppSettings {
     this.parallelCrops = true,
     this.preferDiscreteGpu = true,
     this.gpuMode = 'auto',
+    this.nGpuLayers = 999,
     this.colorSchemeSeed = 'deepOrange',
     this.customColorHex = '',
     this.autoCheckUpdates = true,
     this.skipVersion = '',
     this.wifiOnlyDownloads = true,
     this.compressLargeImages = true,
+    this.notificationsPermissionAsked = false,
+    this.batteryOptimizationPromptShown = false,
+    this.lastAnkiDroidDeckId = 0,
+    this.activeModelId = 'gemma-3-4b-q4',
   });
 
   // -- Appearance --
@@ -98,7 +103,11 @@ class AppSettings {
   /// GPU acceleration mode: 'auto' (platform default), 'gpu' (force all
   /// layers on GPU), or 'cpu' (force CPU-only).  On Windows 'auto'
   /// means CPU because the Vulkan drivers are often unstable.
+  /// On Android: 'auto', 'vulkan', or 'cpu'.
   String gpuMode;
+
+  /// Number of model layers to offload to GPU. 999 means all layers.
+  int nGpuLayers;
 
   // -- Updates --
 
@@ -113,6 +122,21 @@ class AppSettings {
 
   /// Compress images larger than 1 MB before vision OCR on Android.
   bool compressLargeImages;
+
+  /// True once the app has shown the runtime POST_NOTIFICATIONS prompt
+  /// (Android 13+).  Stays true regardless of the user's grant choice so
+  /// we don't re-prompt on every launch.
+  bool notificationsPermissionAsked;
+
+  /// True once the app has shown the one-time battery-optimisation
+  /// whitelist prompt.  Stays true regardless of the user's choice.
+  bool batteryOptimizationPromptShown;
+
+  /// Last-selected AnkiDroid deck ID for one-tap export.
+  int lastAnkiDroidDeckId;
+
+  /// Active model ID from the registry. Defaults to the bundled model.
+  String activeModelId;
 
   Map<String, dynamic> toJson() => {
         'themeMode': themeMode.name,
@@ -146,10 +170,15 @@ class AppSettings {
         'parallelCrops': parallelCrops,
         'preferDiscreteGpu': preferDiscreteGpu,
         'gpuMode': gpuMode,
+        'nGpuLayers': nGpuLayers,
         'autoCheckUpdates': autoCheckUpdates,
         'skipVersion': skipVersion,
         'wifiOnlyDownloads': wifiOnlyDownloads,
         'compressLargeImages': compressLargeImages,
+        'notificationsPermissionAsked': notificationsPermissionAsked,
+        'batteryOptimizationPromptShown': batteryOptimizationPromptShown,
+        'lastAnkiDroidDeckId': lastAnkiDroidDeckId,
+        'activeModelId': activeModelId,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -196,10 +225,19 @@ class AppSettings {
       parallelCrops: json['parallelCrops'] as bool? ?? true,
       preferDiscreteGpu: json['preferDiscreteGpu'] as bool? ?? true,
       gpuMode: json['gpuMode'] as String? ?? 'auto',
+      nGpuLayers: json['nGpuLayers'] as int? ?? 999,
       autoCheckUpdates: json['autoCheckUpdates'] as bool? ?? true,
       skipVersion: json['skipVersion'] as String? ?? '',
       wifiOnlyDownloads: json['wifiOnlyDownloads'] as bool? ?? true,
       compressLargeImages: json['compressLargeImages'] as bool? ?? true,
+      notificationsPermissionAsked:
+          json['notificationsPermissionAsked'] as bool? ?? false,
+      batteryOptimizationPromptShown:
+          json['batteryOptimizationPromptShown'] as bool? ?? false,
+      lastAnkiDroidDeckId:
+          json['lastAnkiDroidDeckId'] as int? ?? 0,
+      activeModelId:
+          json['activeModelId'] as String? ?? 'gemma-3-4b-q4',
     );
   }
 }

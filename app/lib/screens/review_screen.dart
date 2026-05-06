@@ -8,6 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import '../models/anki_note.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
+import '../services/anki_export_service.dart';
+import '../utils/responsive.dart';
 
 class ReviewScreen extends ConsumerStatefulWidget {
   const ReviewScreen({super.key});
@@ -56,6 +58,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final compact = isCompact(context);
     final warningCount = _cards.where((c) => c.warning.isNotEmpty).length;
 
     return Scaffold(
@@ -63,7 +66,13 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         title: const Text('Review Cards'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () {
+            if (useTwoPane(context)) {
+              ref.read(detailScreenProvider.notifier).clear();
+            } else {
+              Navigator.of(context).pop();
+            }
+          },
         ),
         actions: [
           TextButton.icon(
@@ -73,12 +82,13 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
           ),
         ],
       ),
-      body: _cards.isEmpty
-          ? Center(
-              child: Text('No cards to review.',
-                  style: theme.textTheme.bodyLarge),
-            )
-          : Column(
+      body: SafeArea(
+        child: _cards.isEmpty
+            ? Center(
+                child: Text('No cards to review.',
+                    style: theme.textTheme.bodyLarge),
+              )
+            : Column(
               children: [
                 // Warning banner
                 if (warningCount > 0)
@@ -193,24 +203,44 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                 ),
               ],
             ),
-      floatingActionButton: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FloatingActionButton.extended(
-            heroTag: 'tsv',
-            onPressed: _exportTsv,
-            icon: const Icon(Icons.file_download),
-            label: const Text('Save TSV'),
-          ),
-          const SizedBox(width: 12),
-          FloatingActionButton.extended(
-            heroTag: 'json',
-            onPressed: _exportJson,
-            icon: const Icon(Icons.save_alt),
-            label: const Text('Save JSON'),
-          ),
-        ],
       ),
+      floatingActionButton: compact
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton.extended(
+                  heroTag: 'tsv',
+                  onPressed: _exportTsv,
+                  icon: const Icon(Icons.file_download),
+                  label: const Text('Save TSV'),
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.extended(
+                  heroTag: 'json',
+                  onPressed: _exportJson,
+                  icon: const Icon(Icons.save_alt),
+                  label: const Text('Save JSON'),
+                ),
+              ],
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton.extended(
+                  heroTag: 'tsv',
+                  onPressed: _exportTsv,
+                  icon: const Icon(Icons.file_download),
+                  label: const Text('Save TSV'),
+                ),
+                const SizedBox(width: 12),
+                FloatingActionButton.extended(
+                  heroTag: 'json',
+                  onPressed: _exportJson,
+                  icon: const Icon(Icons.save_alt),
+                  label: const Text('Save JSON'),
+                ),
+              ],
+            ),
     );
   }
 
@@ -228,8 +258,14 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
 
     final service = ref.read(ankiExportServiceProvider);
 
-    // On Android, share TSV with AnkiDroid instead of using AnkiConnect.
+    // On Android, try AnkiDroid direct add first, fall back to share sheet.
     if (Platform.isAndroid) {
+      final canUseAnkiDroid = await service.canUseAnkiDroid();
+      if (canUseAnkiDroid && mounted) {
+        await _exportToAnkiDroid(notes, service);
+        return;
+      }
+      // Fall back to TSV share sheet.
       try {
         await service.shareToAnkiDroid(notes);
       } catch (e) {
@@ -240,7 +276,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
       return;
     }
 
-    // Show loading.
+    // Desktop: use AnkiConnect.
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -249,7 +285,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
 
     try {
       final result = await service.importNotes(notes);
-      if (mounted) Navigator.of(context).pop(); // close dialog
+      if (mounted) Navigator.of(context).pop();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -261,9 +297,90 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         );
       }
     } catch (e) {
-      if (mounted) Navigator.of(context).pop(); // close spinner
+      if (mounted) Navigator.of(context).pop();
       if (mounted) {
         _showCopyableError(context, 'Export to Anki Failed', e.toString());
+      }
+    }
+  }
+
+  Future<void> _exportToAnkiDroid(
+    List<AnkiNote> notes,
+    AnkiExportService service,
+  ) async {
+    final settings = ref.read(settingsProvider);
+    var deckId = settings.lastAnkiDroidDeckId;
+
+    // If no deck remembered, or deck picker forced, show picker.
+    if (deckId == 0) {
+      final decks = await service.getAnkiDroidDecks();
+      if (decks.isEmpty) {
+        // No decks available — fall back to share sheet.
+        await service.shareToAnkiDroid(notes);
+        return;
+      }
+
+      final chosen = await showModalBottomSheet<int>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Select AnkiDroid deck',
+                  style: Theme.of(ctx).textTheme.titleMedium,
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: decks.length,
+                  itemBuilder: (ctx, i) {
+                    final deck = decks[i];
+                    return ListTile(
+                      title: Text(deck.name),
+                      leading: const Icon(Icons.folder),
+                      onTap: () => Navigator.pop(ctx, deck.id),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (chosen == null) return; // User cancelled.
+      deckId = chosen;
+      await ref.read(settingsProvider.notifier).update(
+        (s) => s..lastAnkiDroidDeckId = deckId,
+      );
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final added = await service.addNotesToAnkiDroid(notes, deckId: deckId);
+      if (mounted) Navigator.of(context).pop();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added $added/${notes.length} card(s) to AnkiDroid'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.of(context).pop();
+      if (mounted) {
+        _showCopyableError(context, 'AnkiDroid Export Failed', e.toString());
       }
     }
   }

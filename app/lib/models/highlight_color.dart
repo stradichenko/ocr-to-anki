@@ -122,4 +122,24 @@ class HsvRange {
   final double satMax;
   final double valMin;
   final double valMax;
+
+  Map<String, dynamic> toJson() => {
+        'label': label,
+        'hueCenter': hueCenter,
+        'hueRange': hueRange,
+        'satMin': satMin,
+        'satMax': satMax,
+        'valMin': valMin,
+        'valMax': valMax,
+      };
+
+  factory HsvRange.fromJson(Map<String, dynamic> json) => HsvRange(
+        label: json['label'] as String,
+        hueCenter: (json['hueCenter'] as num).toDouble(),
+        hueRange: (json['hueRange'] as num).toDouble(),
+        satMin: (json['satMin'] as num).toDouble(),
+        satMax: (json['satMax'] as num).toDouble(),
+        valMin: (json['valMin'] as num).toDouble(),
+        valMax: (json['valMax'] as num).toDouble(),
+      );
 }

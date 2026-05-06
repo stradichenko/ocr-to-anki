@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../models/model_info.dart';
 import 'foreground_task_service.dart';
 
 /// Manages llama.cpp native binaries on Android.
@@ -40,11 +43,46 @@ class LlamaCppAndroidService {
   /// is alive so we can surface them on health-check failure.
   final List<String> _serverStderrLines = [];
 
+  /// Available GPU backends detected at runtime (always contains 'cpu').
+  Set<String> _availableBackends = {'cpu'};
+
+  /// Resolved backend after applying user preference ('cpu' or 'vulkan').
+  String _resolvedBackend = 'cpu';
+
+  /// User GPU preference: 'auto', 'vulkan', or 'cpu'.
+  String _gpuMode = 'auto';
+
+  /// Number of GPU layers to offload. 999 means all layers.
+  int _nGpuLayers = 999;
+
+  /// The currently selected model. Must be set before [startServer] or
+  /// [runVisionOcr] are called.
+  ModelInfo? _activeModel;
+
   /// URL of the running llama-server, or null if not running.
   String? get serverUrl => _serverUrl;
 
   /// Whether llama-server is currently running.
   bool get isServerRunning => _serverProcess != null;
+
+  // ---------------------------------------------------------------------------
+  // Active model
+  // ---------------------------------------------------------------------------
+
+  /// Set the model that will be used for inference. This must be called
+  /// before [startServer] or [runVisionOcr].
+  void setActiveModel(ModelInfo model) {
+    _activeModel = model;
+  }
+
+  ModelInfo get _model {
+    if (_activeModel == null) {
+      throw StateError(
+        'No active model set. Call setActiveModel() before using the server.',
+      );
+    }
+    return _activeModel!;
+  }
 
   // ---------------------------------------------------------------------------
   // Native lib dir lookup
@@ -71,8 +109,15 @@ class LlamaCppAndroidService {
     }
     _nativeLibDir = dir;
 
-    // Verify the expected lib*.so files were extracted by the installer.
-    const expected = ['libllama-server.so', 'libllama-mtmd-cli.so'];
+    // Detect available GPU backends and pick the best one.
+    _availableBackends = await _detectAvailableBackends();
+    _resolvedBackend = _resolveBackend();
+
+    // Verify the variant-specific binaries were extracted by the installer.
+    final expected = [
+      'libllama-server-$_resolvedBackend.so',
+      'libllama-mtmd-cli-$_resolvedBackend.so',
+    ];
     for (final name in expected) {
       final f = File('$_nativeLibDir/$name');
       if (!f.existsSync()) {
@@ -87,10 +132,49 @@ class LlamaCppAndroidService {
     _binariesReady = true;
   }
 
+  /// Configure GPU mode before [ensureBinaries] or [startServer] are called.
+  void setGpuConfig({String? gpuMode, int? nGpuLayers}) {
+    if (gpuMode != null) _gpuMode = gpuMode;
+    if (nGpuLayers != null) _nGpuLayers = nGpuLayers;
+  }
+
+  /// Detect which GPU backends are available on this device by probing
+  /// for system libraries. Always returns a set containing at least 'cpu'.
+  Future<Set<String>> _detectAvailableBackends() async {
+    final backends = <String>{'cpu'};
+
+    // Vulkan: check if libvulkan.so is loadable.
+    try {
+      DynamicLibrary.open('libvulkan.so');
+      backends.add('vulkan');
+    } catch (_) {}
+
+    return backends;
+  }
+
+  /// Resolve the backend to use given the user preference and what's
+  /// actually available on the device. Falls back to CPU if the requested
+  /// backend is unavailable.
+  String _resolveBackend() {
+    final available = _availableBackends;
+    switch (_gpuMode) {
+      case 'vulkan':
+        return available.contains('vulkan') ? 'vulkan' : 'cpu';
+      case 'cpu':
+        return 'cpu';
+      case 'auto':
+      default:
+        // Prefer Vulkan if available, otherwise CPU.
+        return available.contains('vulkan') ? 'vulkan' : 'cpu';
+    }
+  }
+
   String get _libDir => _nativeLibDir!;
 
-  String get _serverBinary => '$_nativeLibDir/libllama-server.so';
-  String get _mtmdBinary => '$_nativeLibDir/libllama-mtmd-cli.so';
+  String get _serverBinary =>
+      '$_nativeLibDir/libllama-server-$_resolvedBackend.so';
+  String get _mtmdBinary =>
+      '$_nativeLibDir/libllama-mtmd-cli-$_resolvedBackend.so';
 
   // ---------------------------------------------------------------------------
   // Model paths
@@ -99,11 +183,42 @@ class LlamaCppAndroidService {
   /// Directory where GGUF models are stored.
   Directory get modelDir => Directory('${_appDir!.path}/models');
 
-  String get modelPath => '${modelDir.path}/gemma-3-4b-it-q4_0_s.gguf';
-  String get mmprojPath => '${modelDir.path}/mmproj-model-f16-4B.gguf';
+  String get modelPath => '${modelDir.path}/${_model.modelFilename}';
+  String get mmprojPath => '${modelDir.path}/${_model.mmprojFilename}';
 
   Future<bool> get modelsExist async {
     return File(modelPath).existsSync() && File(mmprojPath).existsSync();
+  }
+
+  /// Verify model files against the active model's SHA-256 hashes.
+  ///
+  /// Returns `true` if all files match their expected SHA-256 hashes.
+  /// Returns `false` if any file is missing, the wrong size, or has a
+  /// mismatched hash — the caller should trigger re-download in this case.
+  Future<bool> verifyModels() async {
+    await ensureBinaries();
+
+    final model = _model;
+
+    final files = <(String path, int size, String hash)>[
+      (modelPath, model.modelSizeBytes, model.sha256Model),
+      if (model.supportsVision)
+        (mmprojPath, model.mmprojSizeBytes, model.sha256Mmproj),
+    ];
+
+    for (final (path, expectedSize, expectedHash) in files) {
+      final file = File(path);
+      if (!file.existsSync()) return false;
+
+      final actualSize = file.lengthSync();
+      if (actualSize != expectedSize) return false;
+
+      final bytes = await file.readAsBytes();
+      final actualHash = sha256.convert(bytes).toString();
+      if (actualHash != expectedHash) return false;
+    }
+
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -187,19 +302,24 @@ class LlamaCppAndroidService {
 
     _serverStderrLines.clear();
     try {
+      final args = [
+        '-m', model,
+        '--host', '127.0.0.1',
+        '--port', '$port',
+        '--ctx-size', '${_model.contextSize}',
+        '--parallel', '1',
+        '--jinja',
+        '--cache-ram', '0',
+        '--cache-type-k', 'q4_0',
+        '--no-webui',
+        if (_resolvedBackend != 'cpu') ...[
+          '-ngl', '$_nGpuLayers',
+        ],
+      ];
+
       _serverProcess = await Process.start(
         binaryPath,
-        [
-          '-m', model,
-          '--host', '127.0.0.1',
-          '--port', '$port',
-          '--ctx-size', '4096',
-          '--parallel', '1',
-          '--jinja',
-          '--cache-ram', '0',
-          '--cache-type-k', 'q4_0',
-          '--no-webui',
-        ],
+        args,
         environment: env,
       );
     } on ProcessException catch (pe) {
@@ -386,16 +506,21 @@ class LlamaCppAndroidService {
         env['LD_LIBRARY_PATH'] = _libDir;
       }
 
+      final args = [
+        '-m', modelPath,
+        '--mmproj', mmprojPath,
+        '--image', tmpFile.path,
+        '-p', prompt,
+        '-n', '512',
+        '--temp', '0.1',
+        if (_resolvedBackend != 'cpu') ...[
+          '-ngl', '$_nGpuLayers',
+        ],
+      ];
+
       final result = await Process.run(
         _mtmdBinary,
-        [
-          '-m', modelPath,
-          '--mmproj', mmprojPath,
-          '--image', tmpFile.path,
-          '-p', prompt,
-          '-n', '512',
-          '--temp', '0.1',
-        ],
+        args,
         environment: env,
         stdoutEncoding: utf8,
         stderrEncoding: utf8,
@@ -435,9 +560,9 @@ class LlamaCppAndroidService {
       RegExp(r'^ggml_'),
       RegExp(r'^build:\s'),
       RegExp(r'^system_info:\s'),
-      RegExp(r'^srv\s'),           // server log lines
-      RegExp(r'^main:\s'),         // main function logs
-      RegExp(r'^\s*$'),            // empty lines
+      RegExp(r'^srv\s'), // server log lines
+      RegExp(r'^main:\s'), // main function logs
+      RegExp(r'^\s*$'), // empty lines
     ];
 
     bool isLogLine(String line) {

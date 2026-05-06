@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # Build llama.cpp binaries for Android (ARM64)
-# Usage: ./scripts/build-llama-android.sh [--clean] [--gpu]
+# Usage: ./scripts/build-llama-android.sh [--clean] [--all]
 #
 # Options:
 #   --clean   Remove previous build and start fresh
-#   --gpu     Enable Vulkan GPU backend (recommended for modern devices)
+#   --all     Build both CPU and Vulkan variants (default)
 #
 # Requires: Android NDK (set ANDROID_NDK env var)
 # Produces: llama-server and llama-mtmd-cli binaries for bundling in the Flutter app
@@ -25,21 +25,16 @@ LLAMA_CPP_REPO="https://github.com/ggerganov/llama.cpp.git"
 LLAMA_CPP_REF="${LLAMA_CPP_REF:-master}"
 
 CLEAN=false
-GPU=false
+BUILD_ALL=true
 for arg in "${@:-}"; do
     case "$arg" in
         --clean) CLEAN=true ;;
-        --gpu)   GPU=true ;;
+        --all)   BUILD_ALL=true ;;
     esac
 done
 
 echo "╔══════════════════════════════════════════════════╗"
 echo "║  Build llama.cpp for Android (ARM64)             ║"
-if [[ "$GPU" == true ]]; then
-    echo "║  Backend: Vulkan GPU                             ║"
-else
-    echo "║  Backend: CPU only                               ║"
-fi
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
@@ -107,18 +102,6 @@ fi
 
 mkdir -p "$BUILD_DIR"
 
-# ------------------------------------------------------------------
-# 3. Clone / update llama.cpp
-# ------------------------------------------------------------------
-SRC_DIR="$BUILD_DIR/llama.cpp"
-
-if [[ "$CLEAN" == true ]] && [[ -d "$BUILD_DIR" ]]; then
-    echo ":: Cleaning previous build..."
-    rm -rf "$BUILD_DIR"
-fi
-
-mkdir -p "$BUILD_DIR"
-
 if [[ -d "$SRC_DIR/.git" ]]; then
     echo ":: Updating llama.cpp..."
     cd "$SRC_DIR"
@@ -137,134 +120,106 @@ echo "   Commit: $COMMIT"
 echo ""
 
 # ------------------------------------------------------------------
-# 4. Configure with CMake (Android NDK cross-compile)
+# Helper: build one variant
 # ------------------------------------------------------------------
-CMAKE_BUILD="$BUILD_DIR/build"
-mkdir -p "$CMAKE_BUILD"
+build_variant() {
+    local variant="$1"
+    local vulkan_flag="${2:-false}"
+    local cmake_build="$BUILD_DIR/build-$variant"
+    mkdir -p "$cmake_build"
 
-echo ":: Configuring CMake for Android ARM64..."
+    echo ":: Configuring CMake for $variant..."
 
-CMAKE_ARGS=(
-    -B "$CMAKE_BUILD"
-    -S "$SRC_DIR"
-    -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN"
-    -DANDROID_ABI=arm64-v8a
-    -DANDROID_PLATFORM=android-28
-    -DCMAKE_BUILD_TYPE=Release
-    -DGGML_OPENMP=OFF
-    -DGGML_LLAMAFILE=OFF
-    -DLLAMA_BUILD_COMMON=ON
-    -DLLAMA_BUILD_TOOLS=ON
-    -DLLAMA_BUILD_SERVER=ON
-    -DLLAMA_CURL=OFF
-    -DBUILD_SHARED_LIBS=OFF
-)
+    local cmake_args=(
+        -B "$cmake_build"
+        -S "$SRC_DIR"
+        -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN"
+        -DANDROID_ABI=arm64-v8a
+        -DANDROID_PLATFORM=android-28
+        -DCMAKE_BUILD_TYPE=Release
+        -DGGML_OPENMP=OFF
+        -DGGML_LLAMAFILE=OFF
+        -DLLAMA_BUILD_COMMON=ON
+        -DLLAMA_BUILD_TOOLS=ON
+        -DLLAMA_BUILD_SERVER=ON
+        -DLLAMA_CURL=OFF
+        -DBUILD_SHARED_LIBS=OFF
+    )
 
-if [[ "$GPU" == true ]]; then
-    # Check if Vulkan is available in the NDK
-    VULKAN_HEADER="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/vulkan/vulkan.h"
-    if [[ ! -f "$VULKAN_HEADER" ]]; then
-        echo "[WARN] Vulkan header not found in NDK sysroot"
-        echo "   Vulkan GPU backend requires NDK r25+ with Vulkan support"
-        echo "   Falling back to CPU backend..."
-        GPU=false
-    else
-        CMAKE_ARGS+=(-DGGML_VULKAN=ON)
+    if [[ "$vulkan_flag" == "true" ]]; then
+        local vulkan_header="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/vulkan/vulkan.h"
+        if [[ ! -f "$vulkan_header" ]]; then
+            echo "[WARN] Vulkan header not found — skipping $variant build"
+            return 1
+        fi
+        cmake_args+=(-DGGML_VULKAN=ON)
         echo "   Vulkan: enabled"
+    else
+        echo "   Vulkan: disabled"
     fi
-else
-    echo "   Vulkan: disabled (use --gpu for GPU acceleration)"
-fi
 
-cmake "${CMAKE_ARGS[@]}" 2>&1 | tee "$BUILD_DIR/cmake-configure.log"
+    cmake "${cmake_args[@]}" 2>&1 | tee "$BUILD_DIR/cmake-configure-$variant.log"
 
-echo ""
+    NPROC=$(nproc 2>/dev/null || echo 4)
+    echo ":: Building $variant (using $NPROC cores)..."
 
-# Verify Vulkan was actually found
-if [[ "$GPU" == true ]]; then
-    if grep -q "GGML_VULKAN:BOOL=ON" "$CMAKE_BUILD/CMakeCache.txt" 2>/dev/null; then
-        echo "   [OK] Vulkan confirmed in CMake cache"
-    elif grep -q "GGML_VULKAN:BOOL=" "$CMAKE_BUILD/CMakeCache.txt" 2>/dev/null; then
-        VULKAN_STATUS=$(grep "GGML_VULKAN:BOOL=" "$CMAKE_BUILD/CMakeCache.txt" | head -1)
-        echo "   [WARN] Vulkan status: $VULKAN_STATUS"
+    cmake --build "$cmake_build" --config Release --target llama-server -j"$NPROC" 2>&1 \
+        | tee "$BUILD_DIR/build-server-$variant.log" \
+        | tail -5
+
+    cmake --build "$cmake_build" --config Release --target llama-mtmd-cli -j"$NPROC" 2>&1 \
+        | tee "$BUILD_DIR/build-mtmd-$variant.log" \
+        | tail -5
+
+    local server_bin=$(find "$cmake_build" -name "llama-server" -type f 2>/dev/null | head -1)
+    local mtmd_bin=$(find "$cmake_build" -name "llama-mtmd-cli" -type f 2>/dev/null | head -1)
+
+    if [[ -z "$server_bin" ]]; then
+        echo "[ERR] llama-server binary not found for $variant"
+        return 1
     fi
-fi
-echo ""
-
-# ------------------------------------------------------------------
-# 5. Build
-# ------------------------------------------------------------------
-NPROC=$(nproc 2>/dev/null || echo 4)
-echo ":: Building llama-server and llama-mtmd-cli (using $NPROC cores)..."
-echo "   This may take a few minutes..."
-echo ""
-
-# Build llama-server first, then llama-mtmd-cli
-# Some CMake versions don't support multiple --target args well
-cmake --build "$CMAKE_BUILD" --config Release --target llama-server -j"$NPROC" 2>&1 \
-    | tee "$BUILD_DIR/build-server.log" \
-    | tail -5
-
-cmake --build "$CMAKE_BUILD" --config Release --target llama-mtmd-cli -j"$NPROC" 2>&1 \
-    | tee "$BUILD_DIR/build-mtmd.log" \
-    | tail -5
-
-echo ""
-
-# ------------------------------------------------------------------
-# 6. Find and verify binaries
-# ------------------------------------------------------------------
-SERVER_BIN=$(find "$CMAKE_BUILD" -name "llama-server" -type f 2>/dev/null | head -1)
-MTMD_BIN=$(find "$CMAKE_BUILD" -name "llama-mtmd-cli" -type f 2>/dev/null | head -1)
-
-if [[ -z "$SERVER_BIN" ]]; then
-    echo "[ERR] llama-server binary not found"
-    echo "   Check logs: $BUILD_DIR/build-server.log"
-    exit 1
-fi
-
-if [[ -z "$MTMD_BIN" ]]; then
-    echo "[ERR] llama-mtmd-cli binary not found"
-    echo "   Check logs: $BUILD_DIR/build-mtmd.log"
-    exit 1
-fi
-
-# Verify binaries are actually ARM64
-if command -v file &>/dev/null; then
-    SERVER_ARCH=$(file "$SERVER_BIN" | grep -o "ARM aarch64" || echo "unknown")
-    MTMD_ARCH=$(file "$MTMD_BIN" | grep -o "ARM aarch64" || echo "unknown")
-    if [[ "$SERVER_ARCH" != "ARM aarch64" ]]; then
-        echo "[WARN] llama-server architecture: $SERVER_ARCH (expected ARM aarch64)"
+    if [[ -z "$mtmd_bin" ]]; then
+        echo "[ERR] llama-mtmd-cli binary not found for $variant"
+        return 1
     fi
-    if [[ "$MTMD_ARCH" != "ARM aarch64" ]]; then
-        echo "[WARN] llama-mtmd-cli architecture: $MTMD_ARCH (expected ARM aarch64)"
-    fi
-fi
 
-echo "[OK] Binaries built:"
-echo "   llama-server:     $(du -h "$SERVER_BIN" | cut -f1)"
-echo "   llama-mtmd-cli:   $(du -h "$MTMD_BIN" | cut -f1)"
+    echo "[OK] $variant built:"
+    echo "   llama-server:   $(du -h "$server_bin" | cut -f1)"
+    echo "   llama-mtmd-cli: $(du -h "$mtmd_bin" | cut -f1)"
+
+    # Copy with variant suffix
+    mkdir -p "$JNILIBS_DIR"
+    cp "$server_bin" "$JNILIBS_DIR/libllama-server-$variant.so"
+    cp "$mtmd_bin" "$JNILIBS_DIR/libllama-mtmd-cli-$variant.so"
+
+    return 0
+}
 
 # ------------------------------------------------------------------
-# 7. Copy binaries and libraries to jniLibs (renamed lib*.so so the
-#    Android packager treats them as native libraries and extracts
-#    them to nativeLibraryDir at install time)
+# 4. Build variants
 # ------------------------------------------------------------------
 mkdir -p "$JNILIBS_DIR"
-cp "$SERVER_BIN" "$JNILIBS_DIR/libllama-server.so"
-cp "$MTMD_BIN" "$JNILIBS_DIR/libllama-mtmd-cli.so"
+
+# Always build CPU variant
+build_variant "cpu" false || exit 1
+
+# Build Vulkan variant if --all or requested
+if [[ "$BUILD_ALL" == true ]]; then
+    if build_variant "vulkan" true; then
+        echo ""
+        echo "[OK] Vulkan variant built successfully"
+    else
+        echo ""
+        echo "[WARN] Vulkan variant failed — only CPU variant will be available"
+    fi
+fi
 
 # Copy libc++_shared.so if needed (for c++_shared STL)
-# The NDK build uses c++_shared by default
 STL_LIB=$(find "$ANDROID_NDK" -path "*/libc++_shared.so" 2>/dev/null | grep "aarch64-linux-android" | head -1)
 if [[ -n "$STL_LIB" ]]; then
     cp "$STL_LIB" "$JNILIBS_DIR/libc++_shared.so"
     echo "   libc++_shared.so: $(du -h "$STL_LIB" | cut -f1)"
 fi
-
-# If Vulkan is enabled, we don't need to bundle libvulkan.so
-# because it's part of the Android system on devices that support it.
-# However, for devices without Vulkan, the app will fall back to CPU.
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
@@ -276,12 +231,4 @@ echo "Next steps:"
 echo "  1. Ensure app/android/app/build.gradle.kts has:"
 echo "     packaging { jniLibs { useLegacyPackaging = true } }"
 echo "  2. Build Flutter app: cd app && flutter build apk"
-echo ""
-if [[ "$GPU" == true ]]; then
-    echo "GPU backend: Vulkan is enabled. The app will use GPU acceleration"
-    echo "on devices that support Vulkan. Falls back to CPU otherwise."
-else
-    echo "GPU backend: CPU only. For GPU acceleration, rebuild with --gpu:"
-    echo "  ./scripts/build-llama-android.sh --gpu"
-fi
 echo ""

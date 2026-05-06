@@ -18,7 +18,7 @@ class ImageEntry {
   });
 
   /// Raw image bytes.
-  final Uint8List bytes;
+  Uint8List bytes;
 
   /// Display name (usually the original filename).
   final String name;

@@ -60,7 +60,7 @@ class HighlightDetector {
         width: x1 - x0,
         height: y1 - y0,
       );
-      results.add(Uint8List.fromList(img.encodePng(cropped)));
+      results.add(Uint8List.fromList(img.encodeJpg(cropped, quality: 85)));
     }
 
     return results;
@@ -86,7 +86,7 @@ class HighlightDetector {
       final h = box.h.clamp(1, image.height - y0);
 
       final cropped = img.copyCrop(image, x: x0, y: y0, width: w, height: h);
-      results.add(Uint8List.fromList(img.encodePng(cropped)));
+      results.add(Uint8List.fromList(img.encodeJpg(cropped, quality: 85)));
     }
 
     return results;
@@ -126,7 +126,7 @@ class HighlightDetector {
     }
 
     if (images.length == 1) {
-      return Uint8List.fromList(img.encodePng(images.first));
+      return Uint8List.fromList(img.encodeJpg(images.first, quality: 85));
     }
 
     const sep = 4;
@@ -151,7 +151,7 @@ class HighlightDetector {
       }
     }
 
-    return Uint8List.fromList(img.encodePng(canvas));
+    return Uint8List.fromList(img.encodeJpg(canvas, quality: 85));
   }
 
   /// Crop the given image to [region] and return the result as PNG bytes.
@@ -168,7 +168,7 @@ class HighlightDetector {
     final h = region.h.clamp(1, image.height - y0);
 
     final cropped = img.copyCrop(image, x: x0, y: y0, width: w, height: h);
-    return Uint8List.fromList(img.encodePng(cropped));
+    return Uint8List.fromList(img.encodeJpg(cropped, quality: 85));
   }
 
   /// Return just the bounding boxes (without cropping) for visualisation.
@@ -506,4 +506,13 @@ class HighlightBBox {
   final int y;
   final int w;
   final int h;
+
+  Map<String, dynamic> toJson() => {'x': x, 'y': y, 'w': w, 'h': h};
+
+  factory HighlightBBox.fromJson(Map<String, dynamic> json) => HighlightBBox(
+        json['x'] as int,
+        json['y'] as int,
+        json['w'] as int,
+        json['h'] as int,
+      );
 }

@@ -1,7 +1,7 @@
 name: ocr_to_anki
 description: "Cross-platform OCR to Anki flashcard generator powered by local LLM inference."
 publish_to: 'none'
-version: 0.3.7+15
+version: 0.4.0+16
 
 environment:
   sdk: ^3.10.0
@@ -22,10 +22,14 @@ dependencies:
   # Image handling
   image_picker: ^1.1.2
   image: ^4.5.3
+  camera: ^0.11.0
 
   # Networking (for AnkiConnect + optional FastAPI)
   http: ^1.4.0
   connectivity_plus: ^6.0.0
+
+  # Crypto (model checksum verification)
+  crypto: ^3.0.6
 
   # UI utilities
   file_picker: ^10.0.0

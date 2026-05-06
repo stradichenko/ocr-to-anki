@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/anki_note.dart';
 import '../models/app_settings.dart';
+import 'system_channel.dart';
 
 /// Service for exporting flashcards to Anki.
 ///
@@ -224,6 +225,40 @@ class AnkiExportService {
     };
 
     return const JsonEncoder.withIndent('  ').convert(output);
+  }
+
+  // ---------------------------------------------------------------------------
+  // AnkiDroid direct add (Android)
+  // ---------------------------------------------------------------------------
+
+  /// Whether AnkiDroid is installed and we have permission to add notes.
+  Future<bool> canUseAnkiDroid() async {
+    if (!Platform.isAndroid) return false;
+    if (!await SystemChannel.isAnkiDroidInstalled()) return false;
+    return await SystemChannel.requestAnkiDroidPermission();
+  }
+
+  /// List available AnkiDroid decks.
+  Future<List<({int id, String name})>> getAnkiDroidDecks() async {
+    final raw = await SystemChannel.getAnkiDroidDecks();
+    return raw
+        .map((d) => (id: (d['id'] as num).toInt(), name: d['name'] as String))
+        .toList();
+  }
+
+  /// Add notes directly to AnkiDroid.
+  Future<int> addNotesToAnkiDroid(
+    List<AnkiNote> notes, {
+    required int deckId,
+  }) async {
+    final payload = notes.map((n) {
+      final back = n.back.isNotEmpty ? n.back : _composeBack(n);
+      return <String, dynamic>{
+        'fields': [n.front, back],
+        'tags': n.tags,
+      };
+    }).toList();
+    return SystemChannel.addNotesToAnkiDroid(payload, deckId);
   }
 
   /// Share notes as a TSV file with AnkiDroid (Android only).

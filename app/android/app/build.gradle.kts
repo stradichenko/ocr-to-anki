@@ -50,6 +50,10 @@ android {
     }
 }
 
+dependencies {
+    implementation("com.ichi2.anki:api:1.1.0")
+}
+
 flutter {
     source = "../.."
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -44,6 +45,25 @@ class EnrichWordResult {
 
   /// Whether this result was served from the local enrichment cache.
   final bool fromCache;
+
+  Map<String, dynamic> toJson() => {
+        'word': word,
+        'definition': definition,
+        'examples': examples,
+        'warning': warning,
+        'correctedWord': correctedWord,
+        'fromCache': fromCache,
+      };
+
+  factory EnrichWordResult.fromJson(Map<String, dynamic> json) =>
+      EnrichWordResult(
+        word: json['word'] as String,
+        definition: json['definition'] as String,
+        examples: json['examples'] as String,
+        warning: json['warning'] as String? ?? '',
+        correctedWord: json['correctedWord'] as String? ?? '',
+        fromCache: json['fromCache'] as bool? ?? false,
+      );
 }
 
 /// Unified inference service that forwards requests to the Python FastAPI
@@ -164,7 +184,13 @@ class InferenceService {
     await _androidService!.ensureServerRunning();
     final stopwatch = Stopwatch()..start();
     Uint8List bytesToOcr = imageBytes;
-    if (_settings.compressLargeImages && imageBytes.length > 1024 * 1024) {
+    // On Android, always downscale images to save memory regardless of the
+    // user's compressLargeImages setting.  Vision models don't need full
+    // resolution; 1024 px on the long edge is more than enough.
+    if (Platform.isAndroid) {
+      bytesToOcr = _maybeCompressImage(imageBytes);
+    } else if (_settings.compressLargeImages &&
+        imageBytes.length > 1024 * 1024) {
       bytesToOcr = _maybeCompressImage(imageBytes);
     }
     final text = await _androidService.runVisionOcr(
