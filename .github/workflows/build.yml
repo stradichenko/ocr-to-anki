@@ -229,7 +229,7 @@ jobs:
       - name: Build llama.cpp Android binaries
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y cmake ninja-build
+          sudo apt-get install -y cmake ninja-build glslang-tools
           ./scripts/build-llama-android.sh
 
       - name: Build Flutter APK

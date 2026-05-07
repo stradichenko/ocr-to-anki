@@ -806,6 +806,12 @@ class _UpdateCheckTile extends ConsumerWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+        UpdateStatus.upToDate => Text(
+            'You are on the latest version',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
         UpdateStatus.downloading => Text(
             'Downloading... ${(update.downloadProgress * 100).toStringAsFixed(0)}%',
           ),
@@ -817,22 +823,47 @@ class _UpdateCheckTile extends ConsumerWidget {
           ),
         _ => const Text('Tap to check for a newer release'),
       },
-      trailing: update.status == UpdateStatus.checking
-          ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : update.status == UpdateStatus.available
-              ? FilledButton(
-                  onPressed: () => _showUpdateDialog(context, ref),
-                  child: const Text('Update'),
-                )
-              : const Icon(Icons.chevron_right),
+      trailing: switch (update.status) {
+        UpdateStatus.checking => const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        UpdateStatus.available => FilledButton(
+            onPressed: () => _showUpdateDialog(context, ref),
+            child: const Text('Update'),
+          ),
+        UpdateStatus.upToDate => Icon(
+            Icons.check_circle,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        _ => const Icon(Icons.chevron_right),
+      },
       onTap: update.status == UpdateStatus.checking ||
               update.status == UpdateStatus.downloading
           ? null
-          : () => notifier.check(force: true),
+          : () async {
+              await notifier.check(force: true);
+              if (!context.mounted) return;
+              final status = ref.read(updateProvider).status;
+              if (status == UpdateStatus.upToDate) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('You are on the latest version'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              } else if (status == UpdateStatus.error) {
+                final error = ref.read(updateProvider).error ?? 'Unknown error';
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Update check failed: $error'),
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              }
+            },
     );
   }
 

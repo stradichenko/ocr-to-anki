@@ -751,7 +751,7 @@ final highlightDetectorProvider = Provider<HighlightDetector>((ref) {
 // Update checking
 // ---------------------------------------------------------------------------
 
-enum UpdateStatus { idle, checking, available, downloading, error }
+enum UpdateStatus { idle, checking, available, upToDate, downloading, error }
 
 class UpdateState {
   const UpdateState({
@@ -816,13 +816,13 @@ class UpdateNotifier extends Notifier<UpdateState> {
       final info = await service.checkForUpdate();
 
       if (!info.hasUpdate) {
-        state = state.copyWith(status: UpdateStatus.idle);
+        state = state.copyWith(status: UpdateStatus.upToDate);
         return;
       }
 
       // Respect "skip this version" preference.
       if (settings.skipVersion == info.latestVersion) {
-        state = state.copyWith(status: UpdateStatus.idle);
+        state = state.copyWith(status: UpdateStatus.upToDate);
         return;
       }
 

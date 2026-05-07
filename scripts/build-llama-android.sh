@@ -159,13 +159,115 @@ ensure_opencl_headers() {
     local headers_dir="$BUILD_DIR/opencl-headers"
     if [[ -d "$headers_dir/.git" ]]; then
         cd "$headers_dir"
-        git fetch origin
-        git checkout main
+        git fetch origin >/dev/null 2>&1
+        git checkout main >/dev/null 2>&1
     else
-        echo ":: Downloading Khronos OpenCL headers..."
-        git clone --depth 1 "$OPENCL_HEADERS_REPO" "$headers_dir"
+        echo ":: Downloading Khronos OpenCL headers..." >&2
+        git clone --depth 1 "$OPENCL_HEADERS_REPO" "$headers_dir" >&2
     fi
     echo "$headers_dir"
+}
+
+# ------------------------------------------------------------------
+# Helper: build a stub OpenCL static library for linking
+# ------------------------------------------------------------------
+build_opencl_stub() {
+    local stub_dir="$BUILD_DIR/opencl-stub"
+    local stub_lib="$stub_dir/libOpenCL.a"
+    mkdir -p "$stub_dir"
+
+    if [[ -f "$stub_lib" ]]; then
+        echo "$stub_lib"
+        return 0
+    fi
+
+    echo ":: Building OpenCL stub library..." >&2
+
+    # Use the NDK cross-compiler for arm64
+    local clang="$HOST_PREBUILT/bin/aarch64-linux-android28-clang"
+    local ar="$HOST_PREBUILT/bin/llvm-ar"
+
+    if [[ ! -f "$clang" ]]; then
+        echo "[WARN] Android cross-compiler not found at $clang — OpenCL stub build skipped" >&2
+        return 1
+    fi
+
+    cat > "$stub_dir/stub.c" << 'EOF'
+// Stub OpenCL library for build-time linking.
+// The real libOpenCL.so is provided by the Android device at runtime.
+void* clGetPlatformIDs(void) { return 0; }
+void* clGetPlatformInfo(void) { return 0; }
+void* clGetDeviceIDs(void) { return 0; }
+void* clGetDeviceInfo(void) { return 0; }
+void* clCreateContext(void) { return 0; }
+void* clCreateContextFromType(void) { return 0; }
+void* clRetainContext(void) { return 0; }
+void* clReleaseContext(void) { return 0; }
+void* clCreateCommandQueue(void) { return 0; }
+void* clRetainCommandQueue(void) { return 0; }
+void* clReleaseCommandQueue(void) { return 0; }
+void* clCreateBuffer(void) { return 0; }
+void* clRetainMemObject(void) { return 0; }
+void* clReleaseMemObject(void) { return 0; }
+void* clCreateProgramWithSource(void) { return 0; }
+void* clRetainProgram(void) { return 0; }
+void* clReleaseProgram(void) { return 0; }
+void* clBuildProgram(void) { return 0; }
+void* clCreateKernel(void) { return 0; }
+void* clRetainKernel(void) { return 0; }
+void* clReleaseKernel(void) { return 0; }
+void* clSetKernelArg(void) { return 0; }
+void* clEnqueueNDRangeKernel(void) { return 0; }
+void* clEnqueueReadBuffer(void) { return 0; }
+void* clEnqueueWriteBuffer(void) { return 0; }
+void* clFinish(void) { return 0; }
+void* clFlush(void) { return 0; }
+void* clGetProgramBuildInfo(void) { return 0; }
+EOF
+
+    "$clang" -c -o "$stub_dir/stub.o" "$stub_dir/stub.c" >&2
+    "$ar" rcs "$stub_lib" "$stub_dir/stub.o" >&2
+
+    if [[ -f "$stub_lib" ]]; then
+        echo "$stub_lib"
+        return 0
+    fi
+    return 1
+}
+
+# ------------------------------------------------------------------
+# Helper: ensure glslc is available for Vulkan builds
+# ------------------------------------------------------------------
+ensure_glslc() {
+    if command -v glslc &>/dev/null; then
+        echo "[OK] glslc found: $(command -v glslc)" >&2
+        return 0
+    fi
+
+    # Try to install via apt on Debian/Ubuntu systems
+    if command -v apt-get &>/dev/null; then
+        echo ":: Installing glslc (glslang-tools) via apt..." >&2
+        sudo apt-get update -qq >&2
+        sudo apt-get install -y -qq glslang-tools >&2
+        if command -v glslc &>/dev/null; then
+            echo "[OK] glslc installed: $(command -v glslc)" >&2
+            return 0
+        fi
+    fi
+
+    # Try to find it in the NDK
+    local ndk_glslc
+    ndk_glslc=$(find "$ANDROID_NDK" -name "glslc" -type f 2>/dev/null | head -1)
+    if [[ -n "$ndk_glslc" ]]; then
+        echo "[OK] glslc found in NDK: $ndk_glslc" >&2
+        # Add to PATH for the current session
+        export PATH="$(dirname "$ndk_glslc"):$PATH"
+        return 0
+    fi
+
+    echo "[WARN] glslc not found — Vulkan build will likely fail" >&2
+    echo "   Install with: sudo apt-get install glslang-tools" >&2
+    return 1
 }
 
 # ------------------------------------------------------------------
@@ -201,22 +303,27 @@ build_variant() {
                 echo "[WARN] Vulkan header not found — skipping $variant build"
                 return 1
             }
+            # Ensure glslc is available (CMake's FindVulkan requires it)
+            ensure_glslc || true
             cmake_args+=(-DGGML_VULKAN=ON)
             echo "   Vulkan: enabled (headers at $vulkan_include)"
             ;;
         opencl)
             local opencl_headers
             opencl_headers=$(ensure_opencl_headers)
+            local opencl_stub
+            opencl_stub=$(build_opencl_stub) || {
+                echo "[WARN] OpenCL stub library build failed — skipping $variant build"
+                return 1
+            }
             # On Android we only have headers; the device provides libOpenCL.so
-            # at runtime.  We must not link against a host libOpenCL.  Tell
-            # CMake where the headers are and provide an empty library so the
-            # linker doesn't complain about missing -lOpenCL.
+            # at runtime.  We compile a stub static library so CMake can link
+            # at build time without pulling in a host OpenCL library.
             cmake_args+=(-DGGML_OPENCL=ON)
             cmake_args+=(-DGGML_OPENCL_EMBED_KERNELS=ON)
             cmake_args+=(-DOpenCL_INCLUDE_DIR="$opencl_headers")
-            # Prevent FindOpenCL from searching the host system.
-            cmake_args+=(-DOpenCL_LIBRARY="")
-            echo "   OpenCL: enabled (headers at $opencl_headers)"
+            cmake_args+=(-DOpenCL_LIBRARY="$opencl_stub")
+            echo "   OpenCL: enabled (headers at $opencl_headers, stub at $opencl_stub)"
             ;;
         cpu)
             echo "   Vulkan: disabled"
