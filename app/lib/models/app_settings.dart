@@ -103,7 +103,7 @@ class AppSettings {
   /// GPU acceleration mode: 'auto' (platform default), 'gpu' (force all
   /// layers on GPU), or 'cpu' (force CPU-only).  On Windows 'auto'
   /// means CPU because the Vulkan drivers are often unstable.
-  /// On Android: 'auto', 'vulkan', or 'cpu'.
+  /// On Android: 'auto', 'vulkan', 'opencl', or 'cpu'.
   String gpuMode;
 
   /// Number of model layers to offload to GPU. 999 means all layers.

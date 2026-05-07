@@ -6,7 +6,7 @@ set -euo pipefail
 #
 # Options:
 #   --clean   Remove previous build and start fresh
-#   --all     Build both CPU and Vulkan variants (default)
+#   --all     Build CPU, Vulkan, and OpenCL variants (default)
 #
 # Requires: Android NDK (set ANDROID_NDK env var)
 # Produces: llama-server and llama-mtmd-cli binaries for bundling in the Flutter app
@@ -20,6 +20,7 @@ BUILD_DIR="$PROJECT_DIR/.build/llama-cpp-android"
 # (/data/app/.../lib/arm64/) is the only place execve works from.
 JNILIBS_DIR="$PROJECT_DIR/app/android/app/src/main/jniLibs/arm64-v8a"
 LLAMA_CPP_REPO="https://github.com/ggerganov/llama.cpp.git"
+OPENCL_HEADERS_REPO="https://github.com/KhronosGroup/OpenCL-Headers.git"
 
 # Track master; override via LLAMA_CPP_REF env var to pin a commit/tag.
 LLAMA_CPP_REF="${LLAMA_CPP_REF:-master}"
@@ -73,6 +74,20 @@ if [[ ! -f "$TOOLCHAIN" ]]; then
     exit 1
 fi
 
+# Detect host prebuilt directory (linux-x86_64, darwin-x86_64, etc.)
+HOST_PREBUILT=""
+for d in "$ANDROID_NDK/toolchains/llvm/prebuilt/"*; do
+    if [[ -d "$d" ]]; then
+        HOST_PREBUILT="$d"
+        break
+    fi
+done
+
+if [[ -z "$HOST_PREBUILT" ]]; then
+    echo "[ERR] Could not find LLVM prebuilt directory in NDK"
+    exit 1
+fi
+
 # ------------------------------------------------------------------
 # 2. Check required tools
 # ------------------------------------------------------------------
@@ -120,11 +135,44 @@ echo "   Commit: $COMMIT"
 echo ""
 
 # ------------------------------------------------------------------
+# Helper: find Vulkan headers in NDK
+# ------------------------------------------------------------------
+find_vulkan_header() {
+    local paths=(
+        "$HOST_PREBUILT/sysroot/usr/include/vulkan/vulkan.h"
+        "$ANDROID_NDK/sources/third_party/vulkan/src/include/vulkan/vulkan.h"
+        "$ANDROID_NDK/sysroot/usr/include/vulkan/vulkan.h"
+    )
+    for p in "${paths[@]}"; do
+        if [[ -f "$p" ]]; then
+            dirname "$(dirname "$p")"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ------------------------------------------------------------------
+# Helper: download OpenCL headers
+# ------------------------------------------------------------------
+ensure_opencl_headers() {
+    local headers_dir="$BUILD_DIR/opencl-headers"
+    if [[ -d "$headers_dir/.git" ]]; then
+        cd "$headers_dir"
+        git fetch origin
+        git checkout main
+    else
+        echo ":: Downloading Khronos OpenCL headers..."
+        git clone --depth 1 "$OPENCL_HEADERS_REPO" "$headers_dir"
+    fi
+    echo "$headers_dir"
+}
+
+# ------------------------------------------------------------------
 # Helper: build one variant
 # ------------------------------------------------------------------
 build_variant() {
     local variant="$1"
-    local vulkan_flag="${2:-false}"
     local cmake_build="$BUILD_DIR/build-$variant"
     mkdir -p "$cmake_build"
 
@@ -146,17 +194,35 @@ build_variant() {
         -DBUILD_SHARED_LIBS=OFF
     )
 
-    if [[ "$vulkan_flag" == "true" ]]; then
-        local vulkan_header="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/vulkan/vulkan.h"
-        if [[ ! -f "$vulkan_header" ]]; then
-            echo "[WARN] Vulkan header not found — skipping $variant build"
-            return 1
-        fi
-        cmake_args+=(-DGGML_VULKAN=ON)
-        echo "   Vulkan: enabled"
-    else
-        echo "   Vulkan: disabled"
-    fi
+    case "$variant" in
+        vulkan)
+            local vulkan_include
+            vulkan_include=$(find_vulkan_header) || {
+                echo "[WARN] Vulkan header not found — skipping $variant build"
+                return 1
+            }
+            cmake_args+=(-DGGML_VULKAN=ON)
+            echo "   Vulkan: enabled (headers at $vulkan_include)"
+            ;;
+        opencl)
+            local opencl_headers
+            opencl_headers=$(ensure_opencl_headers)
+            # On Android we only have headers; the device provides libOpenCL.so
+            # at runtime.  We must not link against a host libOpenCL.  Tell
+            # CMake where the headers are and provide an empty library so the
+            # linker doesn't complain about missing -lOpenCL.
+            cmake_args+=(-DGGML_OPENCL=ON)
+            cmake_args+=(-DGGML_OPENCL_EMBED_KERNELS=ON)
+            cmake_args+=(-DOpenCL_INCLUDE_DIR="$opencl_headers")
+            # Prevent FindOpenCL from searching the host system.
+            cmake_args+=(-DOpenCL_LIBRARY="")
+            echo "   OpenCL: enabled (headers at $opencl_headers)"
+            ;;
+        cpu)
+            echo "   Vulkan: disabled"
+            echo "   OpenCL: disabled"
+            ;;
+    esac
 
     cmake "${cmake_args[@]}" 2>&1 | tee "$BUILD_DIR/cmake-configure-$variant.log"
 
@@ -201,16 +267,26 @@ build_variant() {
 mkdir -p "$JNILIBS_DIR"
 
 # Always build CPU variant
-build_variant "cpu" false || exit 1
+build_variant "cpu" || exit 1
 
-# Build Vulkan variant if --all or requested
+# Build GPU variants if --all or requested
 if [[ "$BUILD_ALL" == true ]]; then
-    if build_variant "vulkan" true; then
+    # Vulkan
+    if build_variant "vulkan"; then
         echo ""
         echo "[OK] Vulkan variant built successfully"
     else
         echo ""
-        echo "[WARN] Vulkan variant failed — only CPU variant will be available"
+        echo "[WARN] Vulkan variant failed"
+    fi
+
+    # OpenCL
+    if build_variant "opencl"; then
+        echo ""
+        echo "[OK] OpenCL variant built successfully"
+    else
+        echo ""
+        echo "[WARN] OpenCL variant failed"
     fi
 fi
 

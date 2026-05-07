@@ -56,10 +56,10 @@ class LlamaCppAndroidService {
   /// Available GPU backends detected at runtime (always contains 'cpu').
   Set<String> _availableBackends = {'cpu'};
 
-  /// Resolved backend after applying user preference ('cpu' or 'vulkan').
+  /// Resolved backend after applying user preference ('cpu', 'vulkan', or 'opencl').
   String _resolvedBackend = 'cpu';
 
-  /// User GPU preference: 'auto', 'vulkan', or 'cpu'.
+  /// User GPU preference: 'auto', 'vulkan', 'opencl', or 'cpu'.
   String _gpuMode = 'auto';
 
   /// Number of GPU layers to offload. 999 means all layers.
@@ -176,6 +176,21 @@ class LlamaCppAndroidService {
       backends.add('vulkan');
     } catch (_) {}
 
+    // OpenCL: different vendors ship under different names.
+    final openclLibs = [
+      'libOpenCL.so',
+      'libGLES_mali.so',
+      'libllvm-qgl.so',
+      'libPVROCL.so',
+    ];
+    for (final lib in openclLibs) {
+      try {
+        DynamicLibrary.open(lib);
+        backends.add('opencl');
+        break;
+      } catch (_) {}
+    }
+
     return backends;
   }
 
@@ -187,12 +202,16 @@ class LlamaCppAndroidService {
     switch (_gpuMode) {
       case 'vulkan':
         return available.contains('vulkan') ? 'vulkan' : 'cpu';
+      case 'opencl':
+        return available.contains('opencl') ? 'opencl' : 'cpu';
       case 'cpu':
         return 'cpu';
       case 'auto':
       default:
-        // Prefer Vulkan if available, otherwise CPU.
-        return available.contains('vulkan') ? 'vulkan' : 'cpu';
+        // Prefer Vulkan > OpenCL > CPU.
+        if (available.contains('vulkan')) return 'vulkan';
+        if (available.contains('opencl')) return 'opencl';
+        return 'cpu';
     }
   }
 

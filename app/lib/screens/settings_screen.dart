@@ -306,8 +306,9 @@ class SettingsScreen extends ConsumerWidget {
               subtitle: Text(
                 switch (settings.gpuMode) {
                   'vulkan' => 'Vulkan — GPU acceleration via Vulkan.',
+                  'opencl' => 'OpenCL — GPU acceleration via OpenCL.',
                   'cpu' => 'CPU only — slower but most compatible.',
-                  _ => 'Auto — use Vulkan if available, otherwise CPU.',
+                  _ => 'Auto — use best available GPU backend.',
                 },
               ),
               trailing: DropdownButton<String>(
@@ -315,6 +316,7 @@ class SettingsScreen extends ConsumerWidget {
                 items: const [
                   DropdownMenuItem(value: 'auto', child: Text('Auto')),
                   DropdownMenuItem(value: 'vulkan', child: Text('Vulkan')),
+                  DropdownMenuItem(value: 'opencl', child: Text('OpenCL')),
                   DropdownMenuItem(value: 'cpu', child: Text('CPU')),
                 ],
                 onChanged: (v) {
