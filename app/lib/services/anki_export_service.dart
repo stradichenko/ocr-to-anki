@@ -238,6 +238,25 @@ class AnkiExportService {
     return await SystemChannel.requestAnkiDroidPermission();
   }
 
+  /// Detailed status check for AnkiDroid integration.
+  ///
+  /// Returns a record with:
+  /// - `canAdd`: whether direct add is possible right now
+  /// - `isInstalled`: whether AnkiDroid is installed
+  /// - `hasPermission`: whether we have the content-provider permission
+  Future<({bool canAdd, bool isInstalled, bool hasPermission})>
+      ankiDroidStatus() async {
+    if (!Platform.isAndroid) {
+      return (canAdd: false, isInstalled: false, hasPermission: false);
+    }
+    final installed = await SystemChannel.isAnkiDroidInstalled();
+    if (!installed) {
+      return (canAdd: false, isInstalled: false, hasPermission: false);
+    }
+    final hasPerm = await SystemChannel.requestAnkiDroidPermission();
+    return (canAdd: hasPerm, isInstalled: true, hasPermission: hasPerm);
+  }
+
   /// List available AnkiDroid decks.
   Future<List<({int id, String name})>> getAnkiDroidDecks() async {
     final raw = await SystemChannel.getAnkiDroidDecks();

@@ -260,17 +260,31 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
 
     // On Android, try AnkiDroid direct add first, fall back to share sheet.
     if (Platform.isAndroid) {
-      final canUseAnkiDroid = await service.canUseAnkiDroid();
-      if (canUseAnkiDroid && mounted) {
+      final status = await service.ankiDroidStatus();
+      if (status.canAdd && mounted) {
         await _exportToAnkiDroid(notes, service);
         return;
       }
-      // Fall back to TSV share sheet.
-      try {
-        await service.shareToAnkiDroid(notes);
-      } catch (e) {
-        if (mounted) {
-          _showCopyableError(context, 'Share Failed', e.toString());
+
+      // Direct add not available — show a dialog explaining why and offering
+      // alternatives instead of silently falling back to the share sheet.
+      if (mounted) {
+        final choice = await showDialog<_ExportChoice>(
+          context: context,
+          builder: (ctx) => _AnkiDroidFallbackDialog(status: status),
+        );
+        if (choice == null) return; // User cancelled.
+        switch (choice) {
+          case _ExportChoice.shareSheet:
+            try {
+              await service.shareToAnkiDroid(notes);
+            } catch (e) {
+              if (mounted) {
+                _showCopyableError(context, 'Share Failed', e.toString());
+              }
+            }
+          case _ExportChoice.saveTsv:
+            await _exportTsv();
         }
       }
       return;
@@ -699,6 +713,74 @@ void _showCopyableError(BuildContext context, String title, String error) {
       );
     },
   );
+}
+
+// ---------------------------------------------------------------------------
+// AnkiDroid fallback dialog (Android)
+// ---------------------------------------------------------------------------
+
+enum _ExportChoice { shareSheet, saveTsv }
+
+class _AnkiDroidFallbackDialog extends StatelessWidget {
+  const _AnkiDroidFallbackDialog({required this.status});
+
+  final ({bool canAdd, bool isInstalled, bool hasPermission}) status;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      icon: Icon(
+        status.isInstalled ? Icons.warning_amber : Icons.install_mobile,
+        color: theme.colorScheme.primary,
+      ),
+      title: const Text('Direct AnkiDroid Add Unavailable'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!status.isInstalled) ...[
+            const Text(
+              'AnkiDroid is not installed on this device.',
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Install AnkiDroid from the Play Store or F-Droid, then try again.',
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ] else if (!status.hasPermission) ...[
+            const Text(
+              'AnkiDroid is installed, but it has not granted this app permission to add cards.',
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Open AnkiDroid → Settings → AnkiDroid API → Grant permission to OCR to Anki.',
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ] else ...[
+            const Text(
+              'Could not verify AnkiDroid access. You can still export cards using one of the options below.',
+            ),
+          ],
+          const SizedBox(height: 16),
+          Text(
+            'Choose an export method:',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_ExportChoice.shareSheet),
+          child: const Text('Share to AnkiDroid'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_ExportChoice.saveTsv),
+          child: const Text('Save TSV File'),
+        ),
+      ],
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

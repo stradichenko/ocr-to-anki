@@ -470,6 +470,11 @@ class InferenceService {
       chunks.add(words.sublist(i, (i + chunkSize).clamp(0, words.length)));
     }
 
+    // Ensure the server is healthy once before starting.  If it can't start
+    // (missing binary, model, OOM, etc.) we fail fast so the user sees the
+    // real error instead of every word silently marked not_found.
+    await _androidService!.ensureServerRunning();
+
     for (var ci = 0; ci < chunks.length; ci++) {
       final chunk = chunks[ci];
       final prevCount = allResults.length;
@@ -483,7 +488,6 @@ class InferenceService {
           chunkLangs.length == 1 ? chunkLangs.first : termLanguage;
 
       try {
-        await _androidService!.ensureServerRunning();
         final prompt = _buildEnrichPrompt(
           chunk,
           definitionLanguage,
@@ -498,6 +502,11 @@ class InferenceService {
         final parsed = _parseEnrichResponse(response, chunk);
         allResults.addAll(parsed);
       } catch (e) {
+        // Propagate fatal server errors (crash, not running, etc.) so the
+        // caller can show the user what actually went wrong.
+        if (e is StateError) {
+          rethrow;
+        }
         for (final w in chunk) {
           allResults.add(EnrichWordResult(
             word: w,
