@@ -75,6 +75,9 @@ class LlamaCppAndroidService {
   /// Whether llama-server is currently running.
   bool get isServerRunning => _serverProcess != null;
 
+  /// HTTP client for the current generation request; can be closed to abort.
+  http.Client? _generateClient;
+
   // ---------------------------------------------------------------------------
   // Active model
   // ---------------------------------------------------------------------------
@@ -677,26 +680,39 @@ class LlamaCppAndroidService {
     }
 
     final uri = Uri.parse('$_serverUrl/completion');
-    final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'prompt': prompt,
-            'n_predict': maxTokens,
-            'temperature': temperature,
-            'stop': ['</s>', 'User:', 'Assistant:'],
-          }),
-        )
-        .timeout(const Duration(minutes: 5));
+    _generateClient = http.Client();
+    try {
+      final response = await _generateClient!
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'prompt': prompt,
+              'n_predict': maxTokens,
+              'temperature': temperature,
+              'stop': ['</s>', 'User:', 'Assistant:'],
+            }),
+          )
+          .timeout(const Duration(minutes: 5));
 
-    if (response.statusCode != 200) {
-      throw Exception(
-        'Generation failed (${response.statusCode}): ${response.body}',
-      );
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Generation failed (${response.statusCode}): ${response.body}',
+        );
+      }
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return body['content'] as String? ?? '';
+    } finally {
+      _generateClient = null;
     }
+  }
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return body['content'] as String? ?? '';
+  /// Cancel any in-flight generation request.
+  ///
+  /// Closes the HTTP client to abort the current request to llama-server.
+  void cancelGeneration() {
+    _generateClient?.close();
+    _generateClient = null;
   }
 }

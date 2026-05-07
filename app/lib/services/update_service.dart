@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -40,23 +42,44 @@ class DownloadProgress {
 }
 
 /// Service that checks for app updates on GitHub Releases and applies them.
+///
+/// Desktop path: uses the FastAPI backend as a proxy.
+/// Android path: queries GitHub API directly and installs the downloaded APK.
 class UpdateService {
-  UpdateService({required this.serverUrl, required this.currentVersion});
+  UpdateService({
+    required this.serverUrl,
+    required this.currentVersion,
+    this.isAndroid = false,
+  });
 
-  /// URL of the FastAPI backend (used for `/update/check` proxy).
+  /// URL of the FastAPI backend (used for `/update/check` proxy on desktop).
   final String serverUrl;
 
-  /// Current app version from pubspec.yaml (e.g. "0.1.0").
+  /// Current app version from pubspec.yaml (e.g. "0.4.4").
   final String currentVersion;
+
+  /// Whether this is the Android variant (uses direct GitHub API + APK install).
+  final bool isAndroid;
+
+  static const _githubApiLatest =
+      'https://api.github.com/repos/stradichenko/ocr-to-anki/releases/latest';
 
   /// HTTP client reused across calls.
   final _client = http.Client();
 
   /// Check whether a newer release is available.
   ///
-  /// Returns [UpdateInfo.hasUpdate] = true when the remote version is
-  /// strictly greater than [currentVersion].
+  /// On desktop, proxies through the FastAPI backend.
+  /// On Android, queries the GitHub API directly.
   Future<UpdateInfo> checkForUpdate() async {
+    if (isAndroid) {
+      return _checkGitHubRelease();
+    }
+    return _checkViaBackend();
+  }
+
+  /// Desktop path: ask the FastAPI backend to compare versions.
+  Future<UpdateInfo> _checkViaBackend() async {
     final uri = Uri.parse(
       '$serverUrl/update/check?current_version=$currentVersion',
     );
@@ -77,6 +100,58 @@ class UpdateService {
       releaseNotes: body['release_notes'] as String? ?? '',
       publishedAt: body['published_at'] as String? ?? '',
     );
+  }
+
+  /// Android path: query GitHub Releases API directly.
+  Future<UpdateInfo> _checkGitHubRelease() async {
+    final response = await _client
+        .get(
+          Uri.parse(_githubApiLatest),
+          headers: {'Accept': 'application/vnd.github+json'},
+        )
+        .timeout(const Duration(seconds: 30));
+
+    if (response.statusCode != 200) {
+      throw Exception('GitHub API error: ${response.statusCode}');
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final tag = body['tag_name'] as String? ?? '';
+    final latestVersion = tag.startsWith('v') ? tag.substring(1) : tag;
+
+    // Find the Android zip asset.
+    final assets = body['assets'] as List<dynamic>? ?? [];
+    String downloadUrl = '';
+    for (final a in assets) {
+      final name = (a as Map<String, dynamic>)['name'] as String? ?? '';
+      if (name.contains('android') && name.endsWith('.zip')) {
+        downloadUrl = a['browser_download_url'] as String? ?? '';
+        break;
+      }
+    }
+
+    final hasUpdate = _versionCompare(latestVersion, currentVersion) > 0;
+
+    return UpdateInfo(
+      hasUpdate: hasUpdate,
+      currentVersion: currentVersion,
+      latestVersion: latestVersion,
+      downloadUrl: downloadUrl,
+      releaseNotes: body['body'] as String? ?? '',
+      publishedAt: body['published_at'] as String? ?? '',
+    );
+  }
+
+  /// Compare two semver strings. Returns >0 if [a] > [b], 0 if equal, <0 otherwise.
+  int _versionCompare(String a, String b) {
+    final aParts = a.split('+').first.split('.');
+    final bParts = b.split('+').first.split('.');
+    for (var i = 0; i < aParts.length && i < bParts.length; i++) {
+      final an = int.tryParse(aParts[i]) ?? 0;
+      final bn = int.tryParse(bParts[i]) ?? 0;
+      if (an != bn) return an - bn;
+    }
+    return aParts.length - bParts.length;
   }
 
   /// Download the update archive, reporting progress via [onProgress].
@@ -122,13 +197,47 @@ class UpdateService {
     return destPath;
   }
 
-  /// Apply a downloaded update by spawning the platform-specific updater
-  /// script and exiting the app.
+  /// Extract the Android zip and return the path to the APK inside.
+  Future<String> extractAndroidApk(String zipPath) async {
+    final bytes = await File(zipPath).readAsBytes();
+    final archive = ZipDecoder().decodeBytes(bytes);
+
+    final tmpDir = await getTemporaryDirectory();
+    final extractDir = Directory(p.join(tmpDir.path, 'ocr-to-anki-update', 'extracted'));
+    await extractDir.create(recursive: true);
+
+    String? apkPath;
+    for (final file in archive) {
+      final outPath = p.join(extractDir.path, file.name);
+      if (file.isFile) {
+        final outFile = File(outPath);
+        await outFile.parent.create(recursive: true);
+        await outFile.writeAsBytes(file.content as List<int>);
+        if (file.name.endsWith('.apk')) {
+          apkPath = outPath;
+        }
+      }
+    }
+
+    if (apkPath == null) {
+      throw Exception('No APK found inside the downloaded archive');
+    }
+    return apkPath;
+  }
+
+  /// Apply a downloaded update.
   ///
-  /// [archivePath] is the path to the downloaded archive (zip or tar.gz).
-  /// [appDir] is the directory that should be replaced. When null it is
-  /// auto-detected from [Platform.resolvedExecutable].
+  /// Desktop: spawns the platform-specific updater script and exits.
+  /// Android: triggers the system APK installer via MethodChannel.
   Future<void> applyUpdate(String archivePath, {String? appDir}) async {
+    if (isAndroid) {
+      final apkPath = await extractAndroidApk(archivePath);
+      // The Android side copies the APK to its own cache dir and
+      // launches the install intent.  We just need to pass the path.
+      await _installApkOnAndroid(apkPath);
+      return;
+    }
+
     final targetDir = appDir ?? _detectAppDir();
     final updateDir = p.join(
       (await getTemporaryDirectory()).path,
@@ -150,6 +259,14 @@ class UpdateService {
     // Give the updater script a moment to start before we exit.
     await Future<void>.delayed(const Duration(seconds: 1));
     exit(0);
+  }
+
+  /// Ask MainActivity.kt to install the APK.
+  Future<void> _installApkOnAndroid(String apkPath) async {
+    const channel = MethodChannel(
+      'com.ocrtoanki.ocr_to_anki/system',
+    );
+    await channel.invokeMethod('installApk', {'path': apkPath});
   }
 
   /// Auto-detect the application directory from the executable path.
@@ -208,7 +325,7 @@ fi
 
 echo "[updater] Replacing app in \$TARGET_DIR..."
 # Preserve user data and settings by not touching known subdirectories.
-BACKUP_DIR="\$TARGET_DIR/.update-backup-\$(date +%s)"
+BACKUP_DIR="\$TARGET_DIR/.update-\$(date +%s)"
 mkdir -p "\$BACKUP_DIR"
 for item in "\$TARGET_DIR"/*; do
   name="\$(basename "\$item")"

@@ -86,6 +86,9 @@ class InferenceService {
   /// HTTP client for the current OCR request; can be closed to abort.
   http.Client? _ocrClient;
 
+  /// HTTP client for the current enrichment request; can be closed to abort.
+  http.Client? _enrichClient;
+
   /// Cancel any in-flight OCR request.
   ///
   /// This (1) closes the HTTP client to abort the request and
@@ -102,6 +105,19 @@ class InferenceService {
           .timeout(const Duration(seconds: 5));
     } catch (_) {
       // Server may already be done or unreachable -- that is fine.
+    }
+  }
+
+  /// Cancel any in-flight enrichment request.
+  ///
+  /// Closes the HTTP client to abort the current chunk request.
+  /// Also signals the Android service to cancel generation if running.
+  Future<void> cancelEnrichment() async {
+    _enrichClient?.close();
+    _enrichClient = null;
+
+    if (_isAndroid) {
+      _androidService?.cancelGeneration();
     }
   }
 
@@ -350,37 +366,39 @@ class InferenceService {
       chunks.add(words.sublist(i, (i + chunkSize).clamp(0, words.length)));
     }
 
-    for (var ci = 0; ci < chunks.length; ci++) {
-      final chunk = chunks[ci];
-      final uri = Uri.parse('${_settings.serverUrl}/enrich');
-      final prevCount = allResults.length;
+    _enrichClient = http.Client();
+    try {
+      for (var ci = 0; ci < chunks.length; ci++) {
+        final chunk = chunks[ci];
+        final uri = Uri.parse('${_settings.serverUrl}/enrich');
+        final prevCount = allResults.length;
 
-      // Resolve per-chunk term_language: if every word in the chunk
-      // has the same explicit language override, use it; otherwise
-      // fall back to the global termLanguage.
-      final chunkLangs = chunk
-          .map((w) => wordLanguages[w.toLowerCase()])
-          .whereType<String>()
-          .toSet();
-      final effectiveLang = chunkLangs.length == 1
-          ? chunkLangs.first
-          : termLanguage;
+        // Resolve per-chunk term_language: if every word in the chunk
+        // has the same explicit language override, use it; otherwise
+        // fall back to the global termLanguage.
+        final chunkLangs = chunk
+            .map((w) => wordLanguages[w.toLowerCase()])
+            .whereType<String>()
+            .toSet();
+        final effectiveLang = chunkLangs.length == 1
+            ? chunkLangs.first
+            : termLanguage;
 
-      try {
-        final response = await http
-            .post(
-              uri,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({
-                'words': chunk,
-                'definition_language': definitionLanguage,
-                'examples_language': examplesLanguage,
-                'term_language': effectiveLang,
-                'max_tokens': maxTokens,
-                'temperature': temperature,
-              }),
-            )
-            .timeout(chunkTimeout);
+        try {
+          final response = await _enrichClient!
+              .post(
+                uri,
+                headers: {'Content-Type': 'application/json'},
+                body: jsonEncode({
+                  'words': chunk,
+                  'definition_language': definitionLanguage,
+                  'examples_language': examplesLanguage,
+                  'term_language': effectiveLang,
+                  'max_tokens': maxTokens,
+                  'temperature': temperature,
+                }),
+              )
+              .timeout(chunkTimeout);
 
         if (response.statusCode != 200) {
           throw Exception(
@@ -420,6 +438,10 @@ class InferenceService {
         words.length,
         allResults.sublist(prevCount),
       );
+    }
+
+    } finally {
+      _enrichClient = null;
     }
 
     return allResults;

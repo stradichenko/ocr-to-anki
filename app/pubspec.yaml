@@ -37,6 +37,10 @@ dependencies:
   share_plus: ^10.0.0
   flutter_foreground_task: ^9.2.2
 
+  # In-app updates (Android APK install + version info)
+  package_info_plus: ^8.0.0
+  archive: ^4.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

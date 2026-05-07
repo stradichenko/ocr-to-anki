@@ -12,6 +12,7 @@ import android.os.StatFs
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -95,6 +96,11 @@ class MainActivity : FlutterActivity() {
             "addNotesToAnkiDroid" -> result.success(addNotesToAnkiDroid(call))
             "isCameraGranted" -> result.success(isCameraGranted())
             "requestCameraPermission" -> requestCameraPermission(result)
+            "installApk" -> {
+                val path = call.argument<String>("path")
+                if (path != null) installApk(path)
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
@@ -400,5 +406,79 @@ class MainActivity : FlutterActivity() {
             }
         }
         return added
+    }
+
+    // -------------------------------------------------------------------------
+    // In-app update (APK install)
+    // -------------------------------------------------------------------------
+
+    private val installApkRequestCode = 4245
+    private var pendingApkPath: String? = null
+
+    /// Install an APK from the given absolute path.
+    ///
+    /// [apkPath] must point to a file the app can read.  We copy it to
+    /// externalCacheDir/updates so FileProvider can expose it securely.
+    private fun installApk(apkPath: String) {
+        val apkFile = File(apkPath)
+        if (!apkFile.exists()) {
+            return
+        }
+
+        // Ensure the updates directory exists.
+        val updatesDir = File(externalCacheDir, "updates").apply { mkdirs() }
+        val destFile = File(updatesDir, "update.apk")
+
+        // Copy to the well-known path so FileProvider can serve it.
+        apkFile.inputStream().use { input ->
+            destFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+
+        val uri = FileProvider.getUriForFile(
+            this, "$packageName.fileprovider", destFile
+        )
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        // On Android 8+ we need REQUEST_INSTALL_PACKAGES permission.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!packageManager.canRequestPackageInstalls()) {
+                // Store the path and ask the user to grant the permission.
+                pendingApkPath = apkPath
+                val settingsIntent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES
+                ).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivityForResult(settingsIntent, installApkRequestCode)
+                return
+            }
+        }
+
+        startActivity(intent)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == installApkRequestCode) {
+            val path = pendingApkPath
+            pendingApkPath = null
+            if (path != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (packageManager.canRequestPackageInstalls()) {
+                    installApk(path)
+                }
+            }
+            return
+        }
+        if (requestCode != ankiDroidPermissionRequestCode) return
+        val r = pendingAnkiDroidResult ?: return
+        pendingAnkiDroidResult = null
+        r.success(resultCode == Activity.RESULT_OK)
     }
 }

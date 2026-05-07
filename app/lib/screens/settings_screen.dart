@@ -442,18 +442,17 @@ class SettingsScreen extends ConsumerWidget {
           // ---------------------------------------------------------------
           // Updates
           // ---------------------------------------------------------------
-          if (!Platform.isAndroid) ...[
-            _SectionHeader('Updates'),
-            SwitchListTile(
-              title: const Text('Auto-check for updates'),
-              subtitle: const Text('Check on startup if a new release is available'),
-              value: settings.autoCheckUpdates,
-              onChanged: (v) =>
-                  notifier.update((s) => s..autoCheckUpdates = v),
-            ),
-            const _UpdateCheckTile(),
-            const SizedBox(height: 32),
-          ],
+          _SectionHeader('Updates'),
+          SwitchListTile(
+            title: const Text('Auto-check for updates'),
+            subtitle: const Text('Check on startup if a new release is available'),
+            value: settings.autoCheckUpdates,
+            onChanged: (v) =>
+                notifier.update((s) => s..autoCheckUpdates = v),
+          ),
+          const _UpdateCheckTile(),
+          const SizedBox(height: 32),
+
           if (Platform.isAndroid) ...[
             _SectionHeader('Downloads'),
             SwitchListTile(

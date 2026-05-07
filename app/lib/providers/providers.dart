@@ -7,6 +7,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../database/database.dart';
@@ -788,19 +789,22 @@ class UpdateNotifier extends Notifier<UpdateState> {
   @override
   UpdateState build() => const UpdateState();
 
-  UpdateService _ensureService() {
-    _service ??= UpdateService(
+  Future<UpdateService> _ensureService() async {
+    if (_service != null) return _service!;
+
+    final packageInfo = await PackageInfo.fromPlatform();
+    final version = packageInfo.version;
+
+    _service = UpdateService(
       serverUrl: ref.read(settingsProvider).serverUrl,
-      currentVersion: '0.1.0', // synced with pubspec.yaml
+      currentVersion: version,
+      isAndroid: Platform.isAndroid,
     );
     return _service!;
   }
 
   /// Check for updates if auto-check is enabled and not already checked.
   Future<void> check({bool force = false}) async {
-    // Android uses APK sideloading — in-app auto-updater is desktop-only.
-    if (Platform.isAndroid) return;
-
     final settings = ref.read(settingsProvider);
     if (!force && !settings.autoCheckUpdates) return;
     if (state.status == UpdateStatus.checking) return;
@@ -808,7 +812,7 @@ class UpdateNotifier extends Notifier<UpdateState> {
     state = state.copyWith(status: UpdateStatus.checking);
 
     try {
-      final service = _ensureService();
+      final service = await _ensureService();
       final info = await service.checkForUpdate();
 
       if (!info.hasUpdate) {
@@ -844,7 +848,7 @@ class UpdateNotifier extends Notifier<UpdateState> {
       downloadProgress: 0,
     );
 
-    final service = _ensureService();
+    final service = await _ensureService();
     try {
       final archivePath = await service.downloadUpdate(
         info.downloadUrl,
@@ -999,6 +1003,7 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     // Kill the server-side subprocess and abort the HTTP request.
     final inference = ref.read(inferenceServiceProvider);
     inference.cancelOcr();
+    inference.cancelEnrichment();
   }
 
   /// Throws if cancel() has been called.
@@ -1405,6 +1410,11 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
               'Enrichment: $completed/$total word(s) done',
               progress: 0.68 + 0.20 * (completed / total),
             );
+            // Persist partial progress so a kill mid-enrichment resumes
+            // from the last completed chunk instead of starting over.
+            _updatePendingBatch(enrichedWords: state.enrichedWords);
+            // Stop immediately if the user cancelled during this chunk.
+            _checkCancelled();
           },
         );
         enrichStopwatch.stop();
@@ -1662,6 +1672,8 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
                   'Enrichment: $completed/$total word(s) done',
                   progress: 0.68 + 0.20 * (completed / total),
                 );
+                _updatePendingBatch(enrichedWords: state.enrichedWords);
+                _checkCancelled();
               },
             );
             enrichWatch.stop();
@@ -2368,6 +2380,8 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
               'Enrichment: $completed/$total word(s) done',
               progress: 0.68 + 0.20 * (completed / total),
             );
+            _updatePendingBatch(enrichedWords: state.enrichedWords);
+            _checkCancelled();
           },
         );
         enrichStopwatch.stop();
