@@ -326,14 +326,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != ankiDroidPermissionRequestCode) return
-        val r = pendingAnkiDroidResult ?: return
-        pendingAnkiDroidResult = null
-        r.success(resultCode == Activity.RESULT_OK)
-    }
-
     // AnkiDroid content provider constants (from com.ichi2.anki.FlashCardsContract)
     private val ankiAuthority = "com.ichi2.anki.flashcards"
     private val deckUri get() = Uri.parse("content://$ankiAuthority/decks")
