@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
@@ -498,9 +499,52 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 32),
           ],
+
+          // ---------------------------------------------------------------
+          // Diagnostics (Android only)
+          // ---------------------------------------------------------------
+          if (Platform.isAndroid) ...[
+            _SectionHeader('Diagnostics'),
+            const _DiagnosticsTile(),
+            const SizedBox(height: 32),
+          ],
         ],
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics tile (Android)
+// ---------------------------------------------------------------------------
+
+class _DiagnosticsTile extends ConsumerWidget {
+  const _DiagnosticsTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListTile(
+      leading: const Icon(Icons.bug_report_outlined),
+      title: const Text('Copy server diagnostics'),
+      subtitle: const Text(
+        'Backend, model files, and recent server logs to clipboard',
+      ),
+      trailing: const Icon(Icons.copy),
+      onTap: () async {
+        final llama = ref.read(llamaCppAndroidProvider);
+        final diag = llama.getDiagnostics();
+        final text = const JsonEncoder.withIndent('  ').convert(diag);
+        await Clipboard.setData(ClipboardData(text: text));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Diagnostics copied to clipboard'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      },
     );
   }
 }

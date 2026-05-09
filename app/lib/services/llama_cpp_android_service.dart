@@ -715,4 +715,36 @@ class LlamaCppAndroidService {
     _generateClient?.close();
     _generateClient = null;
   }
+
+  // ---------------------------------------------------------------------------
+  // Diagnostics
+  // ---------------------------------------------------------------------------
+
+  /// Returns a snapshot of the current server state for debugging.
+  Map<String, dynamic> getDiagnostics() {
+    final model = _activeModel;
+    final modelFile = model != null ? File(modelPath) : null;
+    final mmprojFile = model != null && model.supportsVision
+        ? File(mmprojPath)
+        : null;
+
+    return {
+      'serverRunning': isServerRunning,
+      'serverUrl': _serverUrl,
+      'resolvedBackend': _resolvedBackend,
+      'availableBackends': _availableBackends.toList(),
+      'gpuMode': _gpuMode,
+      'nGpuLayers': _nGpuLayers,
+      'nativeLibDir': _nativeLibDir,
+      'modelPath': modelFile?.path,
+      'modelExists': modelFile?.existsSync() ?? false,
+      'modelSize': modelFile?.lengthSync() ?? 0,
+      'mmprojPath': mmprojFile?.path,
+      'mmprojExists': mmprojFile?.existsSync() ?? false,
+      'mmprojSize': mmprojFile?.lengthSync() ?? 0,
+      'activeModelId': model?.id,
+      'activeModelName': model?.name,
+      'recentLogs': _serverStderrLines.toList(),
+    };
+  }
 }
