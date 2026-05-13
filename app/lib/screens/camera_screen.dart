@@ -28,6 +28,10 @@ class _CameraScreenState extends State<CameraScreen>
   int _cameraIndex = 0;
   FlashMode _flashMode = FlashMode.off;
 
+  /// Whether the camera permission has been permanently denied.
+  /// When true we show a full-screen prompt instead of the camera preview.
+  bool _permissionDenied = false;
+
   @override
   void initState() {
     super.initState();
@@ -58,20 +62,10 @@ class _CameraScreenState extends State<CameraScreen>
 
     final granted = await SystemChannel.isCameraGranted();
     if (!granted) {
-      await SystemChannel.requestCameraPermission();
-      final retry = await SystemChannel.isCameraGranted();
-      if (!retry) {
+      final didGrant = await SystemChannel.requestCameraPermission();
+      if (!didGrant) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Camera permission required'),
-              action: SnackBarAction(
-                label: 'Settings',
-                onPressed: SystemChannel.openAppDetailsSettings,
-              ),
-            ),
-          );
-          Navigator.pop(context);
+          setState(() => _permissionDenied = true);
         }
         return;
       }
@@ -168,6 +162,58 @@ class _CameraScreenState extends State<CameraScreen>
   @override
   Widget build(BuildContext context) {
     final ctrl = _controller;
+
+    // Permission permanently denied — show a full-screen prompt instead of
+    // a SnackBar that would persist after popping.
+    if (_permissionDenied) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.videocam_off,
+                      size: 64, color: Colors.white70),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Camera permission required',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'OCR to Anki needs camera access to capture images '
+                    'of vocabulary lists.',
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 32),
+                  FilledButton.icon(
+                    onPressed: () {
+                      SystemChannel.openAppDetailsSettings();
+                    },
+                    icon: const Icon(Icons.settings),
+                    label: const Text('Open Settings'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Go Back'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.black,

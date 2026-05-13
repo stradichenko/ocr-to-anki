@@ -34,6 +34,10 @@ class MainActivity : FlutterActivity() {
     /// onRequestPermissionsResult.
     private var pendingNotificationsResult: MethodChannel.Result? = null
 
+    /// Pending camera permission request from Dart — completed in
+    /// onRequestPermissionsResult.
+    private var pendingCameraResult: MethodChannel.Result? = null
+
     /// Pending AnkiDroid permission request from Dart — completed in
     /// onActivityResult.
     private var pendingAnkiDroidResult: MethodChannel.Result? = null
@@ -146,12 +150,22 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != notificationsRequestCode) return
-        val r = pendingNotificationsResult ?: return
-        pendingNotificationsResult = null
-        val granted = grantResults.isNotEmpty() &&
-            grantResults[0] == PackageManager.PERMISSION_GRANTED
-        r.success(granted)
+        when (requestCode) {
+            notificationsRequestCode -> {
+                val r = pendingNotificationsResult ?: return
+                pendingNotificationsResult = null
+                val granted = grantResults.isNotEmpty() &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED
+                r.success(granted)
+            }
+            cameraRequestCode -> {
+                val r = pendingCameraResult ?: return
+                pendingCameraResult = null
+                val granted = grantResults.isNotEmpty() &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED
+                r.success(granted)
+            }
+        }
     }
 
     // -- Battery optimisation -------------------------------------------------
@@ -283,17 +297,18 @@ class MainActivity : FlutterActivity() {
             result.success(true)
             return
         }
+        // Refuse to start a second concurrent request.
+        if (pendingCameraResult != null) {
+            result.error("ALREADY_PENDING",
+                "A CAMERA permission request is already in flight", null)
+            return
+        }
+        pendingCameraResult = result
         ActivityCompat.requestPermissions(
             this,
             arrayOf(Manifest.permission.CAMERA),
             cameraRequestCode
         )
-        // Store the result to be completed in onRequestPermissionsResult.
-        // Re-use the same pendingNotificationsResult pattern but with a
-        // generic pending permission result.  For simplicity, just succeed
-        // optimistically — the user will see the system dialog and Dart
-        // will re-check on resume.
-        result.success(true)
     }
 
     // -------------------------------------------------------------------------
