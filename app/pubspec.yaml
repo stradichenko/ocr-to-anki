@@ -1,7 +1,7 @@
 name: ocr_to_anki
 description: "Cross-platform OCR to Anki flashcard generator powered by local LLM inference."
 publish_to: 'none'
-version: 0.4.8+34
+version: 0.4.8+35
 
 environment:
   sdk: ^3.10.0
