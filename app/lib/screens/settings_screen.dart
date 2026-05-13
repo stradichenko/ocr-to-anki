@@ -940,6 +940,34 @@ class _UpdateCheckTile extends ConsumerWidget {
                 'Released: ${info.publishedAt.substring(0, 10)}',
                 style: Theme.of(ctx).textTheme.bodySmall,
               ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Theme.of(ctx).colorScheme.errorContainer.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Theme.of(ctx).colorScheme.error,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'If install fails with "package conflicts", uninstall the '
+                      'current app first, then install the new APK.',
+                      style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(ctx).colorScheme.onErrorContainer,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             if (info.releaseNotes.isNotEmpty) ...[
               const SizedBox(height: 12),
               Text(

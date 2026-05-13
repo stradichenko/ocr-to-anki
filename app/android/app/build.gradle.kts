@@ -30,11 +30,30 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        maybeCreate("release").apply {
+            val keystorePath = System.getenv("KEYSTORE_PATH")
+            if (!keystorePath.isNullOrEmpty()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("KEY_ALIAS") ?: "release"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            val useReleaseSigning = !System.getenv("KEYSTORE_PATH").isNullOrEmpty()
+            signingConfig = if (useReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                // Fallback to debug signing when no keystore is configured.
+                // This means local dev builds and CI builds without secrets
+                // will use different keys — in-app updates will fail with
+                // "package conflicts". Uninstall and reinstall in that case.
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
