@@ -53,6 +53,10 @@ class LlamaCppAndroidService {
   /// is alive so we can surface them on health-check failure.
   final List<String> _serverStderrLines = [];
 
+  /// Rolling buffer of debug logs (prompts, responses, errors) for
+  /// enrichment troubleshooting.
+  final List<String> _debugLogs = [];
+
   /// Available GPU backends detected at runtime (always contains 'cpu').
   Set<String> _availableBackends = {'cpu'};
 
@@ -95,6 +99,14 @@ class LlamaCppAndroidService {
       );
     }
     return _activeModel!;
+  }
+
+  void _logDebug(String tag, String message) {
+    final line = '[${DateTime.now().toIso8601String()}] $tag: $message';
+    _debugLogs.add(line);
+    if (_debugLogs.length > 500) {
+      _debugLogs.removeAt(0);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -681,28 +693,48 @@ class LlamaCppAndroidService {
 
     final uri = Uri.parse('$_serverUrl/completion');
     _generateClient = http.Client();
+
+    // Gemma 3 uses <end_of_turn> and <eos> as stop tokens.
+    // Include them first so generation stops at the right place.
+    final stopTokens = <String>[
+      '<end_of_turn>',
+      '<eos>',
+      '</s>',
+      'User:',
+      'Assistant:',
+    ];
+
     try {
+      final payload = {
+        'prompt': prompt,
+        'n_predict': maxTokens,
+        'temperature': temperature,
+        'stop': stopTokens,
+        'cache_prompt': false,
+      };
+
+      _logDebug('generate', 'prompt=${prompt.substring(0, prompt.length.clamp(0, 200))}... '
+          'n_predict=$maxTokens temp=$temperature');
+
       final response = await _generateClient!
           .post(
             uri,
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'prompt': prompt,
-              'n_predict': maxTokens,
-              'temperature': temperature,
-              'stop': ['</s>', 'User:', 'Assistant:'],
-            }),
+            body: jsonEncode(payload),
           )
           .timeout(const Duration(minutes: 5));
 
       if (response.statusCode != 200) {
+        _logDebug('generate', 'HTTP ${response.statusCode}: ${response.body}');
         throw Exception(
           'Generation failed (${response.statusCode}): ${response.body}',
         );
       }
 
       final body = jsonDecode(response.body) as Map<String, dynamic>;
-      return body['content'] as String? ?? '';
+      final content = body['content'] as String? ?? '';
+      _logDebug('generate', 'content=${content.substring(0, content.length.clamp(0, 200))}...');
+      return content;
     } finally {
       _generateClient = null;
     }
@@ -745,6 +777,7 @@ class LlamaCppAndroidService {
       'activeModelId': model?.id,
       'activeModelName': model?.name,
       'recentLogs': _serverStderrLines.toList(),
+      'debugLogs': _debugLogs.toList(),
     };
   }
 }

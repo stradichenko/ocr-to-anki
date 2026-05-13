@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 
@@ -500,21 +500,20 @@ class InferenceService {
           temperature: temperature,
         );
         final parsed = _parseEnrichResponse(response, chunk);
+        // If the model returned content but parsing produced no results,
+        // the response format was unexpected. Log it so we can diagnose.
+        if (parsed.isEmpty && response.trim().isNotEmpty) {
+          debugPrint('[enrich] parsing produced 0 results for chunk '
+              '${ci + 1}/${chunks.length}. Raw response:\n$response');
+        }
         allResults.addAll(parsed);
       } catch (e) {
-        // Propagate fatal server errors (crash, not running, etc.) so the
-        // caller can show the user what actually went wrong.
-        if (e is StateError) {
-          rethrow;
-        }
-        for (final w in chunk) {
-          allResults.add(EnrichWordResult(
-            word: w,
-            definition: '',
-            examples: '',
-            warning: 'not_found',
-          ));
-        }
+        // On Android the server is local — if one chunk fails (timeout,
+        // HTTP error, etc.) the rest will too.  Fail fast so the user
+        // sees the real error instead of every word silently marked
+        // not_found.
+        debugPrint('[enrich] chunk ${ci + 1}/${chunks.length} failed: $e');
+        rethrow;
       }
 
       onChunkDone?.call(
