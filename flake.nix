@@ -818,6 +818,28 @@
               echo "[WARN] CMake toolchain not found at expected NDK path."
               echo "       You may need to adjust ANDROID_NDK manually."
             fi
+
+            # ── Release keystore helper ─────────────────────────
+            generate-release-keystore() {
+              local out="''${1:-ocr-to-anki.keystore}"
+              local alias="''${2:-release}"
+              echo "Generating release keystore: $out"
+              keytool -genkey -v \
+                -keystore "$out" -alias "$alias" \
+                -keyalg RSA -keysize 2048 -validity 10000 \
+                -dname "CN=OCR to Anki" \
+                -storepass android -keypass android
+              echo ""
+              echo "Base64-encoded keystore (paste into GitHub secret KEYSTORE_BASE64):"
+              base64 -w 0 "$out"
+              echo ""
+              echo ""
+              echo "Add these GitHub secrets:"
+              echo "  KEYSTORE_BASE64    ← the long base64 string above"
+              echo "  KEYSTORE_PASSWORD  ← android"
+              echo "  KEY_ALIAS          ← $alias"
+              echo "  KEY_PASSWORD       ← android"
+            }
           '';
         };
 
