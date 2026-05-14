@@ -547,7 +547,12 @@ class InferenceService {
         'DEF: <$defLang definition>\n'
         'EX1: <$exLang sentence>\n'
         'EX2: <$exLang sentence>\n\n'
-        'Words:\n$wordList');
+        'Example:\n'
+        'WORD: serendipity\n'
+        'DEF: The occurrence of events by chance in a happy or beneficial way.\n'
+        'EX1: Meeting my best friend was a serendipity.\n'
+        'EX2: The discovery of penicillin was pure serendipity.\n\n'
+        'Words:\n$wordList\n');
   }
 
   List<EnrichWordResult> _parseEnrichResponse(String text, List<String> words) {
@@ -557,6 +562,8 @@ class InferenceService {
     String? currentDef;
     String? currentEx1;
     String? currentEx2;
+    // Track which expected word we're on when WORD: is missing.
+    var fallbackWordIndex = 0;
 
     void flush() {
       if (currentWord != null) {
@@ -585,6 +592,25 @@ class InferenceService {
         flush();
         currentWord = line.substring(5).trim();
       } else if (upper.startsWith('DEF:')) {
+        // If no WORD: was seen before DEF:, try to infer the word.
+        if (currentWord == null) {
+          flush();
+          // Try matching the definition text against expected words.
+          final defText = line.substring(4).trim().toLowerCase();
+          for (var i = fallbackWordIndex; i < words.length; i++) {
+            final w = words[i].toLowerCase();
+            if (defText.contains(w)) {
+              currentWord = words[i];
+              fallbackWordIndex = i + 1;
+              break;
+            }
+          }
+          // Fallback: use the next expected word if no match.
+          if (currentWord == null && fallbackWordIndex < words.length) {
+            currentWord = words[fallbackWordIndex];
+            fallbackWordIndex++;
+          }
+        }
         currentDef = line.substring(4).trim();
       } else if (upper.startsWith('EX1:')) {
         currentEx1 = line.substring(4).trim();
