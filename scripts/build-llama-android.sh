@@ -152,6 +152,24 @@ find_vulkan_header() {
     return 1
 }
 
+VULKAN_HEADERS_REPO="https://github.com/KhronosGroup/Vulkan-Headers.git"
+
+# ------------------------------------------------------------------
+# Helper: download Vulkan C++ headers (vulkan.hpp)
+# ------------------------------------------------------------------
+ensure_vulkan_hpp_headers() {
+    local headers_dir="$BUILD_DIR/vulkan-headers"
+    if [[ -d "$headers_dir/.git" ]]; then
+        cd "$headers_dir"
+        git fetch origin >/dev/null 2>&1
+        git checkout main >/dev/null 2>&1
+    else
+        echo ":: Downloading Khronos Vulkan headers (for vulkan.hpp)..." >&2
+        git clone --depth 1 "$VULKAN_HEADERS_REPO" "$headers_dir" >&2
+    fi
+    echo "$headers_dir/include"
+}
+
 # ------------------------------------------------------------------
 # Helper: download OpenCL headers
 # ------------------------------------------------------------------
@@ -223,6 +241,17 @@ void* clEnqueueWriteBuffer(void) { return 0; }
 void* clFinish(void) { return 0; }
 void* clFlush(void) { return 0; }
 void* clGetProgramBuildInfo(void) { return 0; }
+// Additional symbols required by newer llama.cpp
+void* clGetKernelWorkGroupInfo(void) { return 0; }
+void* clCreateImage(void) { return 0; }
+void* clCreateSubBuffer(void) { return 0; }
+void* clEnqueueBarrierWithWaitList(void) { return 0; }
+void* clWaitForEvents(void) { return 0; }
+void* clReleaseEvent(void) { return 0; }
+void* clEnqueueMarkerWithWaitList(void) { return 0; }
+void* clCreateBufferWithProperties(void) { return 0; }
+void* clEnqueueFillBuffer(void) { return 0; }
+void* clEnqueueCopyBuffer(void) { return 0; }
 EOF
 
     "$clang" -c -o "$stub_dir/stub.o" "$stub_dir/stub.c" >&2
@@ -303,10 +332,18 @@ build_variant() {
                 echo "[WARN] Vulkan header not found — skipping $variant build"
                 return 1
             }
+            # llama.cpp's ggml-vulkan.cpp includes <vulkan/vulkan.hpp> which is
+            # NOT shipped with the Android NDK (only vulkan.h is). Download the
+            # Khronos Vulkan-Headers to get the C++ bindings.
+            local vulkan_hpp_include
+            vulkan_hpp_include=$(ensure_vulkan_hpp_headers)
             # Ensure glslc is available (CMake's FindVulkan requires it)
             ensure_glslc || true
             cmake_args+=(-DGGML_VULKAN=ON)
-            echo "   Vulkan: enabled (headers at $vulkan_include)"
+            # Prepend the downloaded headers so vulkan.hpp is found; fall back
+            # to NDK headers for the C vulkan.h.
+            cmake_args+=(-DCMAKE_CXX_FLAGS="-I$vulkan_hpp_include -I$vulkan_include")
+            echo "   Vulkan: enabled (NDK headers at $vulkan_include, HPP at $vulkan_hpp_include)"
             ;;
         opencl)
             local opencl_headers
