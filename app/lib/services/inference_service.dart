@@ -318,13 +318,16 @@ class InferenceService {
     final tokens = maxTokens ?? 256;
 
     if (_isAndroid) {
+      // On Android (often CPU-only), limit tokens to avoid timeouts.
+      // 128 tokens is enough for 1-2 words with definitions + examples.
+      final androidTokens = tokens > 128 ? 128 : tokens;
       return _androidEnrichChunked(
         words: words,
         definitionLanguage: defLang,
         examplesLanguage: exLang,
         termLanguage: termLang,
         wordLanguages: wordLanguages,
-        maxTokens: tokens,
+        maxTokens: androidTokens,
         temperature: temp,
         chunkSize: chunkSize,
         onChunkDone: onChunkDone,

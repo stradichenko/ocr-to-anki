@@ -722,7 +722,7 @@ class LlamaCppAndroidService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(payload),
           )
-          .timeout(const Duration(minutes: 5));
+          .timeout(const Duration(minutes: 10));
 
       if (response.statusCode != 200) {
         _logDebug('generate', 'HTTP ${response.statusCode}: ${response.body}');
