@@ -336,23 +336,36 @@ build_variant() {
     NPROC=$(nproc 2>/dev/null || echo 4)
     echo ":: Building $variant (using $NPROC cores)..."
 
-    cmake --build "$cmake_build" --config Release --target llama-server -j"$NPROC" 2>&1 \
-        | tee "$BUILD_DIR/build-server-$variant.log" \
-        | tail -5
+    local server_ok=true
+    local mtmd_ok=true
 
-    cmake --build "$cmake_build" --config Release --target llama-mtmd-cli -j"$NPROC" 2>&1 \
-        | tee "$BUILD_DIR/build-mtmd-$variant.log" \
-        | tail -5
+    if ! cmake --build "$cmake_build" --config Release --target llama-server -j"$NPROC" 2>&1 \
+            | tee "$BUILD_DIR/build-server-$variant.log"; then
+        server_ok=false
+    fi
+
+    if ! cmake --build "$cmake_build" --config Release --target llama-mtmd-cli -j"$NPROC" 2>&1 \
+            | tee "$BUILD_DIR/build-mtmd-$variant.log"; then
+        mtmd_ok=false
+    fi
 
     local server_bin=$(find "$cmake_build" -name "llama-server" -type f 2>/dev/null | head -1)
     local mtmd_bin=$(find "$cmake_build" -name "llama-mtmd-cli" -type f 2>/dev/null | head -1)
 
-    if [[ -z "$server_bin" ]]; then
-        echo "[ERR] llama-server binary not found for $variant"
+    if [[ -z "$server_bin" ]] || [[ "$server_ok" == false ]]; then
+        echo "[ERR] llama-server build failed for $variant"
+        if [[ -f "$BUILD_DIR/build-server-$variant.log" ]]; then
+            echo ":: Last 80 lines of build log:"
+            tail -80 "$BUILD_DIR/build-server-$variant.log"
+        fi
         return 1
     fi
-    if [[ -z "$mtmd_bin" ]]; then
-        echo "[ERR] llama-mtmd-cli binary not found for $variant"
+    if [[ -z "$mtmd_bin" ]] || [[ "$mtmd_ok" == false ]]; then
+        echo "[ERR] llama-mtmd-cli build failed for $variant"
+        if [[ -f "$BUILD_DIR/build-mtmd-$variant.log" ]]; then
+            echo ":: Last 80 lines of build log:"
+            tail -80 "$BUILD_DIR/build-mtmd-$variant.log"
+        fi
         return 1
     fi
 
