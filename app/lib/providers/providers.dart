@@ -650,6 +650,51 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
   /// Allow retry from the error screen.
   Future<void> retry() async => _boot();
 
+  /// Wait until the backend reaches [ServerStatus.ready], or throw if it
+  /// reaches [ServerStatus.error].  Useful when the user tries to start
+  /// processing while the background init is still running.
+  Future<void> ensureReady() async {
+    // Already ready — no-op.
+    if (state.status == ServerStatus.ready) return;
+
+    // Already in error — throw so the caller can show the error UI.
+    if (state.status == ServerStatus.error) {
+      throw StateError(state.message);
+    }
+
+    // Wait for a state transition to ready or error.
+    final completer = Completer<void>();
+    void listener(ServerStartupState? prev, ServerStartupState next) {
+      if (next.status == ServerStatus.ready) {
+        if (!completer.isCompleted) completer.complete();
+      } else if (next.status == ServerStatus.error) {
+        if (!completer.isCompleted) {
+          completer.completeError(StateError(next.message));
+        }
+      }
+    }
+
+    final removeListener = ref.listen(serverStartupProvider, listener);
+    // Guard against the state changing between the initial check and the
+    // listener setup (Riverpod fires immediately, but this is defensive).
+    if (state.status == ServerStatus.ready) {
+      removeListener.close();
+      if (!completer.isCompleted) completer.complete();
+      return;
+    } else if (state.status == ServerStatus.error) {
+      removeListener.close();
+      if (!completer.isCompleted) {
+        completer.completeError(StateError(state.message));
+      }
+      return;
+    }
+    try {
+      await completer.future;
+    } finally {
+      removeListener.close();
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Helpers
   // -----------------------------------------------------------------------

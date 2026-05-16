@@ -9,6 +9,7 @@ import 'screens/screens.dart';
 import 'services/foreground_task_service.dart';
 import 'services/system_channel.dart';
 import 'utils/responsive.dart';
+import 'widgets/startup_overlay.dart';
 
 void main() {
   runApp(const ProviderScope(child: OcrToAnkiApp()));
@@ -174,20 +175,23 @@ class _AdaptiveLayoutState extends ConsumerState<_AdaptiveLayout> {
   }
 }
 
-/// Shows a loading / error screen while the backend is booting.
-/// Once the server is healthy, it shows the normal [HomeScreen].
-class _ServerStartupGate extends ConsumerWidget {
+/// Gate that shows the normal app UI immediately while the backend boots in
+/// the background.  A small banner indicates init progress; the full overlay
+/// is only shown when the user tries to process before init is complete.
+class _ServerStartupGate extends ConsumerStatefulWidget {
   const _ServerStartupGate();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ServerStartupGate> createState() => _ServerStartupGateState();
+}
+
+class _ServerStartupGateState extends ConsumerState<_ServerStartupGate> {
+  @override
+  Widget build(BuildContext context) {
     final startup = ref.watch(serverStartupProvider);
     final theme = Theme.of(context);
 
     // One-time Android system prompts at first transition to ready.
-    // Fires the OS POST_NOTIFICATIONS dialog and the battery-optimisation
-    // exemption dialog, persisting the asked flags so we never re-prompt
-    // across launches.
     ref.listen<ServerStartupState>(serverStartupProvider, (prev, next) {
       if (!Platform.isAndroid) return;
       if (next.status != ServerStatus.ready) return;
@@ -195,270 +199,100 @@ class _ServerStartupGate extends ConsumerWidget {
       _maybePromptFirstRunPermissions(context, ref);
     });
 
-    return switch (startup.status) {
-      ServerStatus.starting => Scaffold(
-          body: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 24),
-                Text(
-                  startup.message,
-                  style: theme.textTheme.titleMedium,
-                  textAlign: TextAlign.center,
+    final body = useTwoPane(context)
+        ? const _AdaptiveLayout()
+        : const HomeScreen();
+
+    // Error banner — non-blocking, user can dismiss or retry.
+    if (startup.status == ServerStatus.error) {
+      return Scaffold(
+        body: Column(
+          children: [
+            MaterialBanner(
+              leading: Icon(Icons.error_outline, color: theme.colorScheme.error),
+              content: Text(startup.message),
+              actions: [
+                TextButton(
+                  onPressed: () =>
+                      ref.read(serverStartupProvider.notifier).retry(),
+                  child: const Text('Retry'),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Initialising vision & language models…',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+                TextButton(
+                  onPressed: () {
+                    final diagnostics = StartupOverlay.buildDiagnostics(startup);
+                    Clipboard.setData(ClipboardData(text: diagnostics));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Diagnostics copied to clipboard'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  child: const Text('Copy diagnostics'),
                 ),
               ],
             ),
-          ),
+            Expanded(child: body),
+          ],
         ),
-      // ---- Python downloading (silent, automatic) ----
-      ServerStatus.downloadingPython => Scaffold(
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 48),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (startup.totalBytes > 0) ...[
-                    LinearProgressIndicator(
-                      value: startup.downloadProgress,
-                      minHeight: 8,
-                      borderRadius: BorderRadius.circular(4),
+      );
+    }
+
+    // Starting / downloading — show a subtle progress banner.
+    if (startup.status == ServerStatus.starting ||
+        startup.status == ServerStatus.downloading ||
+        startup.status == ServerStatus.downloadingPython ||
+        startup.status == ServerStatus.downloadingLlama) {
+      return Scaffold(
+        body: Column(
+          children: [
+            Container(
+              color: theme.colorScheme.primaryContainer,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: SafeArea(
+                bottom: false,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '${_megabytes(startup.downloadedBytes)} / '
-                      '${_megabytes(startup.totalBytes)} MB',
-                      style: theme.textTheme.titleMedium,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        startup.message,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onPrimaryContainer,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ] else ...[
-                    const LinearProgressIndicator(minHeight: 8),
-                    const SizedBox(height: 16),
-                  ],
-                  const SizedBox(height: 8),
-                  Text(
-                    'Setting up — downloading Python runtime…',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      // ---- llama.cpp binary downloading (automatic) ----
-      ServerStatus.downloadingLlama => Scaffold(
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 48),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (startup.totalBytes > 0) ...[
-                    LinearProgressIndicator(
-                      value: startup.downloadProgress,
-                      minHeight: 8,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '${_megabytes(startup.downloadedBytes)} / '
-                      '${_megabytes(startup.totalBytes)} MB',
-                      style: theme.textTheme.titleMedium,
-                    ),
-                  ] else ...[
-                    const LinearProgressIndicator(minHeight: 8),
-                    const SizedBox(height: 16),
-                  ],
-                  const SizedBox(height: 8),
-                  Text(
-                    'Downloading vision engine (one-time setup)…',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      // ---- Download in progress (Python or models) ----
-      ServerStatus.downloading => Scaffold(
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 48),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (startup.totalBytes > 0) ...[
-                    LinearProgressIndicator(
-                      value: startup.downloadProgress,
-                      minHeight: 8,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '${_megabytes(startup.downloadedBytes)} / '
-                      '${_megabytes(startup.totalBytes)} MB',
-                      style: theme.textTheme.titleMedium,
-                    ),
-                  ] else ...[
-                    const LinearProgressIndicator(minHeight: 8),
-                    const SizedBox(height: 16),
-                  ],
-                  const SizedBox(height: 8),
-                  Text(
-                    startup.message,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ServerStatus.error => Scaffold(
-          body: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 720),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Icon(Icons.error_outline,
-                          size: 48, color: theme.colorScheme.error),
-                      const SizedBox(height: 16),
+                    if (startup.totalBytes > 0)
                       Text(
-                        'Backend failed to start',
-                        style: theme.textTheme.titleLarge,
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 12),
-                      Container(
-                        constraints: const BoxConstraints(maxHeight: 200),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: SingleChildScrollView(
-                          child: SelectableText(
-                            startup.message,
-                            style: theme.textTheme.bodyMedium,
-                          ),
+                        '${(startup.downloadProgress * 100).toStringAsFixed(0)}%',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                      if (startup.technicalDetail != null) ...[
-                        const SizedBox(height: 12),
-                        Theme(
-                          data: theme.copyWith(
-                            dividerColor: Colors.transparent,
-                          ),
-                          child: ExpansionTile(
-                            tilePadding:
-                                const EdgeInsets.symmetric(horizontal: 8),
-                            childrenPadding: EdgeInsets.zero,
-                            title: Text(
-                              'Technical details',
-                              style: theme.textTheme.labelLarge,
-                            ),
-                            children: [
-                              Container(
-                                constraints:
-                                    const BoxConstraints(maxHeight: 320),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.surfaceContainerLow,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: theme.colorScheme.outlineVariant,
-                                  ),
-                                ),
-                                child: SingleChildScrollView(
-                                  child: SelectableText(
-                                    startup.technicalDetail!,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      fontFamily: 'monospace',
-                                      fontFamilyFallback: const [
-                                        'Courier',
-                                        'monospace'
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 16),
-                      Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 12,
-                        runSpacing: 8,
-                        children: [
-                          FilledButton.icon(
-                            onPressed: () => ref
-                                .read(serverStartupProvider.notifier)
-                                .retry(),
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Retry'),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              final diagnostics = _buildDiagnostics(startup);
-                              Clipboard.setData(
-                                  ClipboardData(text: diagnostics));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content:
-                                      Text('Diagnostics copied to clipboard'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.copy),
-                            label: const Text('Copy diagnostics'),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).pushNamed('/settings');
-                            },
-                            icon: const Icon(Icons.settings),
-                            label: const Text('Settings'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
             ),
-          ),
+            Expanded(child: body),
+          ],
         ),
-      ServerStatus.ready =>
-          useTwoPane(context) ? const _AdaptiveLayout() : const HomeScreen(),
-    };
-  }
+      );
+    }
 
-  static String _megabytes(int bytes) =>
-      (bytes / (1024 * 1024)).toStringAsFixed(1);
+    // Ready — normal UI.
+    return body;
+  }
 
   /// Run the one-time Android first-launch system prompts.  Called from
   /// the build-time `ref.listen` on the first transition to
@@ -524,21 +358,4 @@ class _ServerStartupGate extends ConsumerWidget {
     ref.invalidate(batteryOptimizationDisabledProvider);
   }
 
-  /// Build a diagnostics blob the user can paste into a bug report.
-  static String _buildDiagnostics(ServerStartupState startup) {
-    final buf = StringBuffer()
-      ..writeln('=== OCR-to-Anki diagnostics ===')
-      ..writeln('Time:    ${DateTime.now().toIso8601String()}')
-      ..writeln('OS:      ${Platform.operatingSystem} '
-          '${Platform.operatingSystemVersion}')
-      ..writeln('Locale:  ${Platform.localeName}')
-      ..writeln('Status:  ${startup.status.name}')
-      ..writeln()
-      ..writeln('--- User-facing message ---')
-      ..writeln(startup.message)
-      ..writeln()
-      ..writeln('--- Technical details ---')
-      ..writeln(startup.technicalDetail ?? '(none captured)');
-    return buf.toString();
-  }
 }

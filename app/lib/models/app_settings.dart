@@ -43,7 +43,7 @@ class AppSettings {
     this.notificationsPermissionAsked = false,
     this.batteryOptimizationPromptShown = false,
     this.lastAnkiDroidDeckId = 0,
-    this.activeModelId = 'gemma-3-4b-q4',
+    this.activeModelId = 'gemma-4-e2b-q4',
   });
 
   // -- Appearance --
@@ -237,7 +237,7 @@ class AppSettings {
       lastAnkiDroidDeckId:
           json['lastAnkiDroidDeckId'] as int? ?? 0,
       activeModelId:
-          json['activeModelId'] as String? ?? 'gemma-3-4b-q4',
+          json['activeModelId'] as String? ?? 'gemma-4-e2b-q4',
     );
   }
 }

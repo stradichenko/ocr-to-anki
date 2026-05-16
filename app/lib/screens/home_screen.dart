@@ -18,6 +18,7 @@ import '../services/share_intent_handler.dart';
 import '../services/system_channel.dart';
 import '../services/image_utils.dart';
 import '../utils/responsive.dart';
+import '../widgets/startup_overlay.dart';
 import 'camera_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -644,6 +645,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   /// Navigate to a word-review screen where the user types words manually,
   /// then runs enrichment without any image processing.
   Future<void> _showManualWordEntry() async {
+    if (!await _ensureBackendReady()) return;
+
     final notifier = ref.read(processingProvider.notifier);
     notifier.reset();
 
@@ -661,6 +664,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _startBatchProcessing() async {
     if (_imageQueue.isEmpty) return;
+    if (!await _ensureBackendReady()) return;
 
     // Build ImageEntry list. Apply the global crop region to images that
     // don't have their own per-image crop, and per-image crop to those that
@@ -710,6 +714,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       hsvRange: _effectiveHsvRange,
       confirmedBoxes: confirmedBoxes,
     );
+  }
+
+  /// Wait for the backend to be ready before processing.
+  /// Shows the startup overlay if init is still in progress.
+  /// Returns `true` if ready, `false` if the user dismissed or an error occurred.
+  Future<bool> _ensureBackendReady() async {
+    final startup = ref.read(serverStartupProvider);
+    if (startup.status == ServerStatus.ready) return true;
+
+    // Show the overlay and wait for ready or dismissal.
+    final result = await StartupOverlay.show(context);
+    return result;
   }
 
   /// Detect highlights on ALL images and show a paginated preview dialog.

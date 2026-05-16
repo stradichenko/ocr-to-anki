@@ -1,9 +1,41 @@
 {
   "models": [
     {
+      "id": "gemma-4-e2b-q4",
+      "name": "Gemma 4 E2B IT (Q4_0)",
+      "description": "Gemma 4 with improved reasoning and vision. ~3 GB model, good balance of quality and speed.",
+      "modelUrl": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_0.gguf",
+      "mmprojUrl": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-F16.gguf",
+      "modelFilename": "gemma-4-e2b-it-q4_0.gguf",
+      "mmprojFilename": "mmproj-gemma-4-e2b-f16.gguf",
+      "modelSizeBytes": 3041376384,
+      "mmprojSizeBytes": 985654080,
+      "sha256Model": "9c4c1d48a462f7f883b28984ac4f42d366c9c573434eab68553e0f38bf7eb50c",
+      "sha256Mmproj": "140be8d7849741f88c50757d529b84373ee8e27052cc2236855b537f4a8215fa",
+      "supportsVision": true,
+      "contextSize": 8192,
+      "tags": ["recommended", "vision", "gemma4"]
+    },
+    {
+      "id": "gemma-4-e4b-q4",
+      "name": "Gemma 4 E4B IT (Q4_0)",
+      "description": "Larger Gemma 4 with better quality. ~4.8 GB model, best for devices with ample storage and RAM.",
+      "modelUrl": "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_0.gguf",
+      "mmprojUrl": "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf",
+      "modelFilename": "gemma-4-e4b-it-q4_0.gguf",
+      "mmprojFilename": "mmproj-gemma-4-e4b-f16.gguf",
+      "modelSizeBytes": 4836000928,
+      "mmprojSizeBytes": 990372672,
+      "sha256Model": "d51af14007fe16deb45107de2411660be3b59c9e1c89bbde3bfec8ece65eeedc",
+      "sha256Mmproj": "ddf46c21d7078e95338cfc22306b19b276a29a5ad089023449dd54d4b6170a51",
+      "supportsVision": true,
+      "contextSize": 8192,
+      "tags": ["vision", "gemma4", "large"]
+    },
+    {
       "id": "gemma-3-4b-q4",
       "name": "Gemma 3 4B IT (Q4_0)",
-      "description": "Balanced quality and speed. Recommended for most devices.",
+      "description": "Previous generation. Balanced quality and speed. Recommended if Gemma 4 has issues on your device.",
       "modelUrl": "https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small/resolve/main/gemma-3-4b-it-q4_0_s.gguf",
       "mmprojUrl": "https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small/resolve/main/mmproj-google_gemma-3-4b-it-f16.gguf",
       "modelFilename": "gemma-3-4b-it-q4_0_s.gguf",
@@ -14,7 +46,7 @@
       "sha256Mmproj": "8c0fb064b019a6972856aaae2c7e4792858af3ca4561be2dbf649123ba6c40cb",
       "supportsVision": true,
       "contextSize": 4096,
-      "tags": ["recommended", "vision"]
+      "tags": ["vision"]
     }
   ]
 }
