@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'package:ffi/ffi.dart';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
@@ -185,10 +186,29 @@ class LlamaCppAndroidService {
   Future<Set<String>> _detectAvailableBackends() async {
     final backends = <String>{'cpu'};
 
-    // Vulkan: check if libvulkan.so is loadable.
+    // Vulkan: check if libvulkan.so is loadable AND the device supports
+    // Vulkan 1.2+. llama.cpp requires 1.2 at runtime; older drivers fail
+    // with "ggml_vulkan: Error: Vulkan 1.2 required."
     try {
-      DynamicLibrary.open('libvulkan.so');
-      backends.add('vulkan');
+      final vk = DynamicLibrary.open('libvulkan.so');
+      final enumerateVersion = vk.lookup<NativeFunction<Int32 Function(Pointer<Uint32>)>>('vkEnumerateInstanceVersion');
+      final versionPtr = calloc<Uint32>();
+      try {
+        final result = enumerateVersion.asFunction<int Function(Pointer<Uint32>)>()(versionPtr);
+        if (result == 0) {
+          // VK_SUCCESS — parse version: major = bits 22-31, minor = bits 12-21
+          final version = versionPtr.value;
+          final major = (version >> 22) & 0x7F;
+          final minor = (version >> 12) & 0x3FF;
+          if (major > 1 || (major == 1 && minor >= 2)) {
+            backends.add('vulkan');
+          }
+        }
+        // If result != VK_SUCCESS, the loader doesn't support version queries;
+        // fall back to assuming it's an old loader and skip Vulkan.
+      } finally {
+        calloc.free(versionPtr);
+      }
     } catch (_) {}
 
     // OpenCL: different vendors ship under different names.

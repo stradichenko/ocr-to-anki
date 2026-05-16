@@ -28,6 +28,9 @@ dependencies:
   http: ^1.4.0
   connectivity_plus: ^6.0.0
 
+  # FFI utilities (native memory allocation)
+  ffi: ^2.1.3
+
   # Crypto (model checksum verification)
   crypto: ^3.0.6
 
