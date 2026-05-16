@@ -153,6 +153,7 @@ find_vulkan_header() {
 }
 
 VULKAN_HEADERS_REPO="https://github.com/KhronosGroup/Vulkan-Headers.git"
+SPIRV_HEADERS_REPO="https://github.com/KhronosGroup/SPIRV-Headers.git"
 
 # ------------------------------------------------------------------
 # Helper: download Vulkan C++ headers (vulkan.hpp)
@@ -166,6 +167,22 @@ ensure_vulkan_hpp_headers() {
     else
         echo ":: Downloading Khronos Vulkan headers (for vulkan.hpp)..." >&2
         git clone --depth 1 "$VULKAN_HEADERS_REPO" "$headers_dir" >&2
+    fi
+    echo "$headers_dir/include"
+}
+
+# ------------------------------------------------------------------
+# Helper: download SPIRV headers (spirv.hpp)
+# ------------------------------------------------------------------
+ensure_spirv_headers() {
+    local headers_dir="$BUILD_DIR/spirv-headers"
+    if [[ -d "$headers_dir/.git" ]]; then
+        cd "$headers_dir"
+        git fetch origin >/dev/null 2>&1
+        git checkout main >/dev/null 2>&1
+    else
+        echo ":: Downloading Khronos SPIRV headers..." >&2
+        git clone --depth 1 "$SPIRV_HEADERS_REPO" "$headers_dir" >&2
     fi
     echo "$headers_dir/include"
 }
@@ -333,17 +350,18 @@ build_variant() {
                 return 1
             }
             # llama.cpp's ggml-vulkan.cpp includes <vulkan/vulkan.hpp> which is
-            # NOT shipped with the Android NDK (only vulkan.h is). Download the
-            # Khronos Vulkan-Headers to get the C++ bindings.
+            # NOT shipped with the Android NDK (only vulkan.h is). It also needs
+            # <spirv/unified1/spirv.hpp>. Download both Khronos repos.
             local vulkan_hpp_include
             vulkan_hpp_include=$(ensure_vulkan_hpp_headers)
+            local spirv_include
+            spirv_include=$(ensure_spirv_headers)
             # Ensure glslc is available (CMake's FindVulkan requires it)
             ensure_glslc || true
             cmake_args+=(-DGGML_VULKAN=ON)
-            # Prepend the downloaded headers so vulkan.hpp is found; fall back
-            # to NDK headers for the C vulkan.h.
-            cmake_args+=(-DCMAKE_CXX_FLAGS="-I$vulkan_hpp_include -I$vulkan_include")
-            echo "   Vulkan: enabled (NDK headers at $vulkan_include, HPP at $vulkan_hpp_include)"
+            # Prepend the downloaded headers so vulkan.hpp and spirv.hpp are found.
+            cmake_args+=(-DCMAKE_CXX_FLAGS="-I$vulkan_hpp_include -I$spirv_include -I$vulkan_include")
+            echo "   Vulkan: enabled (NDK headers at $vulkan_include, HPP at $vulkan_hpp_include, SPIRV at $spirv_include)"
             ;;
         opencl)
             local opencl_headers
