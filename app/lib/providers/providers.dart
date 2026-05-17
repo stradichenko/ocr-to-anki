@@ -107,6 +107,10 @@ final settingsProvider =
 
 class SettingsNotifier extends Notifier<AppSettings> {
   late AppDatabase _db;
+  final _loaded = Completer<void>();
+
+  /// Completes once settings have been loaded from the database.
+  Future<void> get loaded => _loaded.future;
 
   @override
   AppSettings build() {
@@ -116,28 +120,32 @@ class SettingsNotifier extends Notifier<AppSettings> {
   }
 
   Future<void> _load() async {
-    final json = await _db.getSetting('app_settings');
-    if (json != null) {
-      try {
-        var loaded = AppSettings.fromJson(
-          jsonDecode(json) as Map<String, dynamic>,
-        );
-        // Migrations:
-        var dirty = false;
-        // 1) "localhost" resolves to IPv6 ::1 on some systems while the
-        //    server only listens on IPv4, causing connection failures.
-        if (loaded.serverUrl.contains('://localhost:')) {
-          loaded.serverUrl =
-              loaded.serverUrl.replaceFirst('://localhost:', '://127.0.0.1:');
-          dirty = true;
+    try {
+      final json = await _db.getSetting('app_settings');
+      if (json != null) {
+        try {
+          var loaded = AppSettings.fromJson(
+            jsonDecode(json) as Map<String, dynamic>,
+          );
+          // Migrations:
+          var dirty = false;
+          // 1) "localhost" resolves to IPv6 ::1 on some systems while the
+          //    server only listens on IPv4, causing connection failures.
+          if (loaded.serverUrl.contains('://localhost:')) {
+            loaded.serverUrl =
+                loaded.serverUrl.replaceFirst('://localhost:', '://127.0.0.1:');
+            dirty = true;
+          }
+          state = loaded; // always assign a fresh object so listeners fire
+          if (dirty) {
+            await _db.setSetting('app_settings', jsonEncode(state.toJson()));
+          }
+        } catch (_) {
+          // Corrupted settings -- keep defaults.
         }
-        state = loaded; // always assign a fresh object so listeners fire
-        if (dirty) {
-          await _db.setSetting('app_settings', jsonEncode(state.toJson()));
-        }
-      } catch (_) {
-        // Corrupted settings -- keep defaults.
       }
+    } finally {
+      if (!_loaded.isCompleted) _loaded.complete();
     }
   }
 
@@ -245,6 +253,9 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
 
   Future<void> _boot() async {
     if (Platform.isAndroid) {
+      // Wait for settings to load from the database so we use the correct
+      // active model instead of the hard-coded default.
+      await ref.read(settingsProvider.notifier).loaded;
       await _bootAndroid();
       return;
     }

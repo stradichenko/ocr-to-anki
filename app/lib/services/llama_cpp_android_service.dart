@@ -599,6 +599,7 @@ class LlamaCppAndroidService {
         '-p', prompt,
         '-n', '512',
         '--temp', '0.1',
+        '--jinja',
         if (_resolvedBackend != 'cpu') ...[
           '-ngl', '$_nGpuLayers',
         ],

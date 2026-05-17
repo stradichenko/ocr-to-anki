@@ -1718,7 +1718,8 @@ class _ModelPickerSheet extends ConsumerStatefulWidget {
 }
 
 class _ModelPickerSheetState extends ConsumerState<_ModelPickerSheet> {
-  bool _downloading = false;
+  /// ID of the model currently being downloaded from this UI, or null.
+  String? _downloadingModelId;
   double? _downloadProgress;
   String? _downloadFile;
 
@@ -1727,6 +1728,9 @@ class _ModelPickerSheetState extends ConsumerState<_ModelPickerSheet> {
     final theme = Theme.of(context);
     final settings = ref.watch(settingsProvider);
     final registry = ref.read(modelRegistryProvider);
+    final startup = ref.watch(serverStartupProvider);
+
+    final isServerDownloading = startup.status == ServerStatus.downloading;
 
     return FutureBuilder<List<ModelInfo>>(
       future: registry.listModels(),
@@ -1777,15 +1781,34 @@ class _ModelPickerSheetState extends ConsumerState<_ModelPickerSheet> {
                           ),
                         );
                       }
+                      final model = models[i];
+                      final isUiDownloading = _downloadingModelId == model.id;
+                      final isServerDownloadingThis =
+                          isServerDownloading &&
+                          model.id == settings.activeModelId;
+                      final isThisDownloading =
+                          isUiDownloading || isServerDownloadingThis;
+
+                      final progress = isUiDownloading
+                          ? _downloadProgress
+                          : (isServerDownloadingThis
+                              ? startup.downloadProgress
+                              : null);
+                      final file = isUiDownloading
+                          ? _downloadFile
+                          : (isServerDownloadingThis
+                              ? startup.downloadFile
+                              : null);
+
                       return _ModelCard(
-                        model: models[i],
-                        isActive: models[i].id == settings.activeModelId,
-                        isDownloading: _downloading,
-                        downloadProgress: _downloadProgress,
-                        downloadFile: _downloadFile,
-                        onSelect: () => _selectModel(models[i]),
-                        onDownload: () => _downloadModel(models[i]),
-                        onDelete: () => _deleteModel(models[i]),
+                        model: model,
+                        isActive: model.id == settings.activeModelId,
+                        isDownloading: isThisDownloading,
+                        downloadProgress: progress,
+                        downloadFile: file,
+                        onSelect: () => _selectModel(model),
+                        onDownload: () => _downloadModel(model),
+                        onDelete: () => _deleteModel(model),
                       );
                     },
                   ),
@@ -1851,8 +1874,9 @@ class _ModelPickerSheetState extends ConsumerState<_ModelPickerSheet> {
 
   Future<void> _downloadModel(ModelInfo model) async {
     setState(() {
-      _downloading = true;
+      _downloadingModelId = model.id;
       _downloadProgress = 0;
+      _downloadFile = null;
     });
 
     final downloader = ref.read(modelDownloadProvider);
@@ -1876,7 +1900,7 @@ class _ModelPickerSheetState extends ConsumerState<_ModelPickerSheet> {
     } finally {
       if (mounted) {
         setState(() {
-          _downloading = false;
+          _downloadingModelId = null;
           _downloadProgress = null;
           _downloadFile = null;
         });
