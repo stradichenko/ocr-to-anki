@@ -2076,8 +2076,10 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
                       .replaceAll(RegExp(r'^[\s*\-\u2022\u00b7]+'), '')
                       .replaceAll(RegExp(r'^\d+\.\s*'), '')
                       .trim())
-                  .where(
-                      (w) => w.length > 1 && w.split(RegExp(r'\s+')).length <= 4)
+                  .where((w) =>
+                      w.length > 1 &&
+                      w.split(RegExp(r'\s+')).length <= 4 &&
+                      !RegExp(r'^\d+$').hasMatch(w))
                   .toList();
               allWords.addAll(words);
             }
@@ -2158,7 +2160,10 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
                     .replaceAll(RegExp(r'^[\s*\-\u2022\u00b7]+'), '')
                     .replaceAll(RegExp(r'^\d+\.\s*'), '')
                     .trim())
-                .where((w) => w.length > 1 && w.split(RegExp(r'\s+')).length <= 4)
+                .where((w) =>
+                    w.length > 1 &&
+                    w.split(RegExp(r'\s+')).length <= 4 &&
+                    !RegExp(r'^\d+$').hasMatch(w))
                 .toList();
             allWords.addAll(words);
 
@@ -2240,8 +2245,11 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
                   .replaceAll(RegExp(r'^[\s*\-\u2022\u00b7]+'), '')
                   .replaceAll(RegExp(r'^\d+\.\s*'), '')
                   .trim())
-              // Filter: must be >1 char, ≤4 words (skip LLM commentary sentences)
-              .where((w) => w.length > 1 && w.split(RegExp(r'\s+')).length <= 4)
+              // Filter: must be >1 char, ≤4 words, not pure numbers.
+              .where((w) =>
+                  w.length > 1 &&
+                  w.split(RegExp(r'\s+')).length <= 4 &&
+                  !RegExp(r'^\d+$').hasMatch(w))
               .toList();
           allWords.addAll(words);
 

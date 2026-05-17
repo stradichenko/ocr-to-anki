@@ -568,7 +568,8 @@ class LlamaCppAndroidService {
   Future<String> runVisionOcr({
     required Uint8List imageBytes,
     String prompt =
-        'List every word visible in this image. Output ONLY the words, one per line. No bullet points, no numbering, no descriptions, no commentary.',
+        'Transcribe every visible word in the image. Output exactly one word per line. '
+        'Plain text only. No line numbers, no markdown, no headers, no explanations, no commentary.',
   }) async {
     await ensureBinaries();
 
@@ -635,7 +636,8 @@ class LlamaCppAndroidService {
   /// Extract the generated text from llama-mtmd-cli stdout.
   ///
   /// The CLI prints various log lines and then the model response.
-  /// Uses multiple heuristics to find the actual generated text.
+  /// Uses multiple heuristics to find the actual generated text and
+  /// filters out instruction artifacts produced by chat-templated models.
   String _extractVisionText(String raw) {
     final lines = raw.split('\n');
 
@@ -647,9 +649,9 @@ class LlamaCppAndroidService {
       RegExp(r'^ggml_'),
       RegExp(r'^build:\s'),
       RegExp(r'^system_info:\s'),
-      RegExp(r'^srv\s'), // server log lines
-      RegExp(r'^main:\s'), // main function logs
-      RegExp(r'^\s*$'), // empty lines
+      RegExp(r'^srv\s'),
+      RegExp(r'^main:\s'),
+      RegExp(r'^\s*$'),
     ];
 
     bool isLogLine(String line) {
@@ -686,7 +688,6 @@ class LlamaCppAndroidService {
     var startIdx = 0;
     for (var i = 0; i < bestBlock.length && i < 3; i++) {
       final trimmed = bestBlock[i].trim();
-      // Skip single-character lines or obvious separators at the start.
       if (trimmed.length <= 1 && !trimmed.contains(RegExp(r'[a-zA-Z]'))) {
         startIdx = i + 1;
       } else {
@@ -694,8 +695,51 @@ class LlamaCppAndroidService {
       }
     }
 
-    final result = bestBlock.sublist(startIdx);
-    return result.join('\n').trim();
+    var result = bestBlock.sublist(startIdx);
+
+    // Heuristic 3: Strip instruction artifacts from chat-templated models.
+    final cleaned = <String>[];
+    for (final line in result) {
+      var text = line.trim();
+      if (text.isEmpty) continue;
+
+      // Skip markdown headers / bold markers (e.g. **List all identified words:**)
+      if (text.startsWith('**') && text.endsWith('**')) continue;
+      if (text.startsWith('*') && text.endsWith('*')) continue;
+      if (text.startsWith('#')) continue;
+
+      // Skip lines that are pure punctuation or separators.
+      if (!text.contains(RegExp(r'[a-zA-Z0-9À-ɏЀ-ӿ]'))) {
+        continue;
+      }
+
+      // Remove "Line N:" prefixes (e.g. "Line 1: NO" → "NO").
+      text = text.replaceFirst(RegExp(r'^Line\s+\d+[:\.)\-]?\s*', caseSensitive: false), '');
+
+      // Remove leading bullet markers and numbering.
+      text = text.replaceFirst(RegExp(r'^[\s*\-•·\d+\.\)]*\s*'), '');
+
+      // Skip commentary / parenthetical explanations.
+      if (RegExp(r'\b(not distinct|identified words|constraints|review the|list all)\b', caseSensitive: false).hasMatch(text)) {
+        continue;
+      }
+
+      // Skip if after stripping it became empty or just punctuation.
+      text = text.trim();
+      if (text.isEmpty) continue;
+      if (!text.contains(RegExp(r'[a-zA-Z0-9À-ɏЀ-ӿ]'))) {
+        continue;
+      }
+
+      // Skip pure numbers (e.g. "42", "123").
+      if (RegExp(r'^\d+$').hasMatch(text)) {
+        continue;
+      }
+
+      cleaned.add(text);
+    }
+
+    return cleaned.join('\n').trim();
   }
 
   // ---------------------------------------------------------------------------
