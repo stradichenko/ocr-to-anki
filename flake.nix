@@ -338,6 +338,7 @@
             pkgs.clang
             pkgs.sqlite
             pkgs.zlib
+            pkgs.dpkg    # for ./scripts/build-deb.sh
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             # GTK3 and its dependencies (Flutter Linux uses GTK3)
             pkgs.gtk3
@@ -1017,8 +1018,12 @@ EOF
                 pkgs.libxkbcommon
               ]}"
             
-            # Install desktop entry
+            # Install desktop entry, icon, and AppStream metadata
             mkdir -p $out/share/applications
+            mkdir -p $out/share/icons/hicolor/scalable/apps
+            mkdir -p $out/share/metainfo
+            cp ${../icon.svg} $out/share/icons/hicolor/scalable/apps/ocr-to-anki.svg
+            cp ${../scripts/linux/ocr-to-anki.metainfo.xml} $out/share/metainfo/ocr-to-anki.metainfo.xml
             cat > $out/share/applications/ocr-to-anki.desktop <<EOF
 [Desktop Entry]
 Name=OCR to Anki

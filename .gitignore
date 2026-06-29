@@ -48,6 +48,12 @@ ENV/
 Thumbs.db
 
 # Project specific
+# Android signing keys
+*.keystore
+*.jks
+key.properties
+app/android/key.properties
+
 # Ignore all data directory contents but keep the directory structure
 data/*
 !data/.gitkeep

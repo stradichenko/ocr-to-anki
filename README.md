@@ -112,6 +112,24 @@ On first run the app performs a one-time setup:
 
 ### Download a release (Linux)
 
+#### Debian / Ubuntu (.deb)
+
+Download the latest `.deb` from the
+[releases page](https://github.com/stradichenko/ocr-to-anki/releases) and install:
+
+```bash
+sudo dpkg -i ocr-to-anki_v0.2.0_amd64.deb
+sudo apt-get install -f   # install any missing dependencies
+```
+
+Then launch **OCR to Anki** from the applications menu or run:
+
+```bash
+ocr-to-anki
+```
+
+#### Other distributions (tarball)
+
 Grab the latest tarball from the
 [releases page](https://github.com/stradichenko/ocr-to-anki/releases),
 extract, and run:
@@ -146,6 +164,25 @@ cd ocr-to-anki-v0.2.0-linux-x86_64
 > ```bash
 > ./scripts/setup-llama-cpp.sh
 > ```
+
+### Download a release (macOS)
+
+Download the latest `.dmg` from the
+[releases page](https://github.com/stradichenko/ocr-to-anki/releases), open it,
+and drag **OCR to Anki** into your **Applications** folder.
+
+> Because the app is not signed or notarized, macOS Gatekeeper will show a
+> warning. You can still open it via **System Settings → Privacy & Security**.
+
+### Download a release (Windows)
+
+Download the latest installer (`ocr-to-anki-vX.Y.Z-windows-x86_64.exe`) from the
+[releases page](https://github.com/stradichenko/ocr-to-anki/releases) and run it.
+The installer will place OCR to Anki in `%ProgramFiles%\OCR to Anki` and create
+a Start Menu shortcut.
+
+> Because the installer is not code-signed, Windows SmartScreen may show a
+> warning. Click **More info → Run anyway** to proceed.
 
 ### Build from source
 

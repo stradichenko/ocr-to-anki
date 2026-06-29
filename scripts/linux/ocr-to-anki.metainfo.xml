@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.ocrtoanki.ocr_to_anki</id>
+
+  <name>OCR to Anki</name>
+  <summary>Offline OCR-to-Anki flashcard generator</summary>
+
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Cross-platform application for extracting vocabulary from images and
+      creating Anki flashcards. Everything runs locally using llama.cpp and
+      the Gemma 3 4B model — no cloud dependencies, no API keys, fully offline.
+    </p>
+    <p>
+      Supports Linux, macOS, Windows, and Android.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">ocr-to-anki.desktop</launchable>
+
+  <icon type="stock">ocr-to-anki</icon>
+
+  <categories>
+    <category>Education</category>
+    <category>Utility</category>
+  </categories>
+
+  <keywords>
+    <keyword>anki</keyword>
+    <keyword>flashcards</keyword>
+    <keyword>ocr</keyword>
+    <keyword>llm</keyword>
+    <keyword>offline</keyword>
+    <keyword>language-learning</keyword>
+  </keywords>
+
+  <url type="homepage">https://github.com/stradichenko/ocr-to-anki</url>
+  <url type="bugtracker">https://github.com/stradichenko/ocr-to-anki/issues</url>
+  <url type="vcs-browser">https://github.com/stradichenko/ocr-to-anki</url>
+
+  <developer_name>stradichenko</developer_name>
+
+  <provides>
+    <binary>ocr-to-anki</binary>
+    <id>ocr-to-anki.desktop</id>
+  </provides>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.5.0" date="2026-06-29">
+      <description>
+        <p>Added Komi Store-compatible release assets (.deb, .dmg, .exe) and direct .apk uploads.</p>
+      </description>
+    </release>
+  </releases>
+</component>
