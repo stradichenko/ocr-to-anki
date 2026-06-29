@@ -223,11 +223,10 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME:-${{ github.event.inputs.version || 'dev' }}}"
-          ARCHIVE="ocr-to-anki-${VERSION}-windows-x86_64"
           INSTALLER_VERSION="${VERSION#v}"
           ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
-          SOURCE_DIR=$(cygpath -w "$PWD/output/release/$ARCHIVE")
-          "$ISCC" /DMyAppVersion="$INSTALLER_VERSION" /DSourceDir="$SOURCE_DIR" scripts/windows-installer.iss
+          "$ISCC" /DMyAppVersion="$INSTALLER_VERSION" scripts/windows-installer.iss
+          ARCHIVE="ocr-to-anki-${VERSION}-windows-x86_64"
           echo "EXE_ARTIFACT=${ARCHIVE}.exe" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
