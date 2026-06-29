@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1536 1024" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <!-- Paper gradient -->
+    <linearGradient id="docGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e6ecf3"/>
+    </linearGradient>
+    <!-- Folded back-of-paper gradient -->
+    <linearGradient id="foldGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#aab3bf"/>
+      <stop offset="100%" stop-color="#cdd4dd"/>
+    </linearGradient>
+    <!-- Header bar gradient -->
+    <linearGradient id="headerGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#5ba0e8"/>
+      <stop offset="100%" stop-color="#2f7fd1"/>
+    </linearGradient>
+    <!-- Card gradient -->
+    <linearGradient id="cardGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#2c3849"/>
+      <stop offset="100%" stop-color="#0d141d"/>
+    </linearGradient>
+    <!-- Star gradient (Anki-style: blue to white) -->
+    <linearGradient id="starGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#0084dd"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+    <!-- Arrow gradient (left dark, right bright) -->
+    <linearGradient id="arrowGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"  stop-color="#3a8be0"/>
+      <stop offset="100%" stop-color="#1f6dc0"/>
+    </linearGradient>
+    <!-- Subtle shine for top of solid surfaces -->
+    <linearGradient id="surfaceShine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="darkShine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Drop shadow for major elements -->
+    <filter id="dropShadow" x="-15%" y="-10%" width="135%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dx="0" dy="8"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.30"/></feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Slimmer shadow for the arrow -->
+    <filter id="arrowShadow" x="-10%" y="-30%" width="120%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="4"/>
+      <feOffset dx="0" dy="5"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Glow around the star -->
+    <filter id="starGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5" result="blur"/>
+      <feFlood flood-color="#3a8be0" flood-opacity="0.55"/>
+      <feComposite in2="blur" operator="in" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <!-- Wordmark shadow -->
+    <filter id="textShadow" x="-5%" y="-30%" width="110%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+      <feOffset dx="0" dy="3"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.18"/></feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Star symbol: rounded 5-point star, R=48, r=27 (Anki-style proportions, rounded corners) -->
+    <symbol id="starShape" overflow="visible">
+      <path d="M 3.3,-42.5 L 12.6,-27.3 Q 15.9,-21.8 22.1,-20.4 L 39.4,-16.3 Q 45.7,-14.8 41.5,-10 L 29.9,3.5 Q 25.7,8.3 26.2,14.7 L 27.7,32.5 Q 28.2,38.8 22.3,36.4 L 5.9,29.5 Q 0,27 -5.9,29.5 L -22.3,36.4 Q -28.2,38.8 -27.7,32.5 L -26.2,14.7 Q -25.7,8.3 -29.9,3.5 L -41.5,-10 Q -45.7,-14.8 -39.4,-16.3 L -22.1,-20.4 Q -15.9,-21.8 -12.6,-27.3 L -3.3,-42.5 Q 0,-48 3.3,-42.5 Z"/>
+    </symbol>
+  </defs>
+
+  <!-- ===== Document ===== -->
+  <g filter="url(#dropShadow)">
+    <!-- Body with cut top-right corner -->
+    <path d="M 432 138
+             L 740 138
+             L 808 206
+             L 808 588
+             Q 808 604 792 604
+             L 432 604
+             Q 416 604 416 588
+             L 416 154
+             Q 416 138 432 138 Z"
+          fill="url(#docGrad)" stroke="#1a232f" stroke-width="10" stroke-linejoin="round"/>
+
+    <!-- Folded corner triangle -->
+    <path d="M 740 138 L 740 206 L 808 206 Z"
+          fill="url(#foldGrad)" stroke="#1a232f" stroke-width="10" stroke-linejoin="round"/>
+
+    <!-- Header bar (gradient blue) -->
+    <path d="M 432 138
+             L 740 138
+             L 740 234
+             L 416 234
+             L 416 154
+             Q 416 138 432 138 Z"
+          fill="url(#headerGrad)"/>
+    <!-- Header bottom border -->
+    <line x1="416" y1="234" x2="740" y2="234"
+          stroke="#1a232f" stroke-width="10" stroke-linecap="round"/>
+
+    <!-- Header sheen -->
+    <path d="M 432 138
+             L 740 138
+             L 740 176
+             L 416 176
+             L 416 154
+             Q 416 138 432 138 Z"
+          fill="url(#surfaceShine)" opacity="0.55"/>
+
+    <!-- "OCR" label -->
+    <text x="578" y="216" text-anchor="middle"
+          font-family="'Arial Black', Arial, Helvetica, 'Liberation Sans', sans-serif"
+          font-size="64" font-weight="900" fill="#ffffff" letter-spacing="4">OCR</text>
+
+    <!-- Two text lines above TERM -->
+    <rect x="448" y="270" width="220" height="10" rx="4" fill="#a8c8e8"/>
+    <rect x="448" y="294" width="296" height="10" rx="4" fill="#a8c8e8"/>
+
+    <!-- Bounding-box highlight: TERM token -->
+    <rect x="448" y="324" width="200" height="62" rx="8" fill="#3a8be0"/>
+    <rect x="448" y="324" width="200" height="62" rx="8"
+          fill="none" stroke="#1a232f" stroke-width="4"
+          stroke-dasharray="9 5" stroke-linejoin="round"/>
+    <text x="548" y="370" text-anchor="middle"
+          font-family="'Arial Black', Arial, Helvetica, 'Liberation Sans', sans-serif"
+          font-size="36" font-weight="900" fill="#ffffff" letter-spacing="3">TERM</text>
+
+    <!-- Green underline (extracted-token marker) -->
+    <rect x="448" y="396" width="200" height="6" rx="3" fill="#4ec78a"/>
+
+    <!-- Lower body lines -->
+    <rect x="448" y="510" width="280" height="10" rx="4" fill="#a8c8e8"/>
+    <rect x="448" y="534" width="240" height="10" rx="4" fill="#a8c8e8"/>
+    <rect x="448" y="558" width="200" height="10" rx="4" fill="#a8c8e8"/>
+  </g>
+
+  <!-- ===== Card (Anki-style flashcard, white border + dark inner) ===== -->
+  <g transform="rotate(6 968 365)" filter="url(#dropShadow)">
+    <!-- White outer frame -->
+    <rect x="810" y="220" width="316" height="290" rx="32"
+          fill="#ffffff" stroke="#0e151f" stroke-width="3"/>
+    <!-- Dark inner card -->
+    <rect x="824" y="234" width="288" height="262" rx="22"
+          fill="url(#cardGrad)" stroke="#080d15" stroke-width="2"/>
+    <!-- Top highlight on inner -->
+    <rect x="824" y="234" width="288" height="106" rx="22" fill="url(#darkShine)"/>
+
+    <!-- Star: filled gradient with white halo + glow -->
+    <g filter="url(#starGlow)">
+      <use href="#starShape" x="968" y="328"
+           fill="url(#starGrad)" stroke="#ffffff" stroke-width="5"
+           stroke-linejoin="round"/>
+    </g>
+
+    <!-- Bright primary line under star -->
+    <rect x="876" y="412" width="184" height="14" rx="5" fill="#3a8be0"/>
+    <!-- Faded secondary line -->
+    <rect x="876" y="438" width="124" height="10" rx="4" fill="#3a8be0" opacity="0.55"/>
+  </g>
+
+  <!-- ===== Arrow (curved swoosh, drawn on top of card) ===== -->
+  <g filter="url(#arrowShadow)">
+    <!-- Curved arrow body + triangular head, uniform 32px shaft thickness -->
+    <path d="M 612 392
+             Q 700 318 760 372
+             L 760 348
+             L 820 388
+             L 760 428
+             L 760 404
+             Q 700 350 612 424
+             Z"
+          fill="url(#arrowGrad)" stroke="#0e2950" stroke-width="4"
+          stroke-linejoin="round"/>
+    <!-- Top sheen along the upper curve -->
+    <path d="M 612 392
+             Q 700 318 760 372
+             L 760 348
+             L 820 388
+             L 760 388
+             Q 700 334 612 408
+             Z"
+          fill="url(#surfaceShine)" opacity="0.45"/>
+  </g>
+
+  <!-- ===== Wordmark "OCR to Anki" (tighter, narrower) ===== -->
+  <g filter="url(#textShadow)">
+    <text x="768" y="780" text-anchor="middle"
+          font-family="'Arial Black', Arial, Helvetica, 'Liberation Sans', sans-serif"
+          font-size="120" font-weight="900" fill="#1a232f" letter-spacing="0">OCR to <tspan fill="#3a8be0">Anki</tspan></text>
+  </g>
+</svg>
