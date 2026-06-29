@@ -220,14 +220,16 @@ jobs:
         run: choco install innosetup --no-progress --yes
 
       - name: Build Windows installer
-        shell: bash
+        shell: powershell
         run: |
-          VERSION="${GITHUB_REF_NAME:-${{ github.event.inputs.version || 'dev' }}}"
-          INSTALLER_VERSION="${VERSION#v}"
-          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
-          "$ISCC" /DMyAppVersion="$INSTALLER_VERSION" scripts/windows-installer.iss
-          ARCHIVE="ocr-to-anki-${VERSION}-windows-x86_64"
-          echo "EXE_ARTIFACT=${ARCHIVE}.exe" >> "$GITHUB_ENV"
+          $version = "${env:GITHUB_REF_NAME}"
+          if (-not $version) { $version = "${{ github.event.inputs.version }}" }
+          if (-not $version) { $version = "dev" }
+          $installerVersion = $version -replace '^v',''
+          $archive = "ocr-to-anki-${version}-windows-x86_64"
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc /DMyAppVersion=$installerVersion scripts\windows-installer.iss
+          "EXE_ARTIFACT=${archive}.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - uses: actions/upload-artifact@v4
         if: always()

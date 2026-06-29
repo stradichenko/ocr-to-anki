@@ -2,6 +2,10 @@
   OCR to Anki
 </h1>
 
+<p align="center">
+  <img src="github_logo.svg" alt="OCR to Anki logo" width="192">
+</p>
+
 <h3 align="center">
 
 ![Build Status](https://img.shields.io/github/actions/workflow/status/stradichenko/ocr-to-anki/build.yml?branch=master&label=build)
