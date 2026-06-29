@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg
-   viewBox="0 0 761.49005 676.52155"
+   viewBox="0 0 836 890"
    preserveAspectRatio="xMidYMid"
    version="1.1"
-   id="svg41"
-   sodipodi:docname="github_logo.svg"
-   width="761.49005"
-   height="676.52155"
+   id="svg45"
+   sodipodi:docname="icon.svg"
+   width="836"
+   height="890"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns:xlink="http://www.w3.org/1999/xlink"
    xmlns="http://www.w3.org/2000/svg"
    xmlns:svg="http://www.w3.org/2000/svg">
   <sodipodi:namedview
-     id="namedview41"
+     id="namedview45"
      pagecolor="#505050"
      bordercolor="#eeeeee"
      borderopacity="1"
@@ -22,115 +22,157 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#505050" />
   <defs
-     id="defs23">
-    <!-- Paper gradient -->
+     id="defs28">
+    <!-- Icon body gradient (rounded square container) -->
     <linearGradient
-       id="docGrad"
-       x1="447.23138"
-       y1="122.22532"
-       x2="447.23138"
-       y2="559.66332"
-       gradientTransform="scale(0.91898739,1.0881542)"
+       id="iconBg"
+       x1="383.37489"
+       y1="95.603549"
+       x2="383.37489"
+       y2="903.35599"
+       gradientTransform="scale(0.97554642,1.0250665)"
+       gradientUnits="userSpaceOnUse">
+      <stop
+         offset="0%"
+         stop-color="#3e4d60"
+         id="stop1" />
+      <stop
+         offset="55%"
+         stop-color="#293544"
+         id="stop2" />
+      <stop
+         offset="100%"
+         stop-color="#161e2a"
+         id="stop3" />
+    </linearGradient>
+    <!-- Top sheen on icon body -->
+    <linearGradient
+       id="iconShine"
+       x1="261.77105"
+       y1="143.63697"
+       x2="261.77105"
+       y2="689.45745"
+       gradientTransform="matrix(1.4363697,0,0,0.6961996,-350,-73.999999)"
        gradientUnits="userSpaceOnUse">
       <stop
          offset="0%"
          stop-color="#ffffff"
-         id="stop1" />
+         stop-opacity="0.18"
+         id="stop4" />
+      <stop
+         offset="100%"
+         stop-color="#ffffff"
+         stop-opacity="0"
+         id="stop5" />
+    </linearGradient>
+    <!-- Paper gradient -->
+    <linearGradient
+       id="docGrad"
+       x1="568.01561"
+       y1="209.19672"
+       x2="568.01561"
+       y2="694.73971"
+       gradientTransform="scale(0.86089184,1.1615861)"
+       gradientUnits="userSpaceOnUse">
+      <stop
+         offset="0%"
+         stop-color="#ffffff"
+         id="stop6" />
       <stop
          offset="100%"
          stop-color="#e6ecf3"
-         id="stop2" />
+         id="stop7" />
     </linearGradient>
-    <!-- Folded back-of-paper gradient -->
+    <!-- Back-of-paper for fold -->
     <linearGradient
        id="foldGrad"
-       x1="735"
-       y1="133.00071"
-       x2="812.99929"
-       y2="211"
+       x1="827"
+       y1="243.00071"
+       x2="906.99929"
+       y2="323"
        gradientUnits="userSpaceOnUse">
       <stop
          offset="0%"
          stop-color="#aab3bf"
-         id="stop3" />
+         id="stop8" />
       <stop
          offset="100%"
          stop-color="#cdd4dd"
-         id="stop4" />
+         id="stop9" />
     </linearGradient>
-    <!-- Header bar gradient -->
+    <!-- OCR header -->
     <linearGradient
        id="headerGrad"
-       x1="226.44172"
-       y1="253.52219"
-       x2="226.44172"
-       y2="429.88545"
-       gradientTransform="scale(1.8371173,0.54433105)"
+       x1="257.72854"
+       y1="475.35287"
+       x2="257.72854"
+       y2="651.69345"
+       gradientTransform="scale(1.9167454,0.52171769)"
        gradientUnits="userSpaceOnUse">
       <stop
          offset="0%"
          stop-color="#5ba0e8"
-         id="stop5" />
+         id="stop10" />
       <stop
          offset="100%"
          stop-color="#2f7fd1"
-         id="stop6" />
+         id="stop11" />
     </linearGradient>
     <!-- Card gradient -->
     <linearGradient
        id="cardGrad"
-       x1="785.2407"
-       y1="244.2041"
-       x2="785.2407"
-       y2="520.89888"
-       gradientTransform="scale(1.0480863,0.95411992)"
+       x1="681.10782"
+       y1="459.42249"
+       x2="681.10782"
+       y2="762.0361"
+       gradientTransform="scale(1.1004131,0.90874959)"
        gradientUnits="userSpaceOnUse">
       <stop
          offset="0%"
          stop-color="#2c3849"
-         id="stop7" />
+         id="stop12" />
       <stop
          offset="100%"
          stop-color="#0d141d"
-         id="stop8" />
+         id="stop13" />
     </linearGradient>
     <!-- Star gradient (Anki-style: blue to white) -->
     <linearGradient
        id="starGrad"
-       x1="901.61327"
-       y1="286.68218"
-       x2="901.61327"
-       y2="376.01833"
+       x1="850.77998"
+       y1="472.85937"
+       x2="850.77998"
+       y2="562.19552"
        gradientTransform="scale(1.0229516,0.97756337)"
        gradientUnits="userSpaceOnUse">
       <stop
          offset="0%"
          stop-color="#0084dd"
-         id="stop9" />
+         id="stop14" />
       <stop
          offset="100%"
          stop-color="#ffffff"
-         id="stop10" />
+         id="stop15" />
     </linearGradient>
-    <!-- Arrow gradient (left dark, right bright) -->
+    <!-- Arrow gradient -->
     <linearGradient
        id="arrowGrad"
-       x1="383.97311"
-       y1="549.67418"
-       x2="517.4194"
-       y2="549.67418"
-       gradientTransform="scale(1.5886529,0.62946412)"
+       x1="505.07149"
+       y1="574.02987"
+       x2="627.38213"
+       y2="574.02987"
+       gradientTransform="scale(1.3899023,0.71947505)"
        gradientUnits="userSpaceOnUse">
       <stop
          offset="0%"
          stop-color="#3a8be0"
-         id="stop11" />
+         id="stop16" />
       <stop
          offset="100%"
          stop-color="#1f6dc0"
-         id="stop12" />
+         id="stop17" />
     </linearGradient>
-    <!-- Subtle shine for top of solid surfaces -->
+    <!-- Surface highlight overlays -->
     <linearGradient
        id="surfaceShine"
        x1="0"
@@ -141,95 +183,124 @@
          offset="0%"
          stop-color="#ffffff"
          stop-opacity="0.45"
-         id="stop13" />
+         id="stop18" />
       <stop
          offset="100%"
          stop-color="#ffffff"
          stop-opacity="0"
-         id="stop14" />
+         id="stop19" />
     </linearGradient>
     <linearGradient
        id="darkShine"
-       x1="499.90088"
-       y1="385.70846"
-       x2="499.90088"
-       y2="560.4311"
-       gradientTransform="scale(1.6483268,0.60667582)"
+       x1="435.48907"
+       y1="725.25356"
+       x2="435.48907"
+       y2="915.20092"
+       gradientTransform="scale(1.7267942,0.57910781)"
        gradientUnits="userSpaceOnUse">
       <stop
          offset="0%"
          stop-color="#ffffff"
          stop-opacity="0.18"
-         id="stop15" />
+         id="stop20" />
       <stop
          offset="100%"
          stop-color="#ffffff"
          stop-opacity="0"
-         id="stop16" />
+         id="stop21" />
     </linearGradient>
-    <!-- Drop shadow for major elements -->
+    <!-- Drop shadows -->
     <filter
        id="dropShadow"
-       x="-0.050316456"
-       y="-0.054827586"
-       width="1.1006329"
-       height="1.1372414">
+       x="-0.05152439"
+       y="-0.062592593"
+       width="1.1030488"
+       height="1.1548148">
       <feGaussianBlur
          in="SourceAlpha"
          stdDeviation="6"
-         id="feGaussianBlur16" />
+         id="feGaussianBlur21" />
       <feOffset
          dx="0"
          dy="8"
-         id="feOffset16" />
+         id="feOffset21" />
       <feComponentTransfer
-         id="feComponentTransfer16">
+         id="feComponentTransfer21">
         <feFuncA
            type="linear"
-           slope="0.30"
-           id="feFuncA16" />
+           slope="0.40"
+           id="feFuncA21" />
       </feComponentTransfer>
       <feMerge
-         id="feMerge17">
+         id="feMerge22">
         <feMergeNode
-           id="feMergeNode16" />
+           id="feMergeNode21" />
         <feMergeNode
            in="SourceGraphic"
-           id="feMergeNode17" />
+           id="feMergeNode22" />
       </feMerge>
     </filter>
-    <!-- Slimmer shadow for the arrow -->
     <filter
-       id="arrowShadow"
-       x="-0.055769231"
-       y="-0.14499783"
-       width="1.1115377"
-       height="1.3524957">
+       id="iconShadow"
+       x="-0.033163265"
+       y="-0.031553398"
+       width="1.0663265"
+       height="1.0800971">
       <feGaussianBlur
          in="SourceAlpha"
-         stdDeviation="4"
-         id="feGaussianBlur17" />
+         stdDeviation="10"
+         id="feGaussianBlur22" />
       <feOffset
          dx="0"
-         dy="5"
-         id="feOffset17" />
+         dy="14"
+         id="feOffset22" />
       <feComponentTransfer
-         id="feComponentTransfer17">
+         id="feComponentTransfer22">
         <feFuncA
            type="linear"
            slope="0.35"
-           id="feFuncA17" />
+           id="feFuncA22" />
       </feComponentTransfer>
       <feMerge
-         id="feMerge19">
+         id="feMerge24">
         <feMergeNode
-           id="feMergeNode18" />
+           id="feMergeNode23" />
         <feMergeNode
            in="SourceGraphic"
-           id="feMergeNode19" />
+           id="feMergeNode24" />
       </feMerge>
     </filter>
-    <!-- Glow around the star -->
+    <filter
+       id="arrowShadow"
+       x="-0.069879518"
+       y="-0.13809317"
+       width="1.1397581"
+       height="1.3357078">
+      <feGaussianBlur
+         in="SourceAlpha"
+         stdDeviation="4"
+         id="feGaussianBlur24" />
+      <feOffset
+         dx="0"
+         dy="5"
+         id="feOffset24" />
+      <feComponentTransfer
+         id="feComponentTransfer24">
+        <feFuncA
+           type="linear"
+           slope="0.40"
+           id="feFuncA24" />
+      </feComponentTransfer>
+      <feMerge
+         id="feMerge26">
+        <feMergeNode
+           id="feMergeNode25" />
+        <feMergeNode
+           in="SourceGraphic"
+           id="feMergeNode26" />
+      </feMerge>
+    </filter>
+    <!-- Star glow -->
     <filter
        id="starGlow"
        x="-0.16805554"
@@ -240,337 +311,311 @@
          in="SourceAlpha"
          stdDeviation="5"
          result="blur"
-         id="feGaussianBlur19" />
+         id="feGaussianBlur26" />
       <feFlood
          flood-color="#3a8be0"
-         flood-opacity="0.55"
-         id="feFlood19" />
+         flood-opacity="0.65"
+         id="feFlood26" />
       <feComposite
          in2="blur"
          operator="in"
          result="glow"
-         id="feComposite19" />
+         id="feComposite26" />
       <feMerge
-         id="feMerge21">
+         id="feMerge28">
         <feMergeNode
            in="glow"
-           id="feMergeNode20" />
+           id="feMergeNode27" />
         <feMergeNode
            in="SourceGraphic"
-           id="feMergeNode21" />
+           id="feMergeNode28" />
       </feMerge>
     </filter>
-    <!-- Wordmark shadow -->
-    <filter
-       id="textShadow"
-       x="-0.0069241822"
-       y="-0.054468085"
-       width="1.0138484"
-       height="1.1429787">
-      <feGaussianBlur
-         in="SourceAlpha"
-         stdDeviation="2"
-         id="feGaussianBlur21" />
-      <feOffset
-         dx="0"
-         dy="3"
-         id="feOffset21" />
-      <feComponentTransfer
-         id="feComponentTransfer21">
-        <feFuncA
-           type="linear"
-           slope="0.18"
-           id="feFuncA21" />
-      </feComponentTransfer>
-      <feMerge
-         id="feMerge23">
-        <feMergeNode
-           id="feMergeNode22" />
-        <feMergeNode
-           in="SourceGraphic"
-           id="feMergeNode23" />
-      </feMerge>
-    </filter>
-    <!-- Star symbol: rounded 5-point star, R=48, r=27 (Anki-style proportions, rounded corners) -->
+    <!-- Rounded 5-point star, R=48, r=27 (Anki-style proportions, rounded corners) -->
     <symbol
        id="starShape"
        overflow="visible">
       <path
          d="m 3.3,-42.5 9.3,15.2 q 3.3,5.5 9.5,6.9 l 17.3,4.1 q 6.3,1.5 2.1,6.3 L 29.9,3.5 q -4.2,4.8 -3.7,11.2 l 1.5,17.8 q 0.5,6.3 -5.4,3.9 L 5.9,29.5 Q 0,27 -5.9,29.5 l -16.4,6.9 q -5.9,2.4 -5.4,-3.9 l 1.5,-17.8 Q -25.7,8.3 -29.9,3.5 L -41.5,-10 q -4.2,-4.8 2.1,-6.3 l 17.3,-4.1 q 6.2,-1.4 9.5,-6.9 l 9.3,-15.2 q 3.3,-5.5 6.6,0 z"
-         id="path23" />
+         id="path28" />
     </symbol>
     <linearGradient
        inkscape:collect="always"
        xlink:href="#surfaceShine"
-       id="linearGradient41"
-       x1="142.46646"
-       y1="402.95801"
-       x2="142.46646"
-       y2="513.91746"
-       gradientTransform="scale(2.9199856,0.34246744)"
+       id="linearGradient45"
+       x1="165.63816"
+       y1="739.63633"
+       x2="165.63816"
+       y2="852.9677"
+       gradientTransform="scale(2.9824045,0.33529992)"
        gradientUnits="userSpaceOnUse" />
     <linearGradient
        inkscape:collect="always"
        xlink:href="#surfaceShine"
-       id="linearGradient42"
-       x1="328.69673"
-       y1="647.94074"
-       x2="328.69673"
-       y2="759.65466"
-       gradientTransform="scale(1.8618987,0.53708616)"
+       id="linearGradient46"
+       x1="450.5812"
+       y1="648.40698"
+       x2="450.5812"
+       y2="754.65198"
+       gradientTransform="scale(1.5624265,0.64003012)"
        gradientUnits="userSpaceOnUse" />
   </defs>
+  <!-- ===== Rounded square container ===== -->
+  <g
+     filter="url(#iconShadow)"
+     id="g28"
+     transform="translate(-350,-73.999999)">
+    <rect
+       x="376"
+       y="100"
+       width="784"
+       height="824"
+       rx="148"
+       ry="148"
+       fill="url(#iconBg)"
+       stroke="#0a1018"
+       stroke-width="4"
+       id="rect28"
+       style="fill:url(#iconBg)" />
+  </g>
+  <!-- Top sheen (clipped to container shape) -->
+  <rect
+     x="26"
+     y="26"
+     width="784"
+     height="380"
+     rx="148"
+     ry="148"
+     fill="url(#iconShine)"
+     id="rect29"
+     style="fill:url(#iconShine)" />
   <!-- ===== Document ===== -->
   <g
      filter="url(#dropShadow)"
-     id="g34"
-     transform="translate(-396.27595,-112.45035)">
+     id="g40"
+     transform="translate(-350,-73.999999)">
     <!-- Body with cut top-right corner -->
     <path
-       d="m 432,138 h 308 l 68,68 v 382 q 0,16 -16,16 H 432 q -16,0 -16,-16 V 154 q 0,-16 16,-16 z"
+       d="m 510,248 h 322 l 70,70 v 468 q 0,16 -16,16 H 510 q -16,0 -16,-16 V 264 q 0,-16 16,-16 z"
        fill="url(#docGrad)"
-       stroke="#1a232f"
+       stroke="#0e151f"
        stroke-width="10"
        stroke-linejoin="round"
-       id="path24"
+       id="path29"
        style="fill:url(#docGrad)" />
     <!-- Folded corner triangle -->
     <path
-       d="m 740,138 v 68 h 68 z"
+       d="m 832,248 v 70 h 70 z"
        fill="url(#foldGrad)"
-       stroke="#1a232f"
+       stroke="#0e151f"
        stroke-width="10"
        stroke-linejoin="round"
-       id="path25"
+       id="path30"
        style="fill:url(#foldGrad)" />
-    <!-- Header bar (gradient blue) -->
+    <!-- Header bar -->
     <path
-       d="m 432,138 h 308 v 96 H 416 v -80 q 0,-16 16,-16 z"
+       d="m 510,248 h 322 v 92 H 494 v -76 q 0,-16 16,-16 z"
        fill="url(#headerGrad)"
-       id="path26"
+       id="path31"
        style="fill:url(#headerGrad)" />
-    <!-- Header bottom border -->
     <line
-       x1="416"
-       y1="234"
-       x2="740"
-       y2="234"
-       stroke="#1a232f"
+       x1="494"
+       y1="340"
+       x2="832"
+       y2="340"
+       stroke="#0e151f"
        stroke-width="10"
        stroke-linecap="round"
-       id="line26" />
+       id="line31" />
     <!-- Header sheen -->
     <path
-       d="m 432,138 h 308 v 38 H 416 v -22 q 0,-16 16,-16 z"
+       d="m 510,248 h 322 v 38 H 494 v -22 q 0,-16 16,-16 z"
        fill="url(#surfaceShine)"
        opacity="0.55"
-       id="path27"
-       style="fill:url(#linearGradient41)" />
+       id="path32"
+       style="fill:url(#linearGradient45)" />
     <!-- "OCR" label -->
     <text
-       x="578"
-       y="216"
+       x="663"
+       y="318"
        text-anchor="middle"
        font-family="'Arial Black', Arial, Helvetica, 'Liberation Sans', sans-serif"
-       font-size="64px"
+       font-size="62px"
        font-weight="900"
        fill="#ffffff"
        letter-spacing="4"
-       id="text27">OCR</text>
+       id="text32">OCR</text>
     <!-- Two text lines above TERM -->
     <rect
-       x="448"
-       y="270"
+       x="528"
+       y="378"
        width="220"
        height="10"
        rx="4"
        fill="#a8c8e8"
-       id="rect27" />
+       id="rect32" />
     <rect
-       x="448"
-       y="294"
+       x="528"
+       y="402"
        width="296"
        height="10"
        rx="4"
        fill="#a8c8e8"
-       id="rect28" />
-    <!-- Bounding-box highlight: TERM token -->
+       id="rect33" />
+    <!-- Bounding box highlight: TERM token -->
     <rect
-       x="448"
-       y="324"
+       x="528"
+       y="436"
        width="200"
        height="62"
        rx="8"
        fill="#3a8be0"
-       id="rect29" />
+       id="rect34" />
     <rect
-       x="448"
-       y="324"
+       x="528"
+       y="436"
        width="200"
        height="62"
        rx="8"
        fill="none"
-       stroke="#1a232f"
+       stroke="#0e151f"
        stroke-width="4"
        stroke-dasharray="9, 5"
        stroke-linejoin="round"
-       id="rect30" />
+       id="rect35" />
     <text
-       x="548"
-       y="370"
+       x="628"
+       y="481"
        text-anchor="middle"
        font-family="'Arial Black', Arial, Helvetica, 'Liberation Sans', sans-serif"
        font-size="36px"
        font-weight="900"
        fill="#ffffff"
        letter-spacing="3"
-       id="text30">TERM</text>
+       id="text35">TERM</text>
     <!-- Green underline (extracted-token marker) -->
     <rect
-       x="448"
-       y="396"
+       x="528"
+       y="510"
        width="200"
        height="6"
        rx="3"
        fill="#4ec78a"
-       id="rect31" />
+       id="rect36" />
     <!-- Lower body lines -->
     <rect
-       x="448"
-       y="510"
+       x="528"
+       y="660"
        width="280"
        height="10"
        rx="4"
        fill="#a8c8e8"
-       id="rect32" />
+       id="rect37" />
     <rect
-       x="448"
-       y="534"
+       x="528"
+       y="684"
        width="240"
        height="10"
        rx="4"
        fill="#a8c8e8"
-       id="rect33" />
+       id="rect38" />
     <rect
-       x="448"
-       y="558"
+       x="528"
+       y="708"
+       width="300"
+       height="10"
+       rx="4"
+       fill="#a8c8e8"
+       id="rect39" />
+    <rect
+       x="528"
+       y="732"
        width="200"
        height="10"
        rx="4"
        fill="#a8c8e8"
-       id="rect34" />
+       id="rect40" />
   </g>
-  <!-- ===== Card (Anki-style flashcard, white border + dark inner) ===== -->
+  <!-- ===== Card (flashcard glyph, tilted, overlaps icon edge) ===== -->
   <g
-     transform="rotate(6,1842.7022,-3471.9229)"
+     transform="rotate(7,1349.9446,-2343.2247)"
      filter="url(#dropShadow)"
-     id="g39">
-    <!-- White outer frame -->
+     id="g44">
     <rect
-       x="810"
-       y="220"
-       width="316"
-       height="290"
-       rx="32"
-       fill="#ffffff"
-       stroke="#0e151f"
-       stroke-width="3"
-       id="rect35" />
-    <!-- Dark inner card -->
-    <rect
-       x="824"
-       y="234"
-       width="288"
-       height="262"
-       rx="22"
+       x="752"
+       y="420"
+       width="328"
+       height="270"
+       rx="26"
        fill="url(#cardGrad)"
        stroke="#080d15"
-       stroke-width="2"
-       id="rect36"
+       stroke-width="5"
+       id="rect41"
        style="fill:url(#cardGrad)" />
-    <!-- Top highlight on inner -->
+    <!-- Top highlight -->
     <rect
-       x="824"
-       y="234"
-       width="288"
-       height="106"
-       rx="22"
+       x="752"
+       y="420"
+       width="328"
+       height="110"
+       rx="26"
        fill="url(#darkShine)"
-       id="rect37"
+       id="rect42"
        style="fill:url(#darkShine)" />
     <!-- Star: filled gradient with white halo + glow -->
     <g
        filter="url(#starGlow)"
-       id="g37">
+       id="g42">
       <use
          href="#starShape"
-         x="968"
-         y="328"
+         x="916"
+         y="510"
          fill="url(#starGrad)"
          stroke="#ffffff"
          stroke-width="5"
          stroke-linejoin="round"
-         id="use37"
+         id="use42"
          style="fill:url(#starGrad)" />
     </g>
-    <!-- Bright primary line under star -->
+    <!-- Card content lines -->
     <rect
-       x="876"
-       y="412"
-       width="184"
+       x="800"
+       y="600"
+       width="232"
        height="14"
        rx="5"
        fill="#3a8be0"
-       id="rect38" />
-    <!-- Faded secondary line -->
+       id="rect43" />
     <rect
-       x="876"
-       y="438"
-       width="124"
+       x="800"
+       y="630"
+       width="160"
        height="10"
        rx="4"
        fill="#3a8be0"
        opacity="0.55"
-       id="rect39" />
+       id="rect44" />
   </g>
   <!-- ===== Arrow (curved swoosh, drawn on top of card) ===== -->
   <g
      filter="url(#arrowShadow)"
-     id="g40"
-     transform="translate(-396.27595,-112.45035)">
+     id="g45"
+     transform="translate(-350,-73.999999)">
     <!-- Curved arrow body + triangular head, uniform 32px shaft thickness -->
     <path
-       d="m 612,392 q 88,-74 148,-20 v -24 l 60,40 -60,40 v -24 q -60,-54 -148,20 z"
+       d="m 704,467 q 56,-70 106,-28 v -24 l 60,40 -60,40 v -24 q -50,-42 -106,28 z"
        fill="url(#arrowGrad)"
        stroke="#0e2950"
        stroke-width="4"
        stroke-linejoin="round"
-       id="path39"
+       id="path44"
        style="fill:url(#arrowGrad)" />
     <!-- Top sheen along the upper curve -->
     <path
-       d="m 612,392 q 88,-74 148,-20 v -24 l 60,40 h -60 q -60,-54 -148,20 z"
+       d="m 704,467 q 56,-70 106,-28 v -24 l 60,40 h -60 q -50,-42 -106,28 z"
        fill="url(#surfaceShine)"
        opacity="0.45"
-       id="path40"
-       style="fill:url(#linearGradient42)" />
-  </g>
-  <!-- ===== Wordmark "OCR to Anki" (tighter, narrower) ===== -->
-  <g
-     filter="url(#textShadow)"
-     id="g41"
-     transform="translate(-396.27595,-112.45035)">
-    <text
-       x="768"
-       y="780"
-       text-anchor="middle"
-       font-family="'Arial Black', Arial, Helvetica, 'Liberation Sans', sans-serif"
-       font-size="120px"
-       font-weight="900"
-       fill="#1a232f"
-       letter-spacing="0"
-       id="text40">OCR to <tspan
-   fill="#3a8be0"
-   id="tspan40">Anki</tspan></text>
+       id="path45"
+       style="fill:url(#linearGradient46)" />
   </g>
 </svg>

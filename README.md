@@ -3,7 +3,7 @@
 </h1>
 
 <p align="center">
-  <img src="github_logo.svg" alt="OCR to Anki logo" width="192">
+  <img src="github_logo.svg" alt="OCR to Anki logo" width="320">
 </p>
 
 <h3 align="center">
