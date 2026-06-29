@@ -103,8 +103,9 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME:-${{ github.event.inputs.version || 'dev' }}}"
           ARCHIVE="ocr-to-anki-${VERSION}-linux-x86_64"
-          ./scripts/build-deb.sh "output/release/$ARCHIVE" "$VERSION"
-          echo "DEB_ARTIFACT=ocr-to-anki_${VERSION}_amd64.deb" >> "$GITHUB_ENV"
+          PKG_VERSION="${VERSION#v}"  # Debian versions must not start with 'v'
+          ./scripts/build-deb.sh "output/release/$ARCHIVE" "$PKG_VERSION"
+          echo "DEB_ARTIFACT=ocr-to-anki_${PKG_VERSION}_amd64.deb" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -223,8 +224,10 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME:-${{ github.event.inputs.version || 'dev' }}}"
           ARCHIVE="ocr-to-anki-${VERSION}-windows-x86_64"
+          INSTALLER_VERSION="${VERSION#v}"
           ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
-          "$ISCC" /DMyAppVersion="$VERSION" /DSourceDir="$PWD/output/release/$ARCHIVE" scripts/windows-installer.iss
+          SOURCE_DIR=$(cygpath -w "$PWD/output/release/$ARCHIVE")
+          "$ISCC" /DMyAppVersion="$INSTALLER_VERSION" /DSourceDir="$SOURCE_DIR" scripts/windows-installer.iss
           echo "EXE_ARTIFACT=${ARCHIVE}.exe" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
