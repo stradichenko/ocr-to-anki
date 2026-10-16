@@ -9,13 +9,28 @@
   outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        # Allow unfree packages (for CUDA if needed)
+        # Default package set. CUDA is deliberately off here. Enabling it
+        # globally made every shell build its packages CUDA-enabled, so the
+        # default shell pulled the whole CUDA toolchain (cuda_nvcc, libcublas,
+        # libcufft) as a transitive dependency of opencv and llama-cpp: several
+        # gigabytes, and over 25 minutes to realise. Only the cuda shell needs
+        # any of it.
         pkgs = import nixpkgs {
           inherit system;
           config = {
             allowUnfree = true;
-            cudaSupport = true;  # Enable CUDA support globally
+            cudaSupport = false;
             android_sdk.accept_license = true;  # Required for Android SDK/NDK
+          };
+        };
+
+        # CUDA-enabled set, used only by devShells.cuda.
+        pkgsCuda = import nixpkgs {
+          inherit system;
+          config = {
+            allowUnfree = true;
+            cudaSupport = true;
+            android_sdk.accept_license = true;
           };
         };
         
@@ -454,7 +469,7 @@
             pkgs.stdenv.cc.cc.lib
             
             # llama.cpp (includes llama-server and llama-cli)
-            pkgs.llama-cpp
+            pkgsCuda.llama-cpp
             
             # Build dependencies for multi-backend builds
             pkgs.cmake
@@ -468,8 +483,8 @@
             pkgs.shaderc  # Provides glslc compiler
             
             # CUDA toolkit (large download!)
-            pkgs.cudatoolkit
-            pkgs.cudaPackages.cuda_nvcc
+            pkgsCuda.cudatoolkit
+            pkgsCuda.cudaPackages.cuda_nvcc
           ];
           
           shellHook = ''
@@ -477,9 +492,9 @@
             echo ""
             
             # Export CUDA paths
-            export CUDA_PATH="${pkgs.cudatoolkit}"
-            export CUDA_HOME="${pkgs.cudatoolkit}"
-            export PATH="${pkgs.cudaPackages.cuda_nvcc}/bin:$PATH"
+            export CUDA_PATH="${pkgsCuda.cudatoolkit}"
+            export CUDA_HOME="${pkgsCuda.cudatoolkit}"
+            export PATH="${pkgsCuda.cudaPackages.cuda_nvcc}/bin:$PATH"
             
             echo "CUDA Environment:"
             echo "  CUDA_PATH: $CUDA_PATH"
