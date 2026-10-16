@@ -45,6 +45,12 @@ from api.models import (
     VisionOCRRequest,
     VisionOCRResponse,
 )
+from api.enrichment import (
+    build_enrich_prompt,
+    build_enrich_system,
+    parse_enrich_response,
+    sanitize_words,
+)
 from backends.auto_detect import detect, Backend, find_binary, llama_bin_cache
 from backends.mtmd_cli import LlamaMtmdCli
 from backends.llama_cpp_server import LlamaCppServer
@@ -810,189 +816,6 @@ async def generate(req: GenerateRequest):
     )
 
 
-def _build_enrich_prompt(
-    words: list[str],
-    def_lang: str,
-    ex_lang: str,
-    term_lang: str = "auto",
-) -> str:
-    """Build a single batched prompt for all words."""
-    word_list = "\n".join(f"- {w}" for w in words)
-    lang_hint = (
-        f"The word is in {term_lang}. "
-        if term_lang and term_lang.lower() != "auto"
-        else ""
-    )
-    return (
-        f"{lang_hint}"
-        f"For each word, give a definition in {def_lang} and 2 example sentences in {ex_lang}.\n"
-        f"WORD: must contain the EXACT original word, unchanged. Do NOT translate, correct, or modify it.\n"
-        f"No asterisks, no bold, no markdown. Plain text only.\n\n"
-        f"If unrecognizable, write DEF: UNKNOWN and skip examples.\n\n"
-        f"Format (labels must be in English):\n"
-        f"WORD: <original word, unchanged>\n"
-        f"DEF: <{def_lang} definition>\n"
-        f"EX1: <{ex_lang} sentence>\n"
-        f"EX2: <{ex_lang} sentence>\n\n"
-        f"Example — word: 'amigo' (spanish), def_lang={def_lang}, ex_lang={ex_lang}:\n"
-        f"WORD: amigo\n"
-        f"DEF: A friend; a person with whom one has a bond of mutual affection.\n"
-        f"EX1: I met a new friend at school today.\n"
-        f"EX2: She is my best friend and we always help each other.\n\n"
-        f"Words:\n{word_list}"
-    )
-
-
-def _build_enrich_system(
-    def_lang: str,
-    ex_lang: str,
-    term_lang: str = "auto",
-) -> str:
-    """Build a system prompt for enrichment to reinforce language and formatting rules."""
-    lang_hint = (
-        f"The words are in {term_lang}. "
-        if term_lang and term_lang.lower() != "auto"
-        else ""
-    )
-    return (
-        f"You are a dictionary. {lang_hint}"
-        f"For each word, output its definition in "
-        f"{def_lang} and two example sentences in {ex_lang}. "
-        f"The WORD: line must contain the EXACT original word, unchanged. "
-        f"Do NOT translate, correct, or replace the word itself. "
-        f"No markdown, no asterisks. "
-        f"Use labels: WORD:, DEF:, EX1:, EX2:."
-    )
-
-
-# Regex patterns for multilingual format markers the LLM might produce
-# when asked for definitions in non-English languages.
-_WORD_SPLIT_RE = re.compile(
-    r"(?m)^(?:WORD|WORT|MOT|PALABRA|PALAVRA|PAROLA|СЛОВО|単語|단어):\s*",
-    re.IGNORECASE,
-)
-_DEF_RE = re.compile(
-    r"^(?:DEF|DEFINITION|BEDEUTUNG|DÉFINITION|DEFINICIÓN|DEFINIÇÃO|DEFINIZIONE):\s*",
-    re.IGNORECASE,
-)
-_EX1_RE = re.compile(
-    r"^(?:EX1|BEISPIEL\s*1|EXEMPLE\s*1|EJEMPLO\s*1|EXEMPLO\s*1|ESEMPIO\s*1):\s*",
-    re.IGNORECASE,
-)
-_EX2_RE = re.compile(
-    r"^(?:EX2|BEISPIEL\s*2|EXEMPLE\s*2|EJEMPLO\s*2|EXEMPLO\s*2|ESEMPIO\s*2):\s*",
-    re.IGNORECASE,
-)
-_CORRECTED_RE = re.compile(
-    r"^(?:CORRECTED|KORRIGIERT|CORRIGÉ|CORREGIDO|CORRIGIDO|CORRETTO):\s*",
-    re.IGNORECASE,
-)
-
-
-def _parse_enrich_response(text: str, words: list[str]) -> list[dict]:
-    """Parse batched enrichment response into per-word dicts."""
-    log.debug("Raw LLM response (%d chars):\n%s", len(text), text[:800])
-    results = []
-    # Split by WORD: markers (supports translated labels)
-    blocks = _WORD_SPLIT_RE.split(text)
-    parsed: dict[str, dict] = {}
-    parsed_ordered: list[dict] = []  # positional fallback
-    for block in blocks:
-        block = block.strip()
-        if not block:
-            continue
-        lines = block.split("\n", 1)
-        word_key = lines[0].strip()
-        body = lines[1] if len(lines) > 1 else ""
-        defn = ""
-        examples = ""
-        for line in body.split("\n"):
-            line = line.strip()
-            if _CORRECTED_RE.match(line):
-                pass  # Ignore any CORRECTED: the model emits
-            elif _DEF_RE.match(line):
-                defn = _DEF_RE.sub("", line).strip()
-            elif _EX1_RE.match(line):
-                examples = _EX1_RE.sub("", line).strip()
-            elif _EX2_RE.match(line):
-                ex2 = _EX2_RE.sub("", line).strip()
-                if ex2:
-                    examples += "\n" + ex2
-        data = {"definition": defn, "examples": examples}
-        # Strip markdown-style asterisks the LLM may insert despite instructions.
-        for key in ("definition", "examples"):
-            data[key] = data[key].replace("*", "")
-        parsed[word_key.lower()] = data
-        parsed_ordered.append(data)
-
-    # Match back to original word list.
-    for idx, w in enumerate(words):
-        # 1. Exact case-insensitive match.
-        entry = parsed.get(w.lower())
-        # 2. Positional fallback — if the model reformulated the word
-        #    (e.g. singular vs plural, added accent), use the Nth block.
-        if entry is None and idx < len(parsed_ordered):
-            entry = parsed_ordered[idx]
-            log.debug("Positional match for %r → block %d", w, idx)
-        if entry is None:
-            entry = {}
-        defn = entry.get("definition", "")
-        examples = entry.get("examples", "")
-
-        # Detect UNKNOWN marker from LLM
-        if (
-            defn.strip().upper() == "UNKNOWN"
-            or defn.strip().upper().startswith("UNKNOWN")
-            or "UNKNOWN" in defn.upper()
-        ):
-            defn = ""
-            examples = ""
-            warning = "not_found"
-        # Detect truncated definitions (no terminal punctuation)
-        elif defn and not defn.rstrip().endswith(('.', '!', '?', '"', ')')):
-            warning = "truncated"
-        elif not defn:
-            warning = "not_found"
-        else:
-            warning = ""
-
-        # Detect untranslated: original word appears verbatim in examples.
-        # Skip very short words (<=2 chars) to avoid false positives.
-        if not warning and len(w) > 2 and examples:
-            w_lower = w.lower()
-            ex_lower = examples.lower()
-            # Check if the original word (or a close variant) leaked into examples.
-            if re.search(r'\b' + re.escape(w_lower) + r'\w{0,2}\b', ex_lower):
-                warning = "untranslated"
-
-        results.append({
-            "word": w,
-            "definition": defn,
-            "examples": examples,
-            "warning": warning,
-            "corrected_word": "",
-        })
-    return results
-
-
-def _sanitize_words(raw: list[str]) -> list[str]:
-    """Clean OCR artefacts from word list before enrichment."""
-    cleaned: list[str] = []
-    for w in raw:
-        # Strip markdown bullets, numbering, leading punctuation
-        w = re.sub(r'^[\s*\-\u2022\u00b7#>]+', '', w)
-        w = re.sub(r'^\d+\.\s*', '', w)
-        w = w.strip()
-        if len(w) < 2:
-            continue
-        # Skip LLM commentary: sentences with >4 words
-        if len(w.split()) > 4:
-            log.debug("Skipping non-word: %r", w)
-            continue
-        cleaned.append(w)
-    return cleaned
-
-
 @app.post("/enrich", response_model=EnrichResponse, tags=["vocabulary"])
 async def enrich(req: EnrichRequest):
     """
@@ -1005,7 +828,7 @@ async def enrich(req: EnrichRequest):
     _ensure_text_server()
 
     # Sanitize words — remove OCR/LLM artefacts before sending to the model
-    sanitized = _sanitize_words(req.words)
+    sanitized = sanitize_words(req.words)
     if not sanitized:
         return EnrichResponse(results=[], elapsed_s=0.0)
     log.info("Enrichment: %d raw words → %d after cleanup", len(req.words), len(sanitized))
@@ -1023,10 +846,10 @@ async def enrich(req: EnrichRequest):
             "Enrichment batch %d/%d  (%d words: %s)",
             batch_idx, len(batches), len(batch), ", ".join(batch),
         )
-        prompt = _build_enrich_prompt(
+        prompt = build_enrich_prompt(
             batch, req.definition_language, req.examples_language, req.term_language,
         )
-        system = _build_enrich_system(
+        system = build_enrich_system(
             req.definition_language, req.examples_language, req.term_language,
         )
         max_tok = DEFAULT_ENRICH_TOKENS_PER_WORD * len(batch)
@@ -1045,7 +868,7 @@ async def enrich(req: EnrichRequest):
                     temperature=req.temperature,
                     timeout=batch_timeout,
                 )
-                batch_parsed = _parse_enrich_response(result["content"], batch)
+                batch_parsed = parse_enrich_response(result["content"], batch)
                 break
             except Exception as e:
                 if attempt == 0:
@@ -1094,7 +917,7 @@ async def enrich(req: EnrichRequest):
         ]
         retry_lookup: dict[str, dict] = {}
         for rb_idx, rb in enumerate(retry_batches, 1):
-            prompt = _build_enrich_prompt(
+            prompt = build_enrich_prompt(
                 rb, req.definition_language, req.examples_language, req.term_language,
             )
             try:
@@ -1106,7 +929,7 @@ async def enrich(req: EnrichRequest):
                     temperature=req.temperature,
                     timeout=batch_timeout,
                 )
-                rp = _parse_enrich_response(result["content"], rb)
+                rp = parse_enrich_response(result["content"], rb)
                 for entry in rp:
                     if entry["definition"]:
                         retry_lookup[entry["word"].lower()] = entry
@@ -1209,8 +1032,8 @@ async def pipeline_image_to_cards(
         ]
         try:
             for batch in batches:
-                prompt = _build_enrich_prompt(batch, definition_language, examples_language, term_language)
-                sys_prompt = _build_enrich_system(definition_language, examples_language, term_language)
+                prompt = build_enrich_prompt(batch, definition_language, examples_language, term_language)
+                sys_prompt = build_enrich_system(definition_language, examples_language, term_language)
                 max_tok = DEFAULT_ENRICH_TOKENS_PER_WORD * len(batch)
                 result = await asyncio.to_thread(
                     _text.generate,
@@ -1220,7 +1043,7 @@ async def pipeline_image_to_cards(
                     temperature=0.1,
                     timeout=len(batch) * 60 + 60,
                 )
-                cards.extend(_parse_enrich_response(result["content"], batch))
+                cards.extend(parse_enrich_response(result["content"], batch))
         except Exception as e:
             log.warning("Batched enrichment failed: %s", e)
             # Fill remaining words with empty entries

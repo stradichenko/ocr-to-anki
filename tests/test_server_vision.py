@@ -74,29 +74,38 @@ def send_vision_completion(img_b64, label=""):
     print(f"           output: {content[:200]}")
     return content
 
-# Health check
-h = http_get(f"{SERVER}/health")
-print(f"Server health: {h}")
-print()
+def main():
+    """Run the diagnostic against a llama-server already listening on :8090.
 
-img_b64 = b64_img(IMG)
-print(f"Image: {IMG} ({len(img_b64)/1024:.1f} KB base64)")
-print()
-
-# Test 1: /v1/chat/completions (3 consecutive)
-print("=== /v1/chat/completions (OAI-compatible) ===")
-for i in range(3):
-    try:
-        send_vision_chat(img_b64, f"REQ-{i+1}")
-    except Exception as e:
-        print(f"  [REQ-{i+1}] ERROR: {e}")
+    Kept behind __main__ so importing this module under pytest does not fire
+    network calls. These are diagnostic scripts, not collected tests.
+    """
+    h = http_get(f"{SERVER}/health")
+    print(f"Server health: {h}")
     print()
 
-# Test 2: /completion (legacy, 3 consecutive)
-print("=== /completion (legacy) ===")
-for i in range(3):
-    try:
-        send_vision_completion(img_b64, f"REQ-{i+1}")
-    except Exception as e:
-        print(f"  [REQ-{i+1}] ERROR: {e}")
+    img_b64 = b64_img(IMG)
+    print(f"Image: {IMG} ({len(img_b64)/1024:.1f} KB base64)")
     print()
+
+    # Test 1: /v1/chat/completions (3 consecutive)
+    print("=== /v1/chat/completions (OAI-compatible) ===")
+    for i in range(3):
+        try:
+            send_vision_chat(img_b64, f"REQ-{i+1}")
+        except Exception as e:
+            print(f"  [REQ-{i+1}] ERROR: {e}")
+        print()
+
+    # Test 2: /completion (legacy, 3 consecutive)
+    print("=== /completion (legacy) ===")
+    for i in range(3):
+        try:
+            send_vision_completion(img_b64, f"REQ-{i+1}")
+        except Exception as e:
+            print(f"  [REQ-{i+1}] ERROR: {e}")
+        print()
+
+
+if __name__ == "__main__":
+    main()
