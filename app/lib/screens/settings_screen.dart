@@ -1864,10 +1864,21 @@ class _ModelPickerSheetState extends ConsumerState<_ModelPickerSheet> {
     await notifier.update((s) => s..activeModelId = model.id);
 
     // Restart the server with the new model.
-    final llama = ref.read(llamaCppAndroidProvider);
-    llama.setActiveModel(model);
-    await llama.stopServer();
-    await llama.startServer();
+    //
+    // Android runs llama.cpp in-process, so its service owns the restart.
+    // Desktop runs the Python backend instead, which has no MethodChannel:
+    // calling the Android service there would throw. The tile is Android-only
+    // today, but guarding on platform keeps that from becoming a crash if it
+    // is ever shown on desktop.
+    if (Platform.isAndroid) {
+      final llama = ref.read(llamaCppAndroidProvider);
+      llama.setActiveModel(model);
+      await llama.stopServer();
+      await llama.startServer();
+    } else {
+      // The backend can be told at runtime; it reinitialises its own backends.
+      await ref.read(serverStartupProvider.notifier).pushModel(model);
+    }
 
     if (mounted) Navigator.of(context).pop();
   }

@@ -466,6 +466,11 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
       await _syncGpuMode(server.url);
       if (_disposed) return;
 
+      // Tell the backend which model to load, before the model check below
+      // asks it whether that model's files are present.
+      await _syncModel(server.url);
+      if (_disposed) return;
+
       // Ensure llama.cpp vision binary is available (auto-download if missing).
       final llamaOk = await _checkLlamaBinary(server.url);
       if (_disposed) return;
@@ -656,6 +661,59 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
     } catch (e) {
       // Non-fatal — backend will use its platform defaults.
       debugPrint('Failed to sync GPU mode: $e');
+    }
+  }
+
+  /// Tell the backend which model to load.
+  ///
+  /// The Flutter registry owns this choice: the same entry drives the Android
+  /// download and the settings picker. Without this call the desktop backend
+  /// loaded a model of its own, so one user could be running Gemma 4 on their
+  /// phone and Gemma 3 on their desktop.
+  ///
+  /// Non-fatal on failure: the backend's default is the same model, so a
+  /// failure here should not block startup.
+  Future<void> _syncModel(String baseUrl) async {
+    try {
+      final registry = ref.read(modelRegistryProvider);
+      final settings = ref.read(settingsProvider);
+      final model = await registry.getModel(settings.activeModelId) ??
+          await registry.getDefaultModel();
+      await _postModel(baseUrl, model);
+    } catch (e) {
+      debugPrint('Failed to resolve the model to sync: $e');
+    }
+  }
+
+  /// Push a model choice to the backend, which reinitialises its own backends.
+  ///
+  /// Public so the settings screen can change the model at runtime on desktop,
+  /// where llama.cpp is behind the Python backend rather than in-process.
+  Future<bool> pushModel(ModelInfo model) async {
+    return _postModel(ref.read(settingsProvider).serverUrl, model);
+  }
+
+  Future<bool> _postModel(String baseUrl, ModelInfo model) async {
+    try {
+      await http
+          .post(
+            Uri.parse('$baseUrl/config/model'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'id': model.id,
+              'model_file': model.modelFilename,
+              'mmproj_file': model.mmprojFilename,
+              'model_url': model.modelUrl,
+              'mmproj_url': model.mmprojUrl,
+              'context_size': model.contextSize,
+            }),
+          )
+          .timeout(const Duration(seconds: 60));
+      debugPrint('Backend now using model: ${model.id}');
+      return true;
+    } catch (e) {
+      debugPrint('Failed to set the backend model: $e');
+      return false;
     }
   }
 
