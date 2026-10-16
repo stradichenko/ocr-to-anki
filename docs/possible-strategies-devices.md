@@ -4,9 +4,11 @@
 
 This document records only the performance numbers that have actually been
 measured for this project, with their source. It is scoped to measurements.
-Forward-looking model and runtime strategy is kept in the separate SOTA survey
-(`docs/SOTA_vision-ocr-pipeline.md`), which is deliberately not tracked in
-version control because `.gitignore` excludes the `docs/` directory.
+Forward-looking model and runtime strategy lives in a separate state-of-the-art
+survey kept outside this repository, at `~/projects/ocr-to-anki-sota/`. It is
+held apart deliberately: this repo's `.gitignore` excludes `docs/`, and a
+research knowledge base is not aligned with the project's purpose or
+presentation.
 
 ## Measured numbers
 
