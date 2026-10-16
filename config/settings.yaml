@@ -62,10 +62,15 @@ ai_backend:
   type: 'llama_cpp'
 
 # llama.cpp Configuration (fully offline, no internet)
+#
+# NOTE: the running FastAPI app does not read this file. It is loaded only by
+# the offline preprocessing and export modules under src/preprocessing/ and
+# src/output/. The API takes its context size from DEFAULT_CONTEXT_SIZE in
+# src/api/app.py, which is what the enrichment batch size is derived from.
 llama_cpp:
   host: '127.0.0.1'
   port: 8090
-  context_size: 4096
+  context_size: 4096  # offline modules only; the API uses DEFAULT_CONTEXT_SIZE
   n_gpu_layers: -1  # -1 = use all GPU layers
   
   # Vision encoder settings
