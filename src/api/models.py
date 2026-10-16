@@ -92,9 +92,29 @@ class EnrichWordResult(BaseModel):
     corrected_word: str = ""  # LLM-suggested correct spelling (if OCR error detected)
 
 
+class EnrichStages(BaseModel):
+    """Per-stage totals for one enrichment run.
+
+    Taken from the generation backend's own reported timings rather than a
+    wall clock, so prompt evaluation and generation can be told apart. Prompt
+    evaluation is the part that grows with the number of calls, which is what
+    makes batching worth measuring.
+    """
+
+    batches: int = 0
+    retry_batches: int = 0
+    batch_size: int = 0
+    prompt_ms: int = 0
+    predicted_ms: int = 0
+    tokens_evaluated: int = 0
+    tokens_predicted: int = 0
+
+
 class EnrichResponse(BaseModel):
     results: list[EnrichWordResult]
     elapsed_s: float
+    # Additive and optional: clients that predate it simply ignore the field.
+    stages: EnrichStages = Field(default_factory=EnrichStages)
 
 
 class GenerateResponse(BaseModel):
@@ -114,12 +134,19 @@ class HealthResponse(BaseModel):
     models_dir: str = ""
     llama_binary_available: bool = True
     gpu_mode: str = "auto"
+    context_size: int = 0
+    enrich_batch_size: int = 0
 
 
 class PipelineImageToCardsResponse(BaseModel):
     ocr_text: str
     ocr_backend: str = ""
     ocr_elapsed_s: float = 0.0
+    # The enrichment half of the pipeline was previously invisible here: only
+    # the OCR time and the total were reported, so the stage that dominates a
+    # multi-word page could not be read off the response at all.
+    enrich_elapsed_s: float = 0.0
+    stages: EnrichStages = Field(default_factory=EnrichStages)
     cards: list[EnrichWordResult]
     total_elapsed_s: float
     message: str = ""

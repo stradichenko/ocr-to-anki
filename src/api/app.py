@@ -34,6 +34,7 @@ from api.models import (
     BackendName,
     EnrichRequest,
     EnrichResponse,
+    EnrichStages,
     EnrichWordResult,
     GenerateRequest,
     GenerateResponse,
@@ -238,8 +239,11 @@ def _init_text() -> Optional[LlamaCppServer]:
     try:
         ngl = _ngl_for_mode()
         server = LlamaCppServer(context_size=DEFAULT_CONTEXT_SIZE, n_gpu_layers=ngl)
-        log.info("Text backend configured: %s (ngl=%s mode=%s)",
-                 server.model_path.name, ngl, _gpu_mode)
+        log.info(
+            "Text backend configured: %s (ngl=%s mode=%s ctx=%d batch=%d)",
+            server.model_path.name, ngl, _gpu_mode,
+            server.context_size, compute_batch_size(server.context_size),
+        )
         return server
     except Exception as e:
         log.warning("Text backend unavailable: %s", e)
@@ -273,7 +277,10 @@ async def lifespan(app: FastAPI):
     """Startup / shutdown hooks."""
     global _vision, _text, _detection
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(message)s")
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(levelname)s: %(name)s: %(message)s",
+    )
     log.info("Starting OCR-to-Anki API...")
 
     await _reinit_backends()
@@ -331,6 +338,13 @@ async def health():
         text_available=text_ok,
         backend=_detection.recommended_backend.value if _detection else "unknown",
         model=_text.model_path.name if _text else "-",
+        # Surfaced so the effective context and the batch size derived from it
+        # can be read without digging through the logs. They were previously
+        # set in three places that disagreed.
+        context_size=_text.context_size if _text else 0,
+        enrich_batch_size=compute_batch_size(
+            _text.context_size if _text else DEFAULT_CONTEXT_SIZE
+        ),
         devices=[
             {"name": d.name, "backend": d.backend.value}
             for d in (_detection.devices if _detection else [])
@@ -868,6 +882,7 @@ async def _enrich_words(
         "predicted_ms": 0,
         "tokens_evaluated": 0,
         "tokens_predicted": 0,
+        "batch_size": batch_size,
     }
 
     log.info(
@@ -998,7 +1013,11 @@ async def enrich(req: EnrichRequest):
         len(sanitized), stages.get("batches", 0), stages.get("retry_batches", 0), elapsed,
     )
 
-    return EnrichResponse(results=results, elapsed_s=round(elapsed, 2))
+    return EnrichResponse(
+        results=results,
+        elapsed_s=round(elapsed, 2),
+        stages=EnrichStages(**stages),
+    )
 
 
 # -------------------------------------------------------------------
@@ -1054,8 +1073,11 @@ async def pipeline_image_to_cards(
 
     # Step 3: Enrich (skip if text server unavailable)
     capped = words[:20]
+    enrich_elapsed = 0.0
+    stages: dict = {}
     if _text is not None and capped:
         _ensure_text_server()
+        _enrich_t0 = time.monotonic()
         cards, stages = await _enrich_words(
             capped,
             definition_language=definition_language,
@@ -1063,9 +1085,11 @@ async def pipeline_image_to_cards(
             term_language=term_language,
             temperature=0.1,
         )
+        enrich_elapsed = time.monotonic() - _enrich_t0
         log.info(
-            "Pipeline enrichment: %d batch(es) (+%d retry)",
+            "Pipeline enrichment: %d batch(es) (+%d retry) of up to %d word(s), %.1fs",
             stages.get("batches", 0), stages.get("retry_batches", 0),
+            stages.get("batch_size", 0), enrich_elapsed,
         )
     else:
         cards = [
@@ -1091,6 +1115,8 @@ async def pipeline_image_to_cards(
         ocr_text=ocr_text,
         ocr_backend=ocr_resp.backend,
         ocr_elapsed_s=ocr_resp.elapsed_s,
+        enrich_elapsed_s=round(enrich_elapsed, 2),
+        stages=EnrichStages(**stages),
         cards=results,
         total_elapsed_s=elapsed,
     )
