@@ -705,6 +705,7 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
               'mmproj_file': model.mmprojFilename,
               'model_url': model.modelUrl,
               'mmproj_url': model.mmprojUrl,
+              'architecture': model.architecture,
               'context_size': model.contextSize,
             }),
           )

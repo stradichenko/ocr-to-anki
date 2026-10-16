@@ -14,6 +14,7 @@ class ModelInfo {
     required this.sha256Mmproj,
     required this.supportsVision,
     required this.contextSize,
+    this.architecture = '',
     this.tags = const [],
   });
 
@@ -51,6 +52,13 @@ class ModelInfo {
   /// Context size (max tokens) this model supports.
   final int contextSize;
 
+  /// GGUF architecture the weights declare, e.g. `gemma4`.
+  ///
+  /// The backend checks this against the architectures its bundled llama.cpp
+  /// can load before accepting the model, so a runtime older than the model
+  /// is refused up front rather than after a multi-gigabyte download.
+  final String architecture;
+
   /// Optional tags like 'recommended', 'vision', 'fast'.
   final List<String> tags;
 
@@ -72,6 +80,7 @@ class ModelInfo {
       sha256Mmproj: json['sha256Mmproj'] as String,
       supportsVision: json['supportsVision'] as bool,
       contextSize: json['contextSize'] as int,
+      architecture: json['architecture'] as String? ?? '',
       tags: (json['tags'] as List<dynamic>?)?.cast<String>() ?? const [],
     );
   }
@@ -90,6 +99,7 @@ class ModelInfo {
         'sha256Mmproj': sha256Mmproj,
         'supportsVision': supportsVision,
         'contextSize': contextSize,
+        'architecture': architecture,
         'tags': tags,
       };
 }

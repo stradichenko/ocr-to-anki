@@ -24,6 +24,7 @@ DESCRIPTOR = {
     "mmproj_file": "test-mmproj.gguf",
     "model_url": "https://example.invalid/test-model-q4.gguf",
     "mmproj_url": "https://example.invalid/test-mmproj.gguf",
+    "architecture": "gemma4",
     "context_size": 4096,
 }
 
@@ -101,6 +102,45 @@ class TestValidation:
         resp = client.post("/config/model", json=body)
         assert resp.status_code == 200
         assert resp.json()["context_size"] == DEFAULT_CONTEXT_SIZE
+
+
+class TestArchitectureGuard:
+    """The check that stops a download the runtime cannot load.
+
+    The app once shipped a default model whose architecture its pinned
+    llama.cpp predated, so it fetched three gigabytes and then failed with
+    "unknown model architecture". The refusal has to happen before the
+    download, which means at the point the model is chosen.
+    """
+
+    def test_rejects_an_architecture_the_runtime_cannot_load(self, client):
+        body = dict(DESCRIPTOR, architecture="some-future-architecture")
+        resp = client.post("/config/model", json=body)
+        assert resp.status_code == 400
+        assert "architecture" in resp.json()["detail"]
+
+    def test_error_names_the_supported_set(self, client):
+        body = dict(DESCRIPTOR, architecture="some-future-architecture")
+        detail = client.post("/config/model", json=body).json()["detail"]
+        assert "gemma4" in detail
+
+    def test_accepts_a_supported_architecture(self, client):
+        body = dict(DESCRIPTOR, architecture="gemma4")
+        assert client.post("/config/model", json=body).status_code == 200
+
+    def test_is_case_insensitive(self, client):
+        body = dict(DESCRIPTOR, architecture="GEMMA4")
+        assert client.post("/config/model", json=body).status_code == 200
+
+    def test_an_omitted_architecture_is_allowed(self, client):
+        """Older clients do not send it, and the default is already checked."""
+        body = {k: v for k, v in DESCRIPTOR.items() if k != "architecture"}
+        assert client.post("/config/model", json=body).status_code == 200
+
+    def test_a_rejected_architecture_leaves_the_model_unchanged(self, client):
+        before = dict(app_module._active_model)
+        client.post("/config/model", json=dict(DESCRIPTOR, architecture="nope"))
+        assert app_module._active_model == before
 
 
 class TestGetModel:

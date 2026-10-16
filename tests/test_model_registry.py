@@ -110,6 +110,42 @@ class TestUrls:
             assert url_base.lower() == m["modelFilename"].lower(), m["id"]
 
 
+class TestArchitecture:
+    def test_every_entry_declares_an_architecture(self, models):
+        """The backend refuses a model whose architecture it cannot name."""
+        for m in models:
+            assert m.get("architecture"), f"{m['id']} has no architecture"
+
+    def test_every_architecture_is_supported_by_the_pinned_runtime(self, models):
+        """The guard for the bug this registry shipped with.
+
+        The app pinned a llama.cpp older than the default model's architecture,
+        so it downloaded three gigabytes and then failed with "unknown model
+        architecture". The declared architectures and the runtime's supported
+        set must agree.
+        """
+        pytest.importorskip("cv2", reason="API module needs OpenCV to import")
+        import sys
+        sys.path.insert(0, str(REGISTRY.parent.parent / "src"))
+        from api.app import SUPPORTED_ARCHITECTURES, arch_supported
+
+        for m in models:
+            assert arch_supported(m["architecture"]), (
+                f"{m['id']} declares architecture {m['architecture']!r}, which "
+                f"the pinned runtime does not list in {sorted(SUPPORTED_ARCHITECTURES)}"
+            )
+
+    def test_architecture_lookup_is_case_insensitive(self):
+        pytest.importorskip("cv2", reason="API module needs OpenCV to import")
+        import sys
+        sys.path.insert(0, str(REGISTRY.parent.parent / "src"))
+        from api.app import arch_supported
+
+        assert arch_supported("GEMMA4")
+        assert arch_supported("  gemma4  ")
+        assert not arch_supported("definitely-not-an-architecture")
+
+
 class TestContextSize:
     def test_context_size_is_usable(self, models):
         for m in models:

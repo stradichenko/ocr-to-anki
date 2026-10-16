@@ -14,6 +14,7 @@
       "sha256Mmproj": "140be8d7849741f88c50757d529b84373ee8e27052cc2236855b537f4a8215fa",
       "supportsVision": true,
       "contextSize": 8192,
+      "architecture": "gemma4",
       "tags": ["recommended", "vision", "gemma4"]
     },
     {
@@ -30,6 +31,7 @@
       "sha256Mmproj": "ddf46c21d7078e95338cfc22306b19b276a29a5ad089023449dd54d4b6170a51",
       "supportsVision": true,
       "contextSize": 8192,
+      "architecture": "gemma4",
       "tags": ["vision", "gemma4", "large"]
     },
     {
@@ -46,6 +48,7 @@
       "sha256Mmproj": "8c0fb064b019a6972856aaae2c7e4792858af3ca4561be2dbf649123ba6c40cb",
       "supportsVision": true,
       "contextSize": 4096,
+      "architecture": "gemma3",
       "tags": ["vision"]
     }
   ]

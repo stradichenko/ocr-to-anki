@@ -163,6 +163,12 @@ class ModelStatusResponse(BaseModel):
     all_present: bool
     models_dir: str
     files: list[ModelFileInfo]
+    # The architecture the active model declares, and whether the bundled
+    # llama.cpp can load it. A mismatch here is the difference between a clear
+    # message and a multi-gigabyte download that fails at load time.
+    architecture: str = ""
+    architecture_supported: bool = True
+    llama_tag: str = ""
 
 
 class BackendInfoResponse(BaseModel):

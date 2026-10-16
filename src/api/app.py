@@ -68,6 +68,18 @@ log = logging.getLogger(__name__)
 # enrichment at two words per call.
 DEFAULT_CONTEXT_SIZE = 8192
 
+# GGUF architectures the pinned llama.cpp can load. This exists because the
+# pinned runtime once predated the default model's architecture: the app
+# downloaded three gigabytes and only then failed with "unknown model
+# architecture". Extend this set only after checking with
+# scripts/llama-compat-check.sh against the tag above.
+SUPPORTED_ARCHITECTURES = frozenset({"gemma3", "gemma4"})
+
+
+def arch_supported(architecture: str) -> bool:
+    """Whether the pinned runtime can load this GGUF architecture."""
+    return architecture.strip().lower() in SUPPORTED_ARCHITECTURES
+
 # -------------------------------------------------------------------
 # Active model
 # -------------------------------------------------------------------
@@ -90,6 +102,7 @@ _DEFAULT_MODEL = {
         "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF"
         "/resolve/0314792d7f1f7e229411f620751375812bb9faf2/mmproj-F16.gguf"
     ),
+    "architecture": "gemma4",
     "context_size": DEFAULT_CONTEXT_SIZE,
 }
 
@@ -112,7 +125,7 @@ def _models_dir() -> Path:
 # -------------------------------------------------------------------
 # llama.cpp binary auto-download
 # -------------------------------------------------------------------
-_LLAMA_TAG = "b8292"
+_LLAMA_TAG = "b11577"
 _LLAMA_RELEASE_BASE = (
     f"https://github.com/ggml-org/llama.cpp/releases/download/{_LLAMA_TAG}"
 )
@@ -404,10 +417,14 @@ async def models_status():
             exists=p.exists(),
             url=url,
         ))
+    arch = _active_model.get("architecture", "")
     return ModelStatusResponse(
         all_present=all(f.exists for f in files),
         models_dir=str(mdir),
         files=files,
+        architecture=arch,
+        architecture_supported=arch_supported(arch),
+        llama_tag=_LLAMA_TAG,
     )
 
 
@@ -532,6 +549,17 @@ async def config_model(body: dict):
     if context_size < 512:
         raise HTTPException(400, f"context_size too small: {context_size}")
 
+    # Refuse a model the pinned runtime cannot load, rather than letting the
+    # client download it in full and fail at load time.
+    architecture = (body.get("architecture") or "").strip().lower()
+    if architecture and not arch_supported(architecture):
+        raise HTTPException(
+            400,
+            f"Model {model_id!r} needs the {architecture!r} architecture, which "
+            f"the bundled llama.cpp ({_LLAMA_TAG}) does not support. "
+            f"Supported: {', '.join(sorted(SUPPORTED_ARCHITECTURES))}.",
+        )
+
     previous = _active_model.get("id")
     _active_model = {
         "id": model_id,
@@ -539,6 +567,7 @@ async def config_model(body: dict):
         "mmproj_file": body["mmproj_file"],
         "model_url": body["model_url"],
         "mmproj_url": body["mmproj_url"],
+        "architecture": architecture,
         "context_size": context_size,
     }
     log.info(
