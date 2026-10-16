@@ -10,6 +10,7 @@ For text-only tasks, use LlamaCppServer (llama_cpp_server.py) instead.
 
 import os
 import platform
+import re
 import subprocess
 import logging
 import time
@@ -19,6 +20,40 @@ from typing import Optional
 from backends.auto_detect import detect, Backend, DetectionResult, opencl_env
 
 log = logging.getLogger(__name__)
+
+# Sent as the system prompt on every vision call.
+#
+# Gemma 4 answers inside a reasoning channel by default, and on an image that
+# consumes the entire output budget before it emits any words: measured on a
+# handwritten page, 512 tokens went into thinking and nothing came out after
+# it, so the word list was empty and the reasoning text was all there was to
+# parse. Instructing it not to narrate suppresses the channel completely and
+# returns the words immediately, which also removes the cost of generating
+# several hundred tokens that were being thrown away.
+DEFAULT_VISION_SYSTEM_PROMPT = (
+    "You are an OCR engine. Transcribe the text you see and nothing else. "
+    "Do not explain, do not describe the image, and do not think out loud."
+)
+
+_REASONING_OPEN_RE = re.compile(r"<\|channel>thought")
+
+
+def strip_reasoning_channel(text: str) -> str:
+    """Drop a reasoning channel, keeping only what the model answered.
+
+    The system prompt above suppresses the channel on straightforward images
+    but does not eliminate it: on a dense handwritten page the model still
+    narrated for several hundred tokens before answering. The caller parses the
+    return value as a word list, so leaving the narration in place would feed
+    the reasoning text through as vocabulary.
+    """
+    text = text or ""
+    if "<channel|>" in text:
+        return text.split("<channel|>", 1)[1].strip()
+    if _REASONING_OPEN_RE.search(text):
+        # Opened the channel and never closed it, so no answer was produced.
+        return ""
+    return text.strip()
 
 
 def _i915_preempt_timeout_disabled() -> bool:
@@ -88,6 +123,9 @@ class LlamaMtmdCli:
         top_p: float = 0.9,
         max_tokens: int = 512,
         mmproj_offload: Optional[bool] = None,
+        image_min_tokens: Optional[int] = None,
+        image_max_tokens: Optional[int] = None,
+        system_prompt: Optional[str] = DEFAULT_VISION_SYSTEM_PROMPT,
     ):
         models_dir = Path(
             os.getenv("LLAMA_CPP_MODELS", Path.home() / ".cache" / "llama.cpp" / "models")
@@ -175,6 +213,15 @@ class LlamaMtmdCli:
         else:
             self.mmproj_offload = True
 
+        # Vision token budget. Only vision models that support it honour these,
+        # and the projector decides the default; on the models this app uses,
+        # passing a value below the default is the only way to reduce the
+        # encoder work per image. Left as None they are not passed at all, so
+        # the projector's own default applies.
+        self.image_min_tokens = image_min_tokens
+        self.image_max_tokens = image_max_tokens
+        self.system_prompt = system_prompt
+
         # Handle for the currently running subprocess so it can be killed
         # on cancellation from another thread.
         self._current_process: Optional[subprocess.Popen] = None
@@ -196,6 +243,17 @@ class LlamaMtmdCli:
             "-ngl", str(self.n_gpu_layers),
             "-n", str(self.max_tokens),
         ]
+        # Without this the model may spend its whole budget narrating instead
+        # of transcribing, leaving no word list at all.
+        if self.system_prompt:
+            cmd.extend(["-sys", self.system_prompt])
+        # Only emitted when set: the flags are accepted but ignored by
+        # projectors that do not implement a token budget, so sending them
+        # unconditionally would suggest a control that is not always real.
+        if self.image_min_tokens is not None:
+            cmd.extend(["--image-min-tokens", str(self.image_min_tokens)])
+        if self.image_max_tokens is not None:
+            cmd.extend(["--image-max-tokens", str(self.image_max_tokens)])
         if not self.mmproj_offload:
             cmd.append("--no-mmproj-offload")
         # Disable flash attention on backends / platforms where it crashes
@@ -281,8 +339,9 @@ class LlamaMtmdCli:
             )
 
         # The model output is on stdout; stderr has loading/timing info.
-        # With --jinja the prompt is NOT echoed, so stdout is clean.
-        text = stdout.strip()
+        # With --jinja the prompt is NOT echoed, so stdout is clean apart from
+        # any reasoning channel, which is stripped here.
+        text = strip_reasoning_channel(stdout)
         backend = self.detection.recommended_backend.value if self.detection else "unknown"
 
         # Parse timings from stderr for diagnostics

@@ -30,6 +30,7 @@ from backends.auto_detect import (
     detect,
     _find_binary_impl,
 )
+from backends.mtmd_cli import DEFAULT_VISION_SYSTEM_PROMPT, strip_reasoning_channel
 
 log = logging.getLogger(__name__)
 
@@ -352,6 +353,7 @@ class LlamaCppServer:
         ),
         max_tokens: int = 256,
         timeout: int = 600,
+        system: Optional[str] = DEFAULT_VISION_SYSTEM_PROMPT,
     ) -> dict:
         """
         Run vision OCR on a single image.
@@ -370,9 +372,13 @@ class LlamaCppServer:
         with open(image_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
 
+        # This is what stops Gemma 4 answering inside its reasoning channel,
+        # which on an image consumes the whole output budget and returns no
+        # words at all.
         result = self.generate(
             prompt=prompt,
             image_data=b64,
+            system=system,
             max_tokens=max_tokens,
             timeout=timeout,
         )
@@ -382,7 +388,7 @@ class LlamaCppServer:
             if self.detection else "unknown"
         )
         return {
-            "text": result["content"],
+            "text": strip_reasoning_channel(result["content"]),
             "elapsed_s": result["wall_s"],
             "backend": backend,
             "image": image_path,
