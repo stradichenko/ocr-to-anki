@@ -21,8 +21,8 @@ fi
 echo ":: Computing checksums from $MODELS_DIR..."
 
 declare -A files=(
-    ["gemma-3-4b-it-q4_0_s.gguf"]=""
-    ["mmproj-model-f16-4B.gguf"]=""
+    ["gemma-4-e2b-it-q4_0.gguf"]=""
+    ["mmproj-gemma-4-e2b-f16.gguf"]=""
 )
 
 json='{'

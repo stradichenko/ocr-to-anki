@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vision OCR using llama.cpp Gemma 3 4B (fully offline).
+Vision OCR using llama.cpp and the active local model (fully offline).
 
 Supports two backends:
   - **server** (default): uses a persistent llama-server process
@@ -63,7 +63,7 @@ def extract_text(
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Vision OCR with Gemma 3 4B")
+    parser = argparse.ArgumentParser(description="Vision OCR with the active model")
     parser.add_argument("image", help="Image path to OCR")
     parser.add_argument(
         "--backend",

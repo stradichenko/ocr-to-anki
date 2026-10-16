@@ -94,8 +94,8 @@ class LlamaMtmdCli:
         )
 
         # Model files
-        self.model_path = Path(model_path) if model_path else models_dir / "gemma-3-4b-it-q4_0_s.gguf"
-        self.mmproj_path = Path(mmproj_path) if mmproj_path else models_dir / "mmproj-model-f16-4B.gguf"
+        self.model_path = Path(model_path) if model_path else models_dir / "gemma-4-e2b-it-q4_0.gguf"
+        self.mmproj_path = Path(mmproj_path) if mmproj_path else models_dir / "mmproj-gemma-4-e2b-f16.gguf"
 
         if not self.model_path.exists():
             raise FileNotFoundError(f"Model not found: {self.model_path}")
@@ -152,7 +152,7 @@ class LlamaMtmdCli:
         # Total inference time: ~5.5 min (vision 14s + prompt eval 69s + gen 248s).
         #
         # OpenCL: needs CPU mmproj — lacks GGML_OP_POOL_2D needed
-        # by Gemma 3's SigLIP vision encoder (crashes during warmup).
+        # by the vision encoder (crashes during warmup).
         #
         # Windows Vulkan: the SigLIP vision encoder Vulkan shaders crash
         # during "encoding image slice" (STATUS_STACK_BUFFER_OVERRUN

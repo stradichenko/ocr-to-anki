@@ -61,19 +61,44 @@ from backends.llama_cpp_server import LlamaCppServer
 
 log = logging.getLogger(__name__)
 
+# Text server context. Must match the model actually in use: the Flutter
+# registry advertises 8192 for the default model. The enrichment batch size is
+# derived from it rather than hardcoded. It was previously 1024 here, which
+# contradicted the class default and config/settings.yaml and silently capped
+# enrichment at two words per call.
+DEFAULT_CONTEXT_SIZE = 8192
+
 # -------------------------------------------------------------------
-# Model constants (must match scripts/setup-llama-cpp.sh)
+# Active model
 # -------------------------------------------------------------------
-_MODEL_FILE = "gemma-3-4b-it-q4_0_s.gguf"
-_MMPROJ_FILE = "mmproj-model-f16-4B.gguf"
-_MODEL_URL = (
-    "https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small"
-    f"/resolve/main/{_MODEL_FILE}"
-)
-_MMPROJ_URL = (
-    "https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small"
-    "/resolve/main/mmproj-google_gemma-3-4b-it-f16.gguf"
-)
+# The model the backend loads. Mutable, because the Flutter app owns the
+# choice: the same registry that drives the Android download tells the backend
+# which files to use, via POST /config/model. Previously the backend hardcoded
+# these while the shipped registry defaulted to a different model, so desktop
+# and Android could not agree.
+#
+# Keep in step with the first entry of app/assets/models.json.
+_DEFAULT_MODEL = {
+    "id": "gemma-4-e2b-q4",
+    "model_file": "gemma-4-e2b-it-q4_0.gguf",
+    "mmproj_file": "mmproj-gemma-4-e2b-f16.gguf",
+    "model_url": (
+        "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF"
+        "/resolve/main/gemma-4-E2B-it-Q4_0.gguf"
+    ),
+    "mmproj_url": (
+        "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF"
+        "/resolve/main/mmproj-F16.gguf"
+    ),
+    "context_size": DEFAULT_CONTEXT_SIZE,
+}
+
+_active_model: dict = dict(_DEFAULT_MODEL)
+
+
+def _model_path(key: str) -> Path:
+    """Absolute path of a model file named in the active descriptor."""
+    return _models_dir() / _active_model[f"{key}_file"]
 
 
 def _models_dir() -> Path:
@@ -192,13 +217,6 @@ _gpu_mode: str = "auto"
 # Windows/iGPUs (STATUS_STACK_BUFFER_OVERRUN 0xC0000409).
 _vision_sem = asyncio.Semaphore(1)
 
-# Text server context. This must match the model actually in use: the Flutter
-# registry advertises 8192 for Gemma 4 E2B, and the enrichment batch size is
-# derived from it rather than hardcoded. It was previously 1024 here, which
-# contradicted both the class default and config/settings.yaml and silently
-# capped enrichment at two words per call.
-DEFAULT_CONTEXT_SIZE = 8192
-
 
 def _ngl_for_mode() -> Optional[int]:
     """Return n_gpu_layers based on the current _gpu_mode."""
@@ -218,6 +236,11 @@ def _init_vision() -> Optional[LlamaMtmdCli]:
         # in 'gpu' mode we force -1 to override that safety net.
         force_gpu = _gpu_mode == "gpu"
         cli = LlamaMtmdCli(
+            # Explicit paths from the active descriptor, so neither backend
+            # falls back to its own built-in default model.
+            model_path=str(_model_path("model")),
+            mmproj_path=str(_model_path("mmproj")),
+            ctx_size=_active_model["context_size"],
             n_gpu_layers=ngl,
             mmproj_offload=True if force_gpu else None,
         )
@@ -238,7 +261,12 @@ def _init_text() -> Optional[LlamaCppServer]:
     """Try to initialise the text backend; return None on failure."""
     try:
         ngl = _ngl_for_mode()
-        server = LlamaCppServer(context_size=DEFAULT_CONTEXT_SIZE, n_gpu_layers=ngl)
+        server = LlamaCppServer(
+            model_path=str(_model_path("model")),
+            mmproj_path=str(_model_path("mmproj")),
+            context_size=_active_model["context_size"],
+            n_gpu_layers=ngl,
+        )
         log.info(
             "Text backend configured: %s (ngl=%s mode=%s ctx=%d batch=%d)",
             server.model_path.name, ngl, _gpu_mode,
@@ -301,7 +329,7 @@ app = FastAPI(
     title="OCR-to-Anki API",
     description=(
         "Fully offline OCR and vocabulary enrichment powered by "
-        "Gemma 3 4B via llama.cpp.  Vision tasks use llama-mtmd-cli "
+        "Gemma 4 E2B via llama.cpp.  Vision tasks use llama-mtmd-cli "
         "(GPU-accelerated), text tasks use llama-server."
     ),
     version="0.1.0",
@@ -328,8 +356,8 @@ async def health():
     vision_ok = _vision is not None
 
     mdir = _models_dir()
-    model_exists = (mdir / _MODEL_FILE).exists()
-    mmproj_exists = (mdir / _MMPROJ_FILE).exists()
+    model_exists = _model_path("model").exists()
+    mmproj_exists = _model_path("mmproj").exists()
     all_present = model_exists and mmproj_exists
 
     return HealthResponse(
@@ -365,7 +393,10 @@ async def models_status():
     """Check which model files are present on disk."""
     mdir = _models_dir()
     files = []
-    for name, url in [(_MODEL_FILE, _MODEL_URL), (_MMPROJ_FILE, _MMPROJ_URL)]:
+    for name, url in [
+        (_active_model["model_file"], _active_model["model_url"]),
+        (_active_model["mmproj_file"], _active_model["mmproj_url"]),
+    ]:
         p = mdir / name
         files.append(ModelFileInfo(
             name=name,
@@ -394,7 +425,10 @@ async def models_download():
     mdir.mkdir(parents=True, exist_ok=True)
 
     to_download: list[tuple[str, str, Path]] = []
-    for name, url in [(_MODEL_FILE, _MODEL_URL), (_MMPROJ_FILE, _MMPROJ_URL)]:
+    for name, url in [
+        (_active_model["model_file"], _active_model["model_url"]),
+        (_active_model["mmproj_file"], _active_model["mmproj_url"]),
+    ]:
         dest = mdir / name
         if not dest.exists():
             to_download.append((name, url, dest))
@@ -466,6 +500,63 @@ async def config_gpu(body: dict):
     result = await _reinit_backends()
     result["gpu_mode"] = _gpu_mode
     return result
+
+
+@app.post("/config/model", tags=["system"])
+async def config_model(body: dict):
+    """Select the model the backends load, and reinitialise them.
+
+    Body: ``{"id", "model_file", "mmproj_file", "model_url",
+    "mmproj_url", "context_size"}``
+
+    The Flutter app owns the model choice, because the same registry drives the
+    Android download and the desktop settings screen. Previously nothing carried
+    that choice to the backend, which hardcoded its own model, so a user could
+    be running one model on their phone and a different one on their desktop.
+
+    Mirrors ``/config/gpu``: set the state, then run the same reinit path, so a
+    model change takes effect without restarting the process.
+    """
+    global _active_model
+
+    model_id = body.get("id")
+    if not model_id:
+        raise HTTPException(400, "Model id is required")
+
+    required = ("model_file", "mmproj_file", "model_url", "mmproj_url")
+    missing = [k for k in required if not body.get(k)]
+    if missing:
+        raise HTTPException(400, f"Model descriptor missing: {', '.join(missing)}")
+
+    context_size = int(body.get("context_size") or DEFAULT_CONTEXT_SIZE)
+    if context_size < 512:
+        raise HTTPException(400, f"context_size too small: {context_size}")
+
+    previous = _active_model.get("id")
+    _active_model = {
+        "id": model_id,
+        "model_file": body["model_file"],
+        "mmproj_file": body["mmproj_file"],
+        "model_url": body["model_url"],
+        "mmproj_url": body["mmproj_url"],
+        "context_size": context_size,
+    }
+    log.info(
+        "Active model changed: %s -> %s (ctx=%d, batch=%d)",
+        previous, model_id, context_size, compute_batch_size(context_size),
+    )
+
+    result = await _reinit_backends()
+    result["model"] = _active_model["id"]
+    result["context_size"] = context_size
+    result["enrich_batch_size"] = compute_batch_size(context_size)
+    return result
+
+
+@app.get("/config/model", tags=["system"])
+async def get_config_model():
+    """Report the model the backends are currently loading."""
+    return dict(_active_model)
 
 
 # -------------------------------------------------------------------
@@ -640,11 +731,11 @@ def _pause_text_server():
 def _downscale_image(raw: bytes, max_dim: int = 768) -> bytes:
     """Downscale an image so its longest side is at most *max_dim* pixels.
 
-    Gemma 3's SigLIP vision encoder tiles images into 896x896 chunks.
-    A 1133x1348 image creates multiple tiles, multiplying the number of
-    vision tokens that must go through prompt eval (the slowest phase on
-    Intel iGPU without flash attention).  Fitting the image into a
-    single tile can cut prompt eval time by 50-75%.
+    The vision encoder tiles images into fixed-size chunks, so a large
+    image creates several tiles and multiplies the number of vision tokens
+    that must go through prompt eval, which is the slowest phase on an
+    integrated GPU.  Keeping an image inside a single tile cuts prompt eval
+    substantially.
 
     Returns the original bytes unchanged if already within bounds.
     """
@@ -810,7 +901,7 @@ def _ensure_text_server():
 
 @app.post("/generate", response_model=GenerateResponse, tags=["text"])
 async def generate(req: GenerateRequest):
-    """Raw text generation with Gemma 3 4B."""
+    """Raw text generation with the active model."""
     _ensure_text_server()
 
     try:

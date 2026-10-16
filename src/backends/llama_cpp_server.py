@@ -1,7 +1,7 @@
 """
 llama.cpp server wrapper for fully offline local inference.
 
-Uses llama-server (or llama-server-opencl) with Gemma 3 4B for text and
+Uses llama-server (or llama-server-opencl) with the active model for text and
 vision tasks.  Manages the server lifecycle (start / health / stop) and
 provides a ``generate()`` helper that works around the LCP prompt-cache
 bug that silently drops image embeddings on consecutive identical prompts.
@@ -52,7 +52,7 @@ def _find_server_binary(backend: Backend) -> Optional[Path]:
 
 
 class LlamaCppServer:
-    """Manages a llama-server process for local inference with Gemma 3."""
+    """Manages a llama-server process for local text inference."""
 
     def __init__(
         self,
@@ -95,7 +95,7 @@ class LlamaCppServer:
 
         self.model_path = (
             Path(model_path) if model_path
-            else models_dir / "gemma-3-4b-it-q4_0_s.gguf"
+            else models_dir / "gemma-4-e2b-it-q4_0.gguf"
         )
         if not self.model_path.exists():
             raise FileNotFoundError(
@@ -105,7 +105,7 @@ class LlamaCppServer:
 
         self.mmproj_path = (
             Path(mmproj_path) if mmproj_path
-            else models_dir / "mmproj-model-f16-4B.gguf"
+            else models_dir / "mmproj-gemma-4-e2b-f16.gguf"
         )
         self.has_vision = self.mmproj_path.exists()
 
@@ -430,7 +430,7 @@ def main():
     )
 
     parser = argparse.ArgumentParser(
-        description="llama.cpp server with Gemma 3 4B"
+        description="llama.cpp server with the active model"
     )
     parser.add_argument("--model", type=str, help="Path to GGUF model")
     parser.add_argument("--host", default="127.0.0.1")

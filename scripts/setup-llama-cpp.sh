@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Setup llama.cpp with Google Gemma 3 4B -- fully offline, no HuggingFace CLI needed.
+# Setup llama.cpp with Google Gemma 4 E2B -- fully offline, no HuggingFace CLI needed.
 # Downloads model + vision projector via direct GGUF URLs (wget/curl).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,25 +10,27 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # ------------------------------------------------------------------
 # Model configuration -- direct download URLs (public, no auth)
 # ------------------------------------------------------------------
-# stduhpf's QAT-small repack: same quality as Google's official QAT Q4_0,
-# but ~25% smaller (requantized fp16 embeddings → Q4_0 with imatrix)
-# and with fixed control token metadata for proper instruct-mode behavior.
-# Repo: https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small
-MODEL_FILE="gemma-3-4b-it-q4_0_s.gguf"
-MMPROJ_FILE="mmproj-model-f16-4B.gguf"
+# Gemma 4 E2B, the same model the shipped registry offers as its default, so
+# desktop and Android run one model rather than two. Gemma 4 is Apache-2.0,
+# unlike Gemma 3's custom terms. Keep these values in step with the first entry
+# of app/assets/models.json: the backend takes its filenames from the client,
+# and a mismatch here means the model it is told to load is never downloaded.
+MODEL_FILE="gemma-4-e2b-it-q4_0.gguf"
+MMPROJ_FILE="mmproj-gemma-4-e2b-f16.gguf"
 MODELS_DIR="${LLAMA_CPP_MODELS:-$HOME/.cache/llama.cpp/models}"
 MODEL_PATH="${MODELS_DIR}/${MODEL_FILE}"
 MMPROJ_PATH="${MODELS_DIR}/${MMPROJ_FILE}"
 
 # Public direct-download URLs -- no authentication required.
-# Both files come from stduhpf's repo (Google's repo requires Gemma license auth).
-MODEL_URL="https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small/resolve/main/${MODEL_FILE}"
-MMPROJ_URL="https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small/resolve/main/mmproj-google_gemma-3-4b-it-f16.gguf"
+# Note the mmproj is saved under a name different from its URL path, matching
+# what the registry records, so the two stay interchangeable.
+MODEL_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_0.gguf"
+MMPROJ_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-F16.gguf"
 
-echo "=== llama.cpp Gemma 3 4B QAT Setup (Fully Offline) ==="
+echo "=== llama.cpp Gemma 4 E2B Setup (Fully Offline) ==="
 echo ""
-echo "Model:    ${MODEL_FILE}  (~2.4 GB, QAT-small repack)"
-echo "Vision:   ${MMPROJ_FILE} (~812 MB)"
+echo "Model:    ${MODEL_FILE}  (~3.0 GB)"
+echo "Vision:   ${MMPROJ_FILE} (~986 MB)"
 echo "Location: ${MODELS_DIR}"
 echo ""
 

@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from backends.auto_detect import detect, opencl_env, find_binary, Backend
 
 MODELS_DIR = Path(os.getenv("LLAMA_CPP_MODELS", Path.home() / ".cache" / "llama.cpp" / "models"))
-MODEL  = MODELS_DIR / "gemma-3-4b-it-q4_0_s.gguf"
-MMPROJ = MODELS_DIR / "mmproj-model-f16-4B.gguf"
+MODEL  = MODELS_DIR / "gemma-4-e2b-it-q4_0.gguf"
+MMPROJ = MODELS_DIR / "mmproj-gemma-4-e2b-f16.gguf"
 PROJECT    = Path(__file__).resolve().parent.parent
 IMAGES_DIR = PROJECT / "data" / "images"
 CROPPED_DIR = PROJECT / "data" / "cropped_highlights" / "orange"
