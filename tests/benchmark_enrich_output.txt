@@ -1,0 +1,69 @@
+Enrichment batch-size benchmark
+================================
+
+Produced by tests/benchmark_enrich.py, driving the real prompt builders,
+batch-size helper and parser against a live llama-server.
+
+Conditions for this run (job f6631589):
+  host        VM 200, 4 cores, RTX 2070 present but not used
+  runtime     llama.cpp b11577 prebuilt, the asset the Linux build downloads
+  model       gemma-4-e2b-it-q4_0.gguf, context 8192
+  decode      ~11 tokens/sec, flat across every batch size, consistent with
+              CPU inference; llama-cli --list-devices reports no device on
+              this host, so the Vulkan backend did not engage.
+
+The conclusion does not depend on the device. Prompt evaluation is a fixed
+cost per request, so batching amortises it on any hardware; the numbers below
+show that cost holding at roughly 9 seconds per call from batch 1 through
+batch 8 while the per-word share falls with the batch size.
+
+The absolute saving is larger on the project's target hardware, where the
+repository measures prompt evaluation at about 2.5 tokens/sec rather than the
+~30 tokens/sec implied here. That figure is an extrapolation from the two
+measurements, not something measured on the iGPU.
+
+The JSON this was rendered from is gitignored, matching benchmark_results.json.
+
+---
+
+=== Enrichment batch-size benchmark ===
+  model:      gemma-4-e2b-it-q4_0.gguf
+  context:    8192
+  derived batch size: 8
+  word list:  20 words
+
+  server binary: /mnt/projects/ocr-to-anki/vendor/llama-b11577/llama-server
+  starting server ...
+--- batch size 1: 2 call(s) over 2 words ---
+    call 1/2 (1 words): wall=13.5s prompt=9072ms decode=4451ms gen=50tok
+    call 2/2 (1 words): wall=12.4s prompt=8857ms decode=3516ms gen=41tok
+  -> 25.91s total, 12.96s/word, prompt eval 8964.5ms/word, warnings={'not_found': 1, '': 1}
+
+--- batch size 2: 2 call(s) over 4 words ---
+    call 1/2 (2 words): wall=17.1s prompt=9119ms decode=8016ms gen=89tok
+    call 2/2 (2 words): wall=17.0s prompt=8898ms decode=8061ms gen=91tok
+  -> 34.1s total, 8.53s/word, prompt eval 4504.2ms/word, warnings={'not_found': 1, '': 3}
+
+--- batch size 3: 2 call(s) over 6 words ---
+    call 1/2 (3 words): wall=22.7s prompt=9222ms decode=13449ms gen=150tok
+    call 2/2 (3 words): wall=21.7s prompt=9324ms decode=12413ms gen=137tok
+  -> 44.42s total, 7.4s/word, prompt eval 3091.0ms/word, warnings={'not_found': 2, '': 4}
+
+--- batch size 6: 2 call(s) over 12 words ---
+    call 1/2 (6 words): wall=35.4s prompt=9534ms decode=25827ms gen=286tok
+    call 2/2 (6 words): wall=33.8s prompt=9443ms decode=24331ms gen=265tok
+  -> 69.15s total, 5.76s/word, prompt eval 1581.4ms/word, warnings={'not_found': 5, '': 7}
+
+--- batch size 8: 2 call(s) over 12 words ---
+    call 1/2 (8 words): wall=43.8s prompt=9871ms decode=33967ms gen=376tok
+    call 2/2 (4 words): wall=29.8s prompt=9294ms decode=20514ms gen=227tok
+  -> 73.66s total, 6.14s/word, prompt eval 1597.1ms/word, warnings={'not_found': 1, '': 11}
+
+=== Amortisation vs one word per request ===
+  batch  1: 1.00x faster overall, prompt cost 1.00x of baseline per word
+  batch  2: 0.76x faster overall, prompt cost 0.50x of baseline per word
+  batch  3: 0.58x faster overall, prompt cost 0.34x of baseline per word
+  batch  6: 0.37x faster overall, prompt cost 0.18x of baseline per word
+  batch  8: 0.35x faster overall, prompt cost 0.18x of baseline per word
+
+Written: /mnt/projects/ocr-to-anki/tests/benchmark_enrich_results.json
