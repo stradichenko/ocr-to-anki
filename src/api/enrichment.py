@@ -17,6 +17,67 @@ import unicodedata
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Batch sizing
+# ---------------------------------------------------------------------------
+
+# Tokens per word the model is allowed to spend on a definition plus two
+# example sentences.
+DEFAULT_ENRICH_TOKENS_PER_WORD = 150
+
+# Room for the system prompt, the format template, the worked example, and the
+# word list itself. Measured against tokens_evaluated once a real model is
+# running; 512 is a conservative starting point.
+PROMPT_RESERVE_TOKENS = 512
+
+# Slack so the final word of a batch is not cut off inside its last sentence.
+GENERATION_MARGIN_TOKENS = 64
+
+# Upper bound regardless of how much context is available. Format adherence
+# degrades over long batches and the parser has less room to recover, so this
+# is raised deliberately after measuring rather than set to whatever fits.
+MAX_ENRICH_BATCH_WORDS = 8
+
+# Timeout budget for one batch. The integrated GPU is slow at prompt
+# evaluation, so the floor is generous and the per-word term covers generation.
+ENRICH_TIMEOUT_BASE_S = 240
+ENRICH_TIMEOUT_PER_WORD_S = 90
+ENRICH_TIMEOUT_FLOOR_S = 600
+
+
+def compute_batch_size(
+    context_size: int,
+    tokens_per_word: int = DEFAULT_ENRICH_TOKENS_PER_WORD,
+    reserve: int = PROMPT_RESERVE_TOKENS,
+    margin: int = GENERATION_MARGIN_TOKENS,
+    cap: int = MAX_ENRICH_BATCH_WORDS,
+) -> int:
+    """How many words fit in one enrichment call at this context size.
+
+    Every word costs ``tokens_per_word`` of generation, and every call also
+    carries the same fixed prompt. Sizing the batch from the context is what
+    lets the context be raised without the batch silently overflowing it, which
+    is how the batch and the context drifted apart before.
+
+    Never returns less than 1: a single word must always be attempted even if
+    the context is too small to hold it comfortably.
+    """
+    usable = context_size - reserve - margin
+    if usable <= 0:
+        return 1
+    return max(1, min(cap, usable // tokens_per_word))
+
+
+def compute_batch_timeout(
+    batch_size: int,
+    base: int = ENRICH_TIMEOUT_BASE_S,
+    per_word: int = ENRICH_TIMEOUT_PER_WORD_S,
+    floor: int = ENRICH_TIMEOUT_FLOOR_S,
+) -> int:
+    """Seconds to allow one enrichment batch of this size."""
+    return max(floor, base + per_word * batch_size)
+
+
+# ---------------------------------------------------------------------------
 # Prompt construction
 # ---------------------------------------------------------------------------
 

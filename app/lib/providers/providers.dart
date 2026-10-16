@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../database/database.dart';
 import '../models/models.dart';
+import '../models/enrichment_defaults.dart';
 import '../models/pending_batch.dart';
 import '../services/services.dart';
 
@@ -1456,8 +1457,8 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           examplesLanguage: settings.examplesLanguage,
           termLanguage: settings.termLanguage,
           wordLanguages: wordLanguages,
-          chunkSize: 1,
-          chunkTimeout: const Duration(minutes: 10),
+          chunkSize: kEnrichChunkSize,
+          chunkTimeout: enrichChunkTimeout(kEnrichChunkSize),
           onChunkDone: (completed, total, chunkResults) {
             state = state.copyWith(
               enrichedWords: [...state.enrichedWords, ...chunkResults],
@@ -1718,8 +1719,8 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
               examplesLanguage: settings.examplesLanguage,
               termLanguage: settings.termLanguage,
               wordLanguages: wordLanguages,
-              chunkSize: 1,
-              chunkTimeout: const Duration(minutes: 10),
+              chunkSize: kEnrichChunkSize,
+              chunkTimeout: enrichChunkTimeout(kEnrichChunkSize),
               onChunkDone: (completed, total, chunkResults) {
                 state = state.copyWith(
                   enrichedWords: [...state.enrichedWords, ...chunkResults],
@@ -2433,8 +2434,8 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
           examplesLanguage: settings.examplesLanguage,
           termLanguage: effectiveTermLang,
           wordLanguages: wordLanguages,
-          chunkSize: 1,
-          chunkTimeout: const Duration(minutes: 10),
+          chunkSize: kEnrichChunkSize,
+          chunkTimeout: enrichChunkTimeout(kEnrichChunkSize),
           onChunkDone: (completed, total, chunkResults) {
             // Push partial results to state so the UI shows cards appearing.
             state = state.copyWith(

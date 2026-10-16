@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/anki_note.dart';
+import '../models/enrichment_defaults.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../services/anki_export_service.dart';
@@ -504,8 +505,8 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         words: failedWords,
         definitionLanguage: settings.definitionLanguage,
         examplesLanguage: settings.examplesLanguage,
-        chunkSize: 1,
-        chunkTimeout: const Duration(minutes: 10),
+        chunkSize: kEnrichChunkSize,
+        chunkTimeout: enrichChunkTimeout(kEnrichChunkSize),
       );
 
       if (!mounted) return;
@@ -564,8 +565,8 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         words: [card.word],
         definitionLanguage: settings.definitionLanguage,
         examplesLanguage: settings.examplesLanguage,
-        chunkSize: 1,
-        chunkTimeout: const Duration(minutes: 10),
+        chunkSize: kEnrichChunkSize,
+        chunkTimeout: enrichChunkTimeout(kEnrichChunkSize),
       );
 
       if (!mounted) return;
@@ -615,8 +616,8 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
         words: words,
         definitionLanguage: settings.definitionLanguage,
         examplesLanguage: settings.examplesLanguage,
-        chunkSize: 1,
-        chunkTimeout: const Duration(minutes: 10),
+        chunkSize: kEnrichChunkSize,
+        chunkTimeout: enrichChunkTimeout(kEnrichChunkSize),
       );
 
       if (!mounted) return;

@@ -46,8 +46,11 @@ from api.models import (
     VisionOCRResponse,
 )
 from api.enrichment import (
+    DEFAULT_ENRICH_TOKENS_PER_WORD,
     build_enrich_prompt,
     build_enrich_system,
+    compute_batch_size,
+    compute_batch_timeout,
     parse_enrich_response,
     sanitize_words,
 )
@@ -188,9 +191,12 @@ _gpu_mode: str = "auto"
 # Windows/iGPUs (STATUS_STACK_BUFFER_OVERRUN 0xC0000409).
 _vision_sem = asyncio.Semaphore(1)
 
-# Enrichment batching defaults
-DEFAULT_ENRICH_BATCH_SIZE = 2
-DEFAULT_ENRICH_TOKENS_PER_WORD = 150
+# Text server context. This must match the model actually in use: the Flutter
+# registry advertises 8192 for Gemma 4 E2B, and the enrichment batch size is
+# derived from it rather than hardcoded. It was previously 1024 here, which
+# contradicted both the class default and config/settings.yaml and silently
+# capped enrichment at two words per call.
+DEFAULT_CONTEXT_SIZE = 8192
 
 
 def _ngl_for_mode() -> Optional[int]:
@@ -231,7 +237,7 @@ def _init_text() -> Optional[LlamaCppServer]:
     """Try to initialise the text backend; return None on failure."""
     try:
         ngl = _ngl_for_mode()
-        server = LlamaCppServer(context_size=1024, n_gpu_layers=ngl)
+        server = LlamaCppServer(context_size=DEFAULT_CONTEXT_SIZE, n_gpu_layers=ngl)
         log.info("Text backend configured: %s (ngl=%s mode=%s)",
                  server.model_path.name, ngl, _gpu_mode)
         return server
@@ -816,14 +822,147 @@ async def generate(req: GenerateRequest):
     )
 
 
+def _strip_md(text: str) -> str:
+    """Strip stray markdown asterisks the model emits despite instructions."""
+    return text.replace("*", "")
+
+
+async def _enrich_words(
+    words: list[str],
+    *,
+    definition_language: str,
+    examples_language: str,
+    term_language: str,
+    temperature: float,
+    context_size: int = DEFAULT_CONTEXT_SIZE,
+) -> tuple[list[dict], dict]:
+    """Enrich words in batches, then retry whatever came back unusable.
+
+    Shared by /enrich and the image pipeline so both get identical batching,
+    the same retry pass, and the same timing. It also means a failure reports
+    the same `not_found` warning in both places: previously the pipeline filled
+    failures with no warning at all, which the client cache then treated as a
+    good result and never retried.
+
+    The batch size comes from the context rather than a fixed number, so the
+    two cannot drift apart the way they did when the context was pinned to 1024
+    while the batch stayed at two words.
+
+    Returns the per-word dicts in input order, plus a summary of the stages.
+    """
+    empty = lambda w: {  # noqa: E731 - a one-line literal, not logic
+        "word": w, "definition": "", "examples": "",
+        "warning": "not_found", "corrected_word": "",
+    }
+
+    if not words or _text is None:
+        return [empty(w) for w in words], {}
+
+    batch_size = compute_batch_size(context_size)
+    batches = [words[i:i + batch_size] for i in range(0, len(words), batch_size)]
+    system = build_enrich_system(definition_language, examples_language, term_language)
+    stages = {
+        "batches": 0,
+        "retry_batches": 0,
+        "prompt_ms": 0,
+        "predicted_ms": 0,
+        "tokens_evaluated": 0,
+        "tokens_predicted": 0,
+    }
+
+    log.info(
+        "Enrichment: %d word(s) in %d batch(es) of up to %d (ctx=%d)",
+        len(words), len(batches), batch_size, context_size,
+    )
+
+    async def _run_batch(chunk: list[str], label: str):
+        """One generate call, with a single restart-and-retry on failure."""
+        prompt = build_enrich_prompt(
+            chunk, definition_language, examples_language, term_language,
+        )
+        timeout = compute_batch_timeout(len(chunk))
+        started = time.monotonic()
+        for attempt in range(2):
+            try:
+                result = await asyncio.to_thread(
+                    _text.generate,
+                    prompt=prompt,
+                    system=system,
+                    max_tokens=DEFAULT_ENRICH_TOKENS_PER_WORD * len(chunk),
+                    temperature=temperature,
+                    timeout=timeout,
+                )
+                timings = result.get("timings") or {}
+                stages["prompt_ms"] += int(timings.get("prompt_ms") or 0)
+                stages["predicted_ms"] += int(timings.get("predicted_ms") or 0)
+                stages["tokens_evaluated"] += int(result.get("tokens_evaluated") or 0)
+                stages["tokens_predicted"] += int(result.get("tokens_predicted") or 0)
+                log.info(
+                    "%s: %d word(s) wall=%.1fs prompt=%dms decode=%dms "
+                    "prompt_tokens=%d gen_tokens=%d",
+                    label, len(chunk), time.monotonic() - started,
+                    int(timings.get("prompt_ms") or 0),
+                    int(timings.get("predicted_ms") or 0),
+                    int(result.get("tokens_evaluated") or 0),
+                    int(result.get("tokens_predicted") or 0),
+                )
+                return parse_enrich_response(result["content"], chunk)
+            except Exception as exc:
+                if attempt == 0:
+                    log.warning("%s failed (%s); restarting text server", label, exc)
+                    try:
+                        _text.stop()
+                    except Exception:
+                        pass
+                    try:
+                        _ensure_text_server()
+                    except Exception as restart_err:
+                        log.error("Server restart failed: %s", restart_err)
+                else:
+                    log.error("%s failed after retry: %s", label, exc)
+        return None
+
+    all_parsed: list[dict] = []
+    for idx, batch in enumerate(batches, 1):
+        stages["batches"] += 1
+        parsed = await _run_batch(batch, f"enrich batch {idx}/{len(batches)}")
+        all_parsed.extend(parsed if parsed else [empty(w) for w in batch])
+
+    # Retry anything missing or cut off. Truncated definitions are retried too:
+    # a definition cut mid-sentence is not usable on a flashcard, and it is
+    # otherwise cached as a valid result and never revisited.
+    retryable = [p["word"] for p in all_parsed if p["warning"] in ("not_found", "truncated")]
+    if retryable:
+        log.info("Retrying %d word(s) after the first pass", len(retryable))
+        recovered_map: dict[str, dict] = {}
+        for idx in range(0, len(retryable), batch_size):
+            chunk = retryable[idx:idx + batch_size]
+            stages["retry_batches"] += 1
+            parsed = await _run_batch(chunk, f"enrich retry {idx // batch_size + 1}")
+            if not parsed:
+                continue
+            for entry in parsed:
+                if entry["definition"] and not entry["warning"]:
+                    recovered_map[entry["word"].lower()] = entry
+        recovered = 0
+        for i, entry in enumerate(all_parsed):
+            if entry["warning"] in ("not_found", "truncated"):
+                replacement = recovered_map.get(entry["word"].lower())
+                if replacement:
+                    all_parsed[i] = replacement
+                    recovered += 1
+        if recovered:
+            log.info("Retry recovered %d of %d word(s)", recovered, len(retryable))
+
+    return all_parsed, stages
+
+
 @app.post("/enrich", response_model=EnrichResponse, tags=["vocabulary"])
 async def enrich(req: EnrichRequest):
-    """
-    Enrich a list of vocabulary words with definitions and example sentences.
+    """Enrich a list of vocabulary words with definitions and example sentences.
 
-    Processes words in small batches (3 at a time) to keep each LLM call
-    short enough for the iGPU.  Each batch generates ~180 tokens instead
-    of ~1600 for 20 words, avoiding timeouts and keeping the model on-format.
+    Batching is derived from the configured context (see ``compute_batch_size``)
+    and words that come back unusable are retried once.
     """
     _ensure_text_server()
 
@@ -834,121 +973,14 @@ async def enrich(req: EnrichRequest):
     log.info("Enrichment: %d raw words → %d after cleanup", len(req.words), len(sanitized))
 
     t0 = time.monotonic()
-    all_parsed: list[dict] = []
-
-    batches = [
-        sanitized[i : i + DEFAULT_ENRICH_BATCH_SIZE]
-        for i in range(0, len(sanitized), DEFAULT_ENRICH_BATCH_SIZE)
-    ]
-
-    for batch_idx, batch in enumerate(batches, 1):
-        log.info(
-            "Enrichment batch %d/%d  (%d words: %s)",
-            batch_idx, len(batches), len(batch), ", ".join(batch),
-        )
-        prompt = build_enrich_prompt(
-            batch, req.definition_language, req.examples_language, req.term_language,
-        )
-        system = build_enrich_system(
-            req.definition_language, req.examples_language, req.term_language,
-        )
-        max_tok = DEFAULT_ENRICH_TOKENS_PER_WORD * len(batch)
-        # Timeout: iGPU needs ~200s prompt eval + ~200s/word generation.
-        # First batch may also include server restart overhead (~90s).
-        batch_timeout = 900
-
-        batch_parsed = None
-        for attempt in range(2):  # one retry on failure
-            try:
-                result = await asyncio.to_thread(
-                    _text.generate,
-                    prompt=prompt,
-                    system=system,
-                    max_tokens=max_tok,
-                    temperature=req.temperature,
-                    timeout=batch_timeout,
-                )
-                batch_parsed = parse_enrich_response(result["content"], batch)
-                break
-            except Exception as e:
-                if attempt == 0:
-                    log.warning(
-                        "Batch %d/%d failed (attempt 1: %s), restarting server...",
-                        batch_idx, len(batches), e,
-                    )
-                    # Server may have crashed / timed out — restart it
-                    try:
-                        _text.stop()
-                    except Exception:
-                        pass
-                    try:
-                        _ensure_text_server()
-                    except Exception as restart_err:
-                        log.error("Server restart failed: %s", restart_err)
-                else:
-                    log.error(
-                        "Batch %d/%d failed after retry: %s",
-                        batch_idx, len(batches), e,
-                    )
-
-        if batch_parsed:
-            all_parsed.extend(batch_parsed)
-        else:
-            # Fill with empty entries so we don't lose words
-            for w in batch:
-                all_parsed.append({"word": w, "definition": "", "examples": "", "warning": "not_found"})
-
-        log.info(
-            "Batch %d/%d done in %.1fs",
-            batch_idx, len(batches), time.monotonic() - t0,
-        )
-
-    # ── Retry not_found words in small batches ─────────────────────
-    not_found_words = [p["word"] for p in all_parsed if p["warning"] == "not_found"]
-    if not_found_words:
-        retry_list = not_found_words[:4]  # cap to 2 retry batches of 2
-        log.info(
-            "Retrying %d/%d not_found word(s): %s",
-            len(retry_list), len(not_found_words), ", ".join(retry_list),
-        )
-        retry_batches = [
-            retry_list[i : i + 2]
-            for i in range(0, len(retry_list), 2)
-        ]
-        retry_lookup: dict[str, dict] = {}
-        for rb_idx, rb in enumerate(retry_batches, 1):
-            prompt = build_enrich_prompt(
-                rb, req.definition_language, req.examples_language, req.term_language,
-            )
-            try:
-                result = await asyncio.to_thread(
-                    _text.generate,
-                    prompt=prompt,
-                    system=system,
-                    max_tokens=DEFAULT_ENRICH_TOKENS_PER_WORD * len(rb),
-                    temperature=req.temperature,
-                    timeout=batch_timeout,
-                )
-                rp = parse_enrich_response(result["content"], rb)
-                for entry in rp:
-                    if entry["definition"]:
-                        retry_lookup[entry["word"].lower()] = entry
-            except Exception as e:
-                log.warning("Retry batch %d failed: %s", rb_idx, e)
-
-        # Merge recovered words back.
-        recovered = 0
-        for i, p in enumerate(all_parsed):
-            replacement = retry_lookup.get(p["word"].lower())
-            if p["warning"] == "not_found" and replacement:
-                all_parsed[i] = replacement
-                recovered += 1
-        if recovered:
-            log.info("Retry recovered %d/%d word(s)", recovered, len(not_found_words))
-
-    # Final sanitisation: strip any stray asterisks the LLM may have emitted.
-    def _strip_md(s: str) -> str:
-        return s.replace("*", "")
+    parsed, stages = await _enrich_words(
+        sanitized,
+        definition_language=req.definition_language,
+        examples_language=req.examples_language,
+        term_language=req.term_language,
+        temperature=req.temperature,
+    )
+    elapsed = time.monotonic() - t0
 
     results = [
         EnrichWordResult(
@@ -958,13 +990,12 @@ async def enrich(req: EnrichRequest):
             warning=p.get("warning", ""),
             corrected_word=p.get("corrected_word", ""),
         )
-        for p in all_parsed
+        for p in parsed
     ]
 
-    elapsed = time.monotonic() - t0
     log.info(
-        "Enrichment complete: %d words in %d batches, %.1fs total",
-        len(sanitized), len(batches), elapsed,
+        "Enrichment complete: %d word(s) in %d batch(es) (+%d retry), %.1fs total",
+        len(sanitized), stages.get("batches", 0), stages.get("retry_batches", 0), elapsed,
     )
 
     return EnrichResponse(results=results, elapsed_s=round(elapsed, 2))
@@ -1022,37 +1053,26 @@ async def pipeline_image_to_cards(
         )
 
     # Step 3: Enrich (skip if text server unavailable)
-    cards: list[dict] = []
     capped = words[:20]
     if _text is not None and capped:
         _ensure_text_server()
-        batches = [
-            capped[i : i + DEFAULT_ENRICH_BATCH_SIZE]
-            for i in range(0, len(capped), DEFAULT_ENRICH_BATCH_SIZE)
-        ]
-        try:
-            for batch in batches:
-                prompt = build_enrich_prompt(batch, definition_language, examples_language, term_language)
-                sys_prompt = build_enrich_system(definition_language, examples_language, term_language)
-                max_tok = DEFAULT_ENRICH_TOKENS_PER_WORD * len(batch)
-                result = await asyncio.to_thread(
-                    _text.generate,
-                    prompt=prompt,
-                    system=sys_prompt,
-                    max_tokens=max_tok,
-                    temperature=0.1,
-                    timeout=len(batch) * 60 + 60,
-                )
-                cards.extend(parse_enrich_response(result["content"], batch))
-        except Exception as e:
-            log.warning("Batched enrichment failed: %s", e)
-            # Fill remaining words with empty entries
-            enriched = {c["word"].lower() for c in cards}
-            for w in capped:
-                if w.lower() not in enriched:
-                    cards.append({"word": w, "definition": "", "examples": ""})
+        cards, stages = await _enrich_words(
+            capped,
+            definition_language=definition_language,
+            examples_language=examples_language,
+            term_language=term_language,
+            temperature=0.1,
+        )
+        log.info(
+            "Pipeline enrichment: %d batch(es) (+%d retry)",
+            stages.get("batches", 0), stages.get("retry_batches", 0),
+        )
     else:
-        cards = [{"word": w, "definition": "", "examples": ""} for w in words]
+        cards = [
+            {"word": w, "definition": "", "examples": "",
+             "warning": "not_found", "corrected_word": ""}
+            for w in words
+        ]
 
     elapsed = round(time.monotonic() - t0, 2)
 
