@@ -84,11 +84,11 @@ _DEFAULT_MODEL = {
     "mmproj_file": "mmproj-gemma-4-e2b-f16.gguf",
     "model_url": (
         "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF"
-        "/resolve/main/gemma-4-E2B-it-Q4_0.gguf"
+        "/resolve/0314792d7f1f7e229411f620751375812bb9faf2/gemma-4-E2B-it-Q4_0.gguf"
     ),
     "mmproj_url": (
         "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF"
-        "/resolve/main/mmproj-F16.gguf"
+        "/resolve/0314792d7f1f7e229411f620751375812bb9faf2/mmproj-F16.gguf"
     ),
     "context_size": DEFAULT_CONTEXT_SIZE,
 }

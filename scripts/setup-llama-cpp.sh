@@ -24,8 +24,8 @@ MMPROJ_PATH="${MODELS_DIR}/${MMPROJ_FILE}"
 # Public direct-download URLs -- no authentication required.
 # Note the mmproj is saved under a name different from its URL path, matching
 # what the registry records, so the two stay interchangeable.
-MODEL_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_0.gguf"
-MMPROJ_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/mmproj-F16.gguf"
+MODEL_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/0314792d7f1f7e229411f620751375812bb9faf2/gemma-4-E2B-it-Q4_0.gguf"
+MMPROJ_URL="https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/0314792d7f1f7e229411f620751375812bb9faf2/mmproj-F16.gguf"
 
 echo "=== llama.cpp Gemma 4 E2B Setup (Fully Offline) ==="
 echo ""
