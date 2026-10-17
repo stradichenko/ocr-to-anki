@@ -35,7 +35,7 @@
 Cross-platform application for extracting vocabulary from images and creating
 [Anki](https://apps.ankiweb.net/) flashcards. Everything runs locally using
 [llama.cpp](https://github.com/ggerganov/llama.cpp) and the
-[Gemma 3 4B](https://ai.google.dev/gemma/docs/gemma3) model. No cloud
+[Gemma 4 E2B](https://huggingface.co/google/gemma-4-E2B-it) model. No cloud
 dependencies, no API keys, fully offline.
 
 Supports **Linux, macOS, Windows, and Android**.
@@ -50,7 +50,7 @@ enrichment through llama.cpp.
 | Python API | FastAPI, llama.cpp | Vision OCR and text enrichment backend |
 | Vision OCR | llama-mtmd-cli | Extract text from images (GPU accelerated) |
 | Text tasks | llama-server | Definitions, examples, vocabulary enrichment |
-| Model | Gemma 3 4B QAT Q4_0 (default) | User-switchable model registry |
+| Model | Gemma 4 E2B Q4_0 (default) | User-switchable model registry |
 
 <h3 align="center">
   <a href="https://github.com/stradichenko/ocr-to-anki/releases">Download</a>
@@ -64,7 +64,7 @@ enrichment through llama.cpp.
 On first launch the app will automatically download:
 
 1. **Python runtime** (~30 MB) — a portable copy, cached locally
-2. **AI model** (~3.2 GB) — Gemma 3 4B, one-time download
+2. **AI model** (~4 GB) — Gemma 4 E2B, one-time download
 
 The only system requirement is **GTK 3** on Linux.
 
@@ -103,9 +103,11 @@ and transfer it to your phone:
 On first run the app performs a one-time setup:
 
 1. **Extracts native binaries** — The bundled `llama-server` and
-   `llama-mtmd-cli` are copied to the app's private storage (~100 MB).
-2. **Downloads the AI model** — The default Gemma 3 4B model (~2.4 GB) and
-   vision projector (~812 MB) are downloaded directly to your device. Other
+   `llama-mtmd-cli` are shipped as Android native libraries and unpacked to the
+   app's native library directory (~100 MB), which is the only location on
+   Android that permits executing them.
+2. **Downloads the AI model** — The default Gemma 4 E2B model (~3.0 GB) and
+   vision projector (~986 MB) are downloaded directly to your device. Other
    models can be downloaded later from **Settings → AI Model**.
 
 > **WiFi is required for the model download** unless you disabled
@@ -242,8 +244,12 @@ flutter build apk --release
 ```
 
 The build script cross-compiles `llama-server` and `llama-mtmd-cli` for ARM64
-and bundles them as Flutter assets. On first launch the app copies them to the
-device's private storage and sets executable permissions.
+and drops them into `app/android/app/src/main/jniLibs/arm64-v8a/` as
+`libllama-server-<variant>.so` and `libllama-mtmd-cli-<variant>.so`, one pair per
+backend. Android extracts them to the app's native library directory on install;
+app-private storage is mounted noexec, so a copy placed there could not be run.
+That directory is resolved at runtime through a method channel rather than
+assumed.
 
 See [docs/building.md](docs/building.md) for macOS, Windows, and advanced build
 options.
@@ -252,15 +258,22 @@ options.
 
 | File | Size | Source |
 |------|------|--------|
-| gemma-3-4b-it-q4_0_s.gguf | ~2.4 GB | [stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small](https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small) |
-| mmproj-model-f16-4B.gguf | ~812 MB | [stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small](https://huggingface.co/stduhpf/google-gemma-3-4b-it-qat-q4_0-gguf-small) |
+| gemma-4-e2b-it-q4_0.gguf | ~3.0 GB | [unsloth/gemma-4-E2B-it-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF) |
+| mmproj-gemma-4-e2b-f16.gguf | ~986 MB | [unsloth/gemma-4-E2B-it-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF) |
 
-Both are downloaded by `./scripts/setup-llama-cpp.sh` via direct URL. No
-authentication required.
+The default model is Gemma 4 E2B, which `app/assets/models.json` also offers as
+the default on Android, so both platforms run the same thing. Gemma 3 4B remains
+selectable as a fallback.
 
-Quantization-Aware Training (QAT) produces roughly 15% better perplexity than
-standard post-training Q4_0 quantization at the same size. The stduhpf repack
-also fixes broken control token metadata.
+Both files are downloaded by `./scripts/setup-llama-cpp.sh` via direct URL. No
+authentication required. The URLs are pinned to a specific revision rather than
+to `main`, because the registry records a size and checksum for each file and
+verifies them on Android at startup: an upstream re-upload under a floating
+revision would invalidate those and leave the app re-downloading in a loop.
+Run `python3 scripts/verify-model-registry.py` after changing them.
+
+Gemma 4 ships under Apache-2.0, unlike Gemma 3, whose custom terms require the
+use restrictions to be passed on to every downstream user.
 
 ## Getting Started
 
@@ -272,7 +285,7 @@ also fixes broken control token metadata.
    - **Desktop:** drag and drop, or use the file picker
    - **Android:** tap **Camera** to take a photo, or **Gallery** to pick
      existing photos (multi-select supported)
-3. Vision OCR: Gemma 3 extracts words from the image
+3. Vision OCR: the local model extracts words from the image
 4. Enrich: the LLM generates definitions and example sentences
 5. Review: edit the generated cards before export
 6. Export:
@@ -369,21 +382,30 @@ nix develop .#sycl
 ./scripts/build-llama-mtmd-vulkan.sh
 ```
 
-Auto-detection picks the best available backend: CUDA, Metal, OpenCL, Vulkan,
-then CPU.
+Auto-detection picks the best available backend, in this order: CUDA, Metal,
+Vulkan, OpenCL, SYCL, then CPU. Note that Vulkan is preferred over OpenCL,
+which is the reverse of what earlier revisions of this file said; the code in
+`src/backends/auto_detect.py` is the authority.
 
 ### Intel iGPU: OpenCL vs Vulkan
 
-| Backend | Vision encoder | Encode time | Text gen | Binary |
-|---------|---------------|-------------|----------|--------|
-| OpenCL | correct | ~2 min (GPU) | 4.1 tok/s | llama-mtmd-cli-opencl |
-| Vulkan | corrupted | 0.4s (garbage) | 3.6 tok/s | llama-mtmd-cli |
-| CPU | correct | ~43 min | 0.7 tok/s | any binary with --no-mmproj-offload |
+Measured on UHD Graphics CML GT2 (Gen9.5) with this app's own preprocessing, a
+handwritten page downscaled to 768px:
 
-OpenCL is roughly 20x faster than CPU vision and produces correct output. It
-requires a one-line patch for Intel work group sizes, applied automatically by
-the build script. See
-[patches/opencl-intel-workgroup-fix.patch](patches/opencl-intel-workgroup-fix.patch).
+| Backend | Vision encoder | Encode time | Notes |
+|---------|---------------|-------------|-------|
+| Vulkan, current runtime | correct | 3.5-12.5 s | llama.cpp b11577 with Gemma 4; the range is the image token budget, 70 to 560 |
+| OpenCL, earlier runtime | correct | ~104 s | the figure this project recorded with Gemma 3 and an older llama.cpp |
+| CPU | correct | minutes | workable only for a handful of images |
+
+The Vulkan corruption this file used to warn about does not reproduce on the
+current runtime with Gemma 4: the same handwritten page transcribes correctly,
+reproducing the word list the older OpenCL build produced. Gemma 4 also uses a
+different vision tower from the SigLIP encoder the old workaround was written
+for, so this is not proof that the SigLIP bug is fixed, only that the shipping
+combination works. The OpenCL build is still worth keeping for hardware where
+Vulkan misbehaves; the prebuilt Linux release has no OpenCL asset, so that path
+requires the build scripts under `scripts/`.
 
 <details>
 <summary>Vulkan corruption details</summary>
@@ -447,7 +469,7 @@ system UI. Camera access is handled automatically by the `image_picker` plugin.
 
 ### Model Download
 
-The first time you launch the Android app, it downloads the default Gemma 3 4B
+The first time you launch the Android app, it downloads the default Gemma 4 E2B
 model (~2.4 GB) and vision projector (~812 MB) directly to the app's private
 storage. Downloads support resume, so if interrupted they will continue from
 where they left off. Additional models can be downloaded and switched between
@@ -466,7 +488,8 @@ app/                        Flutter GUI application
   android/                  Android platform files
     app/src/main/
       AndroidManifest.xml   Permissions (camera, storage, internet)
-      assets/               Bundled native llama.cpp binaries (ARM64)
+      jniLibs/arm64-v8a/    Bundled native llama.cpp binaries (ARM64),
+                            generated by scripts/build-llama-android.sh
   lib/
     main.dart               Entry point and routing
     models/                 Data models (AnkiNote, AppSettings, HighlightColor)

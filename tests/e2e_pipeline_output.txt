@@ -1,0 +1,103 @@
+End-to-end pipeline run
+======================
+
+Produced by tests/e2e_pipeline.py, which starts the real FastAPI app, posts one
+image to /pipeline/image-to-cards, and reports what came back.
+
+Conditions:
+  host     gary, Intel UHD Graphics CML GT2 (Gen9.5), the project's target
+  runtime  llama.cpp b11577, Vulkan backend, the asset the Linux build downloads
+  model    gemma-4-e2b-it-q4_0.gguf + mmproj, context 8192
+  image    a handwritten French vocabulary page, downscaled to 768px as the app does
+
+This is the only check in the repository that runs the pieces together. Two
+faults were found by it that no component test could have caught, both fixed
+and both verified by the run recorded here:
+
+  1. The pipeline split OCR output on newlines, but the model transcribes what
+     it sees, so a page whose entries are comma-separated came back
+     comma-separated and each line became one card holding three words.
+     Eleven mis-grouped items are now twenty-eight individual words.
+  2. The vision generation budget was 512 tokens. On this page the model's
+     reasoning ran past it, the channel never closed, and the OCR returned
+     nothing at all. Raised to 1024.
+
+=== health ===
+  status            : ok
+  backend           : cpu
+  model             : gemma-4-e2b-it-q4_0.gguf
+  context_size      : 8192
+  enrich_batch_size : 8
+  image_max_tokens  : 280
+
+=== timing ===
+  ocr            : 175.7s
+  enrich         : 260.61s
+  total          : 562.73s
+  batches        : 3 (+0 retry), size 8
+  prompt ms      : 56566
+  decode ms      : 203983
+  tokens in/out  : 1008 / 1028
+
+=== OCR text as returned ===
+  côta
+  l'amont, l'aval,
+  proies, repère, pencha,
+  vaine, l'ecorce,
+  bouleaux, tantôt, poils,
+  assaillant, venimeuses,
+  songons, échelle, paie
+  ramenant, fondie, approfondie,
+  octroient, taint, pôle, ode
+  sols, baladait, saisissaient,
+  d'épaisreur, pochoirs
+
+=== cards (20) ===
+   1. côta
+      A limit or boundary; a restriction.
+   2. l'amont [untranslated]
+      The upstream part of a river or stream.
+   3. l'aval [untranslated]
+      The downstream part of a river or stream.
+   4. proies [untranslated]
+      Prey; an animal that is hunted and killed by another.
+   5. repère [untranslated]
+      A landmark or a sign used to identify a place.
+   6. pencha [untranslated]
+      A slope or incline; a steep surface.
+   7. vaine [untranslated]
+      Futile or in vain; useless or pointless.
+   8. l'ecorce [untranslated]
+      The outer layer or rind of something.
+   9. bouleaux [untranslated]
+      Plural of bouleau, a type of small, round stone or pebble.
+  10. tantôt
+      At one time; sometimes.
+  11. poils [untranslated]
+      Hair or hair-like filaments covering the skin or fur of an animal.
+  12. assaillant [untranslated]
+      Attacking or aggressive; striving to attack or seize.
+  13. venimeuses [untranslated]
+      Poisonous or venomous.
+  14. songons [untranslated]
+      A type of coarse, thick yarn or thread.
+  15. échelle [untranslated]
+      A set of steps or a ladder used for climbing.
+  16. paie [untranslated]
+      Payment made in exchange for work done or goods delivered.
+  17. ramenant [untranslated]
+      Relating to a line or a sequence of things.
+  18. fondie [untranslated]
+      A type of chocolate confectionery, often soft and sweet.
+  19. approfondie [untranslated]
+      Deepened or made deeper.
+  20. octroient [untranslated]
+      A grant of rights or privileges.
+
+  cards with a definition: 20/20
+
+Known, not fixed here: the pipeline takes the first twenty words and drops the
+rest without saying so. This page yields twenty-eight, so eight never reach a
+card. And most cards carry an 'untranslated' warning because the model writes
+English example sentences with the source word left inside them, which the
+warning is correctly pointing at.

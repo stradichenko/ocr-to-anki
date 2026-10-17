@@ -51,7 +51,16 @@ def strip_reasoning_channel(text: str) -> str:
     if "<channel|>" in text:
         return text.split("<channel|>", 1)[1].strip()
     if _REASONING_OPEN_RE.search(text):
-        # Opened the channel and never closed it, so no answer was produced.
+        # Opened the channel and never closed it. That means generation stopped
+        # before the model got to its answer, which in practice is the output
+        # budget running out during the narration. Saying so beats returning an
+        # empty string that looks like a blank image.
+        log.warning(
+            "Vision output contained an unclosed reasoning channel "
+            "(%d chars), so no transcription was produced. The generation "
+            "budget is likely too small for this image.",
+            len(text),
+        )
         return ""
     return text.strip()
 
@@ -121,7 +130,12 @@ class LlamaMtmdCli:
         temp: float = 0.1,
         top_k: int = 40,
         top_p: float = 0.9,
-        max_tokens: int = 512,
+        # Generation budget for one image. This was 512, which is not enough
+        # once the model narrates: on a dense handwritten page the reasoning
+        # ran past 512 tokens, the channel never closed, and the OCR returned
+        # nothing at all. A failed transcription is worse than a slow one, so
+        # the budget is set to cover the narration plus the words.
+        max_tokens: int = 1024,
         mmproj_offload: Optional[bool] = None,
         image_min_tokens: Optional[int] = None,
         image_max_tokens: Optional[int] = None,
@@ -354,6 +368,12 @@ class LlamaMtmdCli:
         # With --jinja the prompt is NOT echoed, so stdout is clean apart from
         # any reasoning channel, which is stripped here.
         text = strip_reasoning_channel(stdout)
+        if not text and stdout.strip():
+            log.warning(
+                "Vision produced no transcription for %s. Raw output was %d "
+                "chars; see the reasoning-channel warning above.",
+                image_path, len(stdout),
+            )
         backend = self.detection.recommended_backend.value if self.detection else "unknown"
 
         # Parse timings from stderr for diagnostics

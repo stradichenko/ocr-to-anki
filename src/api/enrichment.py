@@ -299,6 +299,29 @@ def parse_enrich_response(text: str, words: list[str]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+# Separators that appear inside a line of transcribed text. A photographed
+# vocabulary list often has several entries per line, and the vision model
+# transcribes it as it sees it, so a line is not the same thing as a word.
+_WORD_SEPARATORS_RE = re.compile(r"[,\u3001;\uff1b|/\t]+")
+
+
+def split_ocr_words(text: str) -> list[str]:
+    """Split transcribed text into individual vocabulary words.
+
+    Splitting on newlines alone is not enough. The vision model is asked for
+    one word per line but transcribes what it sees, so a page whose entries are
+    comma-separated comes back comma-separated and each line becomes a single
+    flashcard holding several words.
+    """
+    words: list[str] = []
+    for line in (text or "").splitlines():
+        for part in _WORD_SEPARATORS_RE.split(line):
+            part = part.strip().strip("-\u2022\u00b7*#>").strip()
+            if part:
+                words.append(part)
+    return words
+
+
 def sanitize_words(raw: list[str]) -> list[str]:
     """Clean OCR artefacts from a word list before enrichment."""
     cleaned: list[str] = []

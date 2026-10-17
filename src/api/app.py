@@ -54,6 +54,7 @@ from api.enrichment import (
     compute_batch_timeout,
     parse_enrich_response,
     sanitize_words,
+    split_ocr_words,
 )
 from backends.auto_detect import detect, Backend, find_binary, llama_bin_cache
 from backends.mtmd_cli import LlamaMtmdCli
@@ -70,10 +71,13 @@ DEFAULT_CONTEXT_SIZE = 8192
 
 # Vision token budget per image. The projector's own default on the models this
 # app ships is 1120, which is a lot of encoder work for an image the app has
-# already downscaled to 768px. Measured on the target iGPU, capping it at 280
-# cut the encode from 12.5 s to 7.6 s with identical output on the test page;
-# 70 halves it again but starts costing recognised words. 280 is the
-# conservative end of a real gain, and a request can override it.
+# already downscaled to 768px.
+#
+# Measured on the target iGPU with the app's own preprocessing: the encode takes
+# 12.5 s at a budget of 560 and 3.5 s at 70, with identical output on the test
+# page. 280 is chosen to sit between them rather than at the fastest end, since
+# the point where recognised words start being lost was only roughly located.
+# A request can override it.
 DEFAULT_IMAGE_MAX_TOKENS = 280
 
 # GGUF architectures the pinned llama.cpp can load. This exists because the
@@ -257,6 +261,10 @@ def _init_vision() -> Optional[LlamaMtmdCli]:
         # in 'gpu' mode we force -1 to override that safety net.
         force_gpu = _gpu_mode == "gpu"
         cli = LlamaMtmdCli(
+            # Pinned by an environment variable so a test or a benchmark can
+            # choose a specific build rather than whichever one discovery
+            # happens to prefer.
+            binary_path=os.getenv("OCR_TO_ANKI_VISION_BINARY") or None,
             # Explicit paths from the active descriptor, so neither backend
             # falls back to its own built-in default model.
             model_path=str(_model_path("model")),
@@ -284,6 +292,7 @@ def _init_text() -> Optional[LlamaCppServer]:
     try:
         ngl = _ngl_for_mode()
         server = LlamaCppServer(
+            binary_path=os.getenv("OCR_TO_ANKI_TEXT_BINARY") or None,
             model_path=str(_model_path("model")),
             mmproj_path=str(_model_path("mmproj")),
             context_size=_active_model["context_size"],
@@ -933,13 +942,26 @@ async def ocr_vision_upload(
 # Text generation & enrichment
 # -------------------------------------------------------------------
 
+# How long to allow the text server to load its model.
+#
+# This was 90s, which is fine from a local SSD but not when the weights sit on
+# a network share: a 3 GB model over NFS plus an 8192-token context exceeded it,
+# and the server was declared dead while it was still loading. The pipeline
+# stops the text server before vision to free the integrated GPU and restarts
+# it afterwards, so this timeout is on the normal path rather than a rare one.
+TEXT_SERVER_START_TIMEOUT_S = 300
+
+
 def _ensure_text_server():
     """Lazily start the text server on first use."""
     if _text is None:
         raise HTTPException(503, "Text backend not available")
     if not _text.is_running():
-        log.info("Starting llama-server on first text request...")
-        _text.start(wait_ready=True, timeout=90)
+        log.info(
+            "Starting llama-server (allowing %ds to load the model)...",
+            TEXT_SERVER_START_TIMEOUT_S,
+        )
+        _text.start(wait_ready=True, timeout=TEXT_SERVER_START_TIMEOUT_S)
 
 
 @app.post("/generate", response_model=GenerateResponse, tags=["text"])
@@ -1191,9 +1213,13 @@ async def pipeline_image_to_cards(
 
     ocr_text = ocr_resp.text
 
-    # Step 2: Parse words from OCR output
-    words = [w.strip().strip("-•·") for w in ocr_text.splitlines() if w.strip()]
-    words = [w for w in words if len(w) > 1]  # filter noise
+    # Step 2: Parse words from OCR output.
+    #
+    # Splitting on newlines alone is not enough: the model is asked for one word
+    # per line but transcribes what it sees, so a page of comma-separated
+    # entries comes back comma-separated and each line becomes one card holding
+    # several words.
+    words = [w for w in split_ocr_words(ocr_text) if len(w) > 1]  # filter noise
 
     if not words:
         return PipelineImageToCardsResponse(

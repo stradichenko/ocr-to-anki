@@ -7,7 +7,11 @@ word must not cause the remaining words to receive each other's definitions.
 
 import pytest
 
-from api.enrichment import parse_enrich_response
+from api.enrichment import (
+    parse_enrich_response,
+    sanitize_words,
+    split_ocr_words,
+)
 
 
 def _block(word, definition, ex1, ex2=None):
@@ -180,3 +184,53 @@ class TestRobustness:
         text = _block("uno", "One.", "Uno mas.", None)
         for words in (["uno"], ["uno", "dos"], ["uno", "dos", "tres"]):
             assert len(parse_enrich_response(text, words)) == len(words)
+
+class TestSplitOcrWords:
+    """Turning transcribed text into vocabulary words.
+
+    Found by running an image through the real pipeline: the vision model is
+    asked for one word per line but transcribes what it sees, so a page whose
+    entries are comma-separated came back comma-separated and each line became
+    a single flashcard holding three words. Splitting on newlines was the bug.
+    """
+
+    def test_one_word_per_line(self):
+        assert split_ocr_words("casa\nperro\ngato") == ["casa", "perro", "gato"]
+
+    def test_comma_separated_line_becomes_separate_words(self):
+        assert split_ocr_words("proies, repère, pencha,") == [
+            "proies", "repère", "pencha",
+        ]
+
+    def test_the_real_failure_that_prompted_this(self):
+        text = "côta\nl'amont, l'aval,\nproies, repère, pencha,"
+        assert split_ocr_words(text) == [
+            "côta", "l'amont", "l'aval", "proies", "repère", "pencha",
+        ]
+
+    def test_bullets_are_stripped_in_the_splitter(self):
+        assert split_ocr_words("- casa\n- perro") == ["casa", "perro"]
+        assert split_ocr_words("* casa") == ["casa"]
+
+    def test_numbering_is_left_to_sanitize_words(self):
+        """Splitting and cleaning are separate steps, and the pipeline runs
+        both. Asserting the pair is what actually happens."""
+        assert split_ocr_words("2. perro") == ["2. perro"]
+        assert sanitize_words(split_ocr_words("2. perro\n- casa")) == [
+            "perro", "casa",
+        ]
+
+    def test_other_separators(self):
+        assert split_ocr_words("one; two") == ["one", "two"]
+        assert split_ocr_words("one\ttwo") == ["one", "two"]
+
+    def test_empty_and_whitespace(self):
+        assert split_ocr_words("") == []
+        assert split_ocr_words("\n\n  \n") == []
+
+    def test_trailing_punctuation_does_not_create_empty_words(self):
+        assert split_ocr_words("casa,,perro,") == ["casa", "perro"]
+
+    def test_accented_and_cjk_entries_survive(self):
+        assert split_ocr_words("探す, 静か") == ["探す", "静か"]
+        assert split_ocr_words("café, fenêtre") == ["café", "fenêtre"]
