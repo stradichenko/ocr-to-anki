@@ -1,0 +1,137 @@
+End-to-end pipeline run, after the fixes
+========================================
+
+Produced by tests/e2e_pipeline.py against the real backend.
+Same conditions as the earlier run: gary, Intel Gen9.5, llama.cpp b11577 on
+Vulkan, gemma-4-e2b, one handwritten French vocabulary page downscaled to 768px.
+
+What changed since the first run, and what this run shows:
+
+  Word splitting. The OCR text is transcribed as the page is written, so its
+  entries arrive comma-separated. Splitting on newlines made one card out of
+  three words. Now 28 individual words are enriched instead of 11.
+
+  Truncation. The pipeline took the first 20 words and said nothing about the
+  rest. The bound is now 40 and named, and a page longer than it says so in
+  the response rather than letting the missing cards look like a read failure.
+
+  Example sentences. The model was writing English sentences with the source
+  word left inside them ('The assaillant force attacked'), which the
+  untranslated warning then flagged on almost every card. The prompt now
+  requires the examples to read naturally on their own. In this run 0 of the
+  sampled examples contain their source word, and only one card carries any
+  warning at all.
+
+  Vision budget. Raised from 512 tokens, which the model's own narration could
+  exhaust before emitting any transcription.
+
+  Server startup. Raised from 90 s. The log for this run records the model
+  taking 172.2 s to load, so the old timeout could not have been met.
+
+=== health ===
+  status            : ok
+  backend           : cpu
+  model             : gemma-4-e2b-it-q4_0.gguf
+  context_size      : 8192
+  enrich_batch_size : 8
+  image_max_tokens  : 280
+
+=== timing ===
+  ocr            : 319.29s
+  enrich         : 482.38s
+  total          : 974.17s
+
+  Note: 172 s of the OCR figure is the text server loading its model from
+  the network share, not inference. The pipeline stops that server before
+  vision to free the integrated GPU and restarts it afterwards, so the load
+  is paid on every image. Local model storage would remove it.
+
+=== enrichment stages ===
+  batches        : 4 (+3 retry), size 8
+  prompt ms      : 144156
+  decode ms      : 338136
+  tokens in/out  : 2654 / 1612
+
+=== warnings ===
+  not_found    1
+  ok           27
+
+=== cards ===
+   1. côta
+      A limit or boundary.
+   2. l'amont
+      The upstream part of a river or stream.
+   3. l'aval
+      The downstream part of a river or stream.
+   4. proies
+      Prey; an animal hunted and pursued by another for food.
+   5. repère
+      A landmark or a sign used to identify a place.
+   6. pencha
+      A steep slope or incline.
+   7. vaine
+      Futile or useless.
+   8. l'ecorce
+      The outer layer of a hard-shelled creature.
+   9. bouleaux
+      Payment received for work done or services rendered.
+  10. tantôt
+      At one time; sometimes.
+  11. poils
+      Hair or hair-like filaments covering a surface.
+  12. assaillant
+      Attacking or aggressive.
+  13. venimeuses
+      Poisonous or malicious.
+  14. songons
+      A type of woven material, often made from plant fibers.
+  15. échelle
+      A set of steps or a ladder used for climbing.
+  16. paie
+      Payment given in exchange for work done.
+  17. ramenant
+      Relating to or characteristic of a line.
+  18. fondie
+      A type of chocolate that is melted and poured over something.
+  19. approfondie
+      Deepened or made more profound.
+  20. octroient
+      Plural of octroi, meaning a right or privilege granted by a government.
+  21. taint
+      A stain or blemish, especially one that is morally offensive.
+  22. pôle
+      A central point or focus; a position of importance.
+  23. aide
+      Help or assistance given to someone.
+  24. sols
+      The ground or surface on which something rests or occurs.
+  25. baladait
+      Was singing or playing a slow song.
+  26. saisissaient
+      Past tense of saisir, meaning to seize or grasp.
+  27. d'épaisreur
+      Of a thick or heavy nature.
+  28. pochoirs [not_found]
+      
+
+=== a sample of the examples, checked for the source word ===
+  [clean] côta
+      The fence sets a clear boundary for the garden. | We need to establish a certain limit for the proje
+  [clean] l'amont
+      The water flows from the upper part of the waterway. | We are studying the source area of the curren
+  [clean] l'aval
+      The water continues past the lower section of the channel. | Pollution is visible in the lower reach
+  [clean] proies
+      The hunter successfully caught the wild animal. | The small creature was hunted by a larger predator
+  [clean] repère
+      The unique building served as a recognizable marker. | We used a prominent feature to locate our pos
+  [clean] pencha
+      The mountain side presented a very steep gradient. | Climbing up the hill required great effort.
+
+  cards with a definition: 27/28
+  sampled examples containing their source word: 0 of 6
+
+The cost of the quality fix, stated plainly: this run took 974 s against 563 s
+for the earlier one. Two reasons, both real. It now enriches 28 words rather
+than 20, and 17 of them needed a retry because the first pass returned them cut
+off or missing. The retry pass is what turns that into 27 usable cards.

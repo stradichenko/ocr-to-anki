@@ -8,6 +8,8 @@ word must not cause the remaining words to receive each other's definitions.
 import pytest
 
 from api.enrichment import (
+    build_enrich_prompt,
+    build_enrich_system,
     parse_enrich_response,
     sanitize_words,
     split_ocr_words,
@@ -234,3 +236,26 @@ class TestSplitOcrWords:
     def test_accented_and_cjk_entries_survive(self):
         assert split_ocr_words("探す, 静か") == ["探す", "静か"]
         assert split_ocr_words("café, fenêtre") == ["café", "fenêtre"]
+
+
+class TestPromptDiscouragesMixedLanguageExamples:
+    """Found by running the pipeline: the model was writing English example
+    sentences with the source word left inside them, which the untranslated
+    warning then flagged on nearly every card."""
+
+    def test_user_prompt_forbids_the_word_in_the_examples(self):
+        p = build_enrich_prompt(["assaillant"], "english", "english", "french")
+        lowered = p.lower()
+        assert "must not" in lowered
+        assert "the original word" in lowered
+
+    def test_system_prompt_says_the_examples_are_one_language(self):
+        s = build_enrich_system("english", "english", "french")
+        assert "entirely in english" in s.lower()
+        assert "without the original word" in s.lower()
+
+    def test_the_instruction_follows_the_requested_language(self):
+        p = build_enrich_prompt(["casa"], "german", "german", "spanish")
+        assert "naturally in german" in p.lower()
+        s = build_enrich_system("german", "german", "spanish")
+        assert "entirely in german" in s.lower()

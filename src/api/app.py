@@ -80,6 +80,15 @@ DEFAULT_CONTEXT_SIZE = 8192
 # A request can override it.
 DEFAULT_IMAGE_MAX_TOKENS = 280
 
+# Most words one image is enriched for.
+#
+# Enrichment is the slow half of the pipeline, so the number of words bounds
+# the time a single request can take. The bound is deliberate; the silent part
+# was not. A page of twenty-eight vocabulary words used to yield twenty cards
+# and say nothing about the other eight, which reads as an OCR failure rather
+# than a limit.
+MAX_PIPELINE_WORDS = 40
+
 # GGUF architectures the pinned llama.cpp can load. This exists because the
 # pinned runtime once predated the default model's architecture: the app
 # downloaded three gigabytes and only then failed with "unknown model
@@ -1232,7 +1241,13 @@ async def pipeline_image_to_cards(
         )
 
     # Step 3: Enrich (skip if text server unavailable)
-    capped = words[:20]
+    dropped = max(0, len(words) - MAX_PIPELINE_WORDS)
+    capped = words[:MAX_PIPELINE_WORDS]
+    truncation_notice = (
+        f"Only the first {MAX_PIPELINE_WORDS} of {len(words)} words were "
+        f"enriched; {dropped} were left out."
+        if dropped else ""
+    )
     enrich_elapsed = 0.0
     stages: dict = {}
     if _text is not None and capped:
@@ -1279,4 +1294,7 @@ async def pipeline_image_to_cards(
         stages=EnrichStages(**stages),
         cards=results,
         total_elapsed_s=elapsed,
+        # Says so when the page had more words than the pipeline enriches,
+        # rather than letting the missing cards look like a reading failure.
+        message=truncation_notice,
     )

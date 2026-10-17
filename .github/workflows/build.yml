@@ -268,7 +268,11 @@ jobs:
           distribution: 'temurin'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        # v3 asks sdkmanager for the 'tools' package, which the Android SDK
+        # repository no longer publishes, so the step dies with
+        # "Failed to find package 'tools'" before anything is built. v4 does
+        # not, and takes no arguments here either way.
+        uses: android-actions/setup-android@v4
 
       - name: Install Android NDK
         run: |

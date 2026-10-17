@@ -100,6 +100,12 @@ def build_enrich_prompt(
         f"For each word, give a definition in {def_lang} and 2 example sentences in {ex_lang}.\n"
         f"WORD: must contain the EXACT original word, unchanged. Do NOT translate, correct, or modify it.\n"
         f"No asterisks, no bold, no markdown. Plain text only.\n\n"
+        # Without this the model writes {ex_lang} sentences with the source
+        # word left inside them, which reads as a half-finished translation
+        # ("The assaillant force attacked") rather than an example a learner can
+        # use. The English sentence has to stand on its own.
+        f"Each {ex_lang} sentence must read naturally in {ex_lang} and must NOT "
+        f"contain the original word or a form of it. Do not mix the two languages.\n\n"
         f"If unrecognizable, write DEF: UNKNOWN and skip examples.\n\n"
         f"Format (labels must be in English):\n"
         f"WORD: <original word, unchanged>\n"
@@ -132,6 +138,8 @@ def build_enrich_system(
         f"{def_lang} and two example sentences in {ex_lang}. "
         f"The WORD: line must contain the EXACT original word, unchanged. "
         f"Do NOT translate, correct, or replace the word itself. "
+        f"Write the example sentences entirely in {ex_lang}, without the "
+        f"original word appearing in them. "
         f"No markdown, no asterisks. "
         f"Use labels: WORD:, DEF:, EX1:, EX2:."
     )
