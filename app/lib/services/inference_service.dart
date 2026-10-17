@@ -253,6 +253,9 @@ class InferenceService {
               'image_base64': b64,
               'prompt': prompt,
               'timeout': timeoutSeconds,
+              // 0 tells the server to use its own default, which is the
+              // tuned value rather than the projector's much larger one.
+              'image_max_tokens': _settings.imageMaxTokens,
             }),
           )
           .timeout(Duration(seconds: timeoutSeconds + 30));

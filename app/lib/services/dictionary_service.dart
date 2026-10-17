@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:sqlite3/sqlite3.dart';
 
 import '../models/dictionary_info.dart';
@@ -92,8 +90,10 @@ class DictionaryService {
   Future<Database?> _open(DictionaryInfo info) async {
     if (_db != null && _openFor == info.id) return _db;
 
-    final path = await _registry.dictionaryPath(info);
-    if (!await File(path).exists()) return null;
+    // A bundled index is copied into app storage on first use, since SQLite
+    // needs a real file and on Android assets live inside the APK.
+    final path = await _registry.ensureInstalled(info);
+    if (path == null) return null;
 
     close();
     try {

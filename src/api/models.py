@@ -45,6 +45,14 @@ class VisionOCRRequest(BaseModel):
             "Reduces vision tokens and speeds up prompt eval.  0 = no limit."
         ),
     )
+    image_max_tokens: int = Field(
+        default=0, ge=0, le=8192,
+        description=(
+            "Cap on the vision tokens each image may take. The encoder's work "
+            "scales with this, so it is the main lever on OCR latency. "
+            "0 = use the server default."
+        ),
+    )
 
 
 class EnrichRequest(BaseModel):
@@ -136,6 +144,7 @@ class HealthResponse(BaseModel):
     gpu_mode: str = "auto"
     context_size: int = 0
     enrich_batch_size: int = 0
+    image_max_tokens: int = 0
 
 
 class PipelineImageToCardsResponse(BaseModel):

@@ -68,6 +68,14 @@ log = logging.getLogger(__name__)
 # enrichment at two words per call.
 DEFAULT_CONTEXT_SIZE = 8192
 
+# Vision token budget per image. The projector's own default on the models this
+# app ships is 1120, which is a lot of encoder work for an image the app has
+# already downscaled to 768px. Measured on the target iGPU, capping it at 280
+# cut the encode from 12.5 s to 7.6 s with identical output on the test page;
+# 70 halves it again but starts costing recognised words. 280 is the
+# conservative end of a real gain, and a request can override it.
+DEFAULT_IMAGE_MAX_TOKENS = 280
+
 # GGUF architectures the pinned llama.cpp can load. This exists because the
 # pinned runtime once predated the default model's architecture: the app
 # downloaded three gigabytes and only then failed with "unknown model
@@ -254,6 +262,7 @@ def _init_vision() -> Optional[LlamaMtmdCli]:
             model_path=str(_model_path("model")),
             mmproj_path=str(_model_path("mmproj")),
             ctx_size=_active_model["context_size"],
+            image_max_tokens=DEFAULT_IMAGE_MAX_TOKENS,
             n_gpu_layers=ngl,
             mmproj_offload=True if force_gpu else None,
         )
@@ -386,6 +395,7 @@ async def health():
         enrich_batch_size=compute_batch_size(
             _text.context_size if _text else DEFAULT_CONTEXT_SIZE
         ),
+        image_max_tokens=DEFAULT_IMAGE_MAX_TOKENS,
         devices=[
             {"name": d.name, "backend": d.backend.value}
             for d in (_detection.devices if _detection else [])
@@ -801,6 +811,7 @@ async def _run_vision_ocr(
     timeout: int,
     suffix: str = ".jpg",
     max_image_dim: int = 0,
+    image_max_tokens: Optional[int] = None,
 ) -> VisionOCRResponse:
     """Shared helper: downscale, hash, serialize, pause text server, run vision OCR.
 
@@ -837,6 +848,7 @@ async def _run_vision_ocr(
                     image_path=tmp_path,
                     prompt=prompt,
                     timeout=timeout,
+                    image_max_tokens=image_max_tokens,
                 )
             except TimeoutError:
                 raise HTTPException(504, f"Vision OCR timed out after {timeout}s")
@@ -876,6 +888,8 @@ async def ocr_vision(req: VisionOCRRequest):
         timeout=req.timeout,
         suffix=".jpg",
         max_image_dim=req.max_image_dim,
+        # 0 means "use the server default" rather than "no tokens".
+        image_max_tokens=req.image_max_tokens or None,
     )
 
 

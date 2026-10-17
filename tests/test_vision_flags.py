@@ -174,3 +174,29 @@ class TestStripReasoningChannel:
         assert strip_reasoning_channel(raw).splitlines() == [
             "cota", "l'amont, l'aval,", "bouleaux",
         ]
+
+
+class TestPerCallOverride:
+    """A single request can change the budget without rebuilding the backend.
+
+    The backend is built once at startup, so without an override the token
+    budget could only be changed by restarting it.
+    """
+
+    def test_override_replaces_the_instance_value(self):
+        cli = _cli(image_max_tokens=1120)
+        cmd = cli._build_cmd("/tmp/i.png", "p", image_max_tokens=280)
+        assert cmd[cmd.index("--image-max-tokens") + 1] == "280"
+
+    def test_override_does_not_mutate_the_instance(self):
+        cli = _cli(image_max_tokens=1120)
+        cli._build_cmd("/tmp/i.png", "p", image_max_tokens=280)
+        assert cli.image_max_tokens == 1120
+
+    def test_no_override_uses_the_instance_value(self):
+        cmd = _cmd(image_max_tokens=560)
+        assert cmd[cmd.index("--image-max-tokens") + 1] == "560"
+
+    def test_zero_override_is_honoured_not_treated_as_absent(self):
+        cmd = _cli(image_max_tokens=1120)._build_cmd("/tmp/i.png", "p", image_max_tokens=0)
+        assert cmd[cmd.index("--image-max-tokens") + 1] == "0"

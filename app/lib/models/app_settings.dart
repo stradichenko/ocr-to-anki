@@ -29,6 +29,7 @@ class AppSettings {
     this.temperature = 0.1,
     this.maxTokens = 512,
     this.contextSize = 4096,
+    this.imageMaxTokens = 0,
     this.montageMaxWidth = 768,
     this.parallelCrops = true,
     this.preferDiscreteGpu = true,
@@ -86,6 +87,13 @@ class AppSettings {
   double temperature;
   int maxTokens;
   int contextSize;
+
+  /// Cap on vision tokens per image. 0 uses the server's default.
+  ///
+  /// The encoder's work scales with this, so it is the main lever on how
+  /// long OCR takes. Lowering it far enough starts costing recognised
+  /// words, which is why the default is set server-side rather than here.
+  int imageMaxTokens;
 
   // -- OCR Performance --
 
@@ -166,6 +174,7 @@ class AppSettings {
         'temperature': temperature,
         'maxTokens': maxTokens,
         'contextSize': contextSize,
+        'imageMaxTokens': imageMaxTokens,
         'montageMaxWidth': montageMaxWidth,
         'parallelCrops': parallelCrops,
         'preferDiscreteGpu': preferDiscreteGpu,
@@ -221,6 +230,7 @@ class AppSettings {
       temperature: (json['temperature'] as num?)?.toDouble() ?? 0.1,
       maxTokens: json['maxTokens'] as int? ?? 512,
       contextSize: json['contextSize'] as int? ?? 4096,
+      imageMaxTokens: json['imageMaxTokens'] as int? ?? 0,
       montageMaxWidth: json['montageMaxWidth'] as int? ?? 768,
       parallelCrops: json['parallelCrops'] as bool? ?? true,
       preferDiscreteGpu: json['preferDiscreteGpu'] as bool? ?? true,

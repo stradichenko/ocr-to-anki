@@ -1,12 +1,12 @@
 {
-  "_note": "Offline dictionary indices. Each entry serves one term language looked up in one definition language, because a Wiktextract extract carries glosses in the language of the Wiktionary edition it was extracted from. Downloaded on demand and installed locally; no network call is made to look a word up. The data is derived from Wiktionary, which is share-alike, so the licence and attribution fields are shown in the app.",
+  "_note": "Offline dictionary indices. Each entry serves one term language looked up in one definition language, because a Wiktextract extract carries glosses in the language of the Wiktionary edition it was extracted from. An entry whose file is present in app/assets/dictionaries/ ships inside the app and needs no download; the others are fetched from baseUrl on demand. Either way no network call is made to look a word up. The data is derived from Wiktionary, which is share-alike, so the licence and attribution fields are shown in the app.",
   "baseUrl": "https://github.com/stradichenko/ocr-to-anki/releases/download/dict-v1/",
   "buildRecipe": "scripts/build-dictionary-index.py --input kaikki.org-dictionary-<Language>.jsonl --term-language <Language>",
   "dictionaries": [
     {
       "id": "wiktextract-ja-en",
       "name": "Japanese to English",
-      "description": "145,000 Japanese headwords with English definitions, and 20,000 example sentences with translations. Built from the English Wiktionary edition.",
+      "description": "145,000 Japanese headwords with English definitions, and 20,000 example sentences with translations. Built from the English Wiktionary edition, and bundled with the app so it works on first run.",
       "termLanguage": "japanese",
       "definitionLanguage": "english",
       "fileName": "wiktextract-ja-en.sqlite",

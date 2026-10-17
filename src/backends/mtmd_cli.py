@@ -226,8 +226,19 @@ class LlamaMtmdCli:
         # on cancellation from another thread.
         self._current_process: Optional[subprocess.Popen] = None
 
-    def _build_cmd(self, image_path: str, prompt: str) -> list[str]:
-        """Build the llama-mtmd-cli command."""
+    def _build_cmd(
+        self,
+        image_path: str,
+        prompt: str,
+        image_max_tokens: Optional[int] = None,
+    ) -> list[str]:
+        """Build the llama-mtmd-cli command.
+
+        ``image_max_tokens`` overrides the instance value for one call, so a
+        single request can dial the vision encoder's work up or down without
+        rebuilding the backend.
+        """
+        budget = self.image_max_tokens if image_max_tokens is None else image_max_tokens
         cmd = [
             str(self.binary_path),
             "-m", str(self.model_path),
@@ -252,8 +263,8 @@ class LlamaMtmdCli:
         # unconditionally would suggest a control that is not always real.
         if self.image_min_tokens is not None:
             cmd.extend(["--image-min-tokens", str(self.image_min_tokens)])
-        if self.image_max_tokens is not None:
-            cmd.extend(["--image-max-tokens", str(self.image_max_tokens)])
+        if budget is not None:
+            cmd.extend(["--image-max-tokens", str(budget)])
         if not self.mmproj_offload:
             cmd.append("--no-mmproj-offload")
         # Disable flash attention on backends / platforms where it crashes
@@ -275,6 +286,7 @@ class LlamaMtmdCli:
         image_path: str,
         prompt: str = "Extract all visible text from this image. List each word or phrase you can read.",
         timeout: int = 2700,
+        image_max_tokens: Optional[int] = None,
     ) -> dict:
         """
         Run vision OCR on an image.
@@ -294,7 +306,7 @@ class LlamaMtmdCli:
         if not Path(image_path).exists():
             raise FileNotFoundError(f"Image not found: {image_path}")
 
-        cmd = self._build_cmd(image_path, prompt)
+        cmd = self._build_cmd(image_path, prompt, image_max_tokens=image_max_tokens)
         log.info(
             "Running: %s ... (mmproj_offload=%s)",
             " ".join(cmd[:6]),
@@ -367,6 +379,9 @@ class LlamaMtmdCli:
             "backend": backend,
             "image": image_path,
             "timings": timings,
+            "image_max_tokens": (
+                self.image_max_tokens if image_max_tokens is None else image_max_tokens
+            ),
         }
 
     def cancel(self):

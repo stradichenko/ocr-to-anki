@@ -53,6 +53,10 @@ class DictionaryRegistryService {
   }
 
   Future<bool> isInstalled(DictionaryInfo info) async {
+    // A bundled index counts as installed: it ships inside the app, so there
+    // is nothing to download and the feature works on first run.
+    if (await isBundled(info)) return true;
+
     final path = await dictionaryPath(info);
     final file = File(path);
     if (!await file.exists()) return false;
@@ -61,6 +65,42 @@ class DictionaryRegistryService {
     // once at download time.
     if (info.sizeBytes > 0 && await file.length() != info.sizeBytes) return false;
     return true;
+  }
+
+  /// Whether this index ships inside the app bundle.
+  Future<bool> isBundled(DictionaryInfo info) async {
+    try {
+      await rootBundle.load('assets/dictionaries/${info.fileName}');
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Path to an index that can be opened, copying a bundled one out first.
+  ///
+  /// SQLite needs a real file, and on Android assets live inside the APK, so a
+  /// bundled index is copied into app storage once. Returns null when the index
+  /// is neither bundled nor already downloaded.
+  Future<String?> ensureInstalled(DictionaryInfo info) async {
+    final path = await dictionaryPath(info);
+    final file = File(path);
+    if (await file.exists()) {
+      if (info.sizeBytes == 0 || await file.length() == info.sizeBytes) {
+        return path;
+      }
+      // A partial or stale copy: fall through and rewrite it.
+      await file.delete();
+    }
+
+    if (!await isBundled(info)) return null;
+
+    final data = await rootBundle.load('assets/dictionaries/${info.fileName}');
+    await file.writeAsBytes(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      flush: true,
+    );
+    return path;
   }
 
   Future<int> installedBytes() async {

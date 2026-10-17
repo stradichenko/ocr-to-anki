@@ -400,6 +400,12 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (v) =>
                   notifier.update((s) => s..compressLargeImages = v),
             ),
+          ListTile(
+            title: const Text('Vision detail'),
+            subtitle: Text(_visionDetailLabel(settings.imageMaxTokens)),
+            trailing: const Icon(Icons.tune),
+            onTap: () => _pickVisionDetail(context, notifier, settings),
+          ),
 
           // ---------------------------------------------------------------
           // LLM parameters
@@ -2224,6 +2230,25 @@ class _DictionaryTileState extends ConsumerState<_DictionaryTile> {
 
   Widget _row(BuildContext context, registry, DictionaryInfo d) {
     return FutureBuilder<bool>(
+      future: registry.isBundled(d) as Future<bool>,
+      builder: (context, snapshot) {
+        // Bundled indices ship inside the app, so there is nothing to install,
+        // remove, or download. Only separately published ones need the
+        // download path.
+        if (snapshot.data ?? false) {
+          return ListTile(
+            leading: const Icon(Icons.menu_book),
+            title: Text(d.name),
+            subtitle: Text('Included with the app, ${d.sizeLabel}'),
+          );
+        }
+        return _downloadableRow(context, registry, d);
+      },
+    );
+  }
+
+  Widget _downloadableRow(BuildContext context, registry, DictionaryInfo d) {
+    return FutureBuilder<bool>(
       future: registry.isInstalled(d) as Future<bool>,
       builder: (context, snapshot) {
         final installed = snapshot.data ?? false;
@@ -2267,5 +2292,68 @@ class _DictionaryTileState extends ConsumerState<_DictionaryTile> {
         );
       },
     );
+  }
+}
+
+/// Human-readable label for the vision token budget setting.
+///
+/// 0 means the server's own default, which is the tuned value. The other
+/// options trade recognition accuracy for speed, so the lower ones say so.
+String _visionDetailLabel(int value) {
+  switch (value) {
+    case 0:
+      return 'Balanced (recommended)';
+    case 560:
+      return 'More detail, slower';
+    case 280:
+      return 'Balanced, explicit';
+    case 140:
+      return 'Faster, some words may be missed';
+    case 70:
+      return 'Fastest, expect missed words';
+    default:
+      return '$value tokens per image';
+  }
+}
+
+/// Pick how much detail the vision encoder works at.
+///
+/// The encoder's cost scales with the token budget, which makes this the main
+/// lever on how long OCR takes. It is exposed because the tradeoff depends on
+/// the material: clear printed text tolerates a much smaller budget than
+/// handwriting does.
+Future<void> _pickVisionDetail(
+  BuildContext context,
+  SettingsNotifier notifier,
+  AppSettings settings,
+) async {
+  const options = <int>[0, 560, 280, 140, 70];
+  final chosen = await showModalBottomSheet<int>(
+    context: context,
+    builder: (ctx) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'Vision detail',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          for (final v in options)
+            ListTile(
+              title: Text(_visionDetailLabel(v)),
+              trailing: v == settings.imageMaxTokens
+                  ? const Icon(Icons.check)
+                  : null,
+              onTap: () => Navigator.pop(ctx, v),
+            ),
+        ],
+      ),
+    ),
+  );
+  if (chosen != null) {
+    await notifier.update((s) => s..imageMaxTokens = chosen);
   }
 }
