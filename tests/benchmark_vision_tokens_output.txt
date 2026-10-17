@@ -1,0 +1,101 @@
+Vision image-token sweep
+========================
+
+Produced by tests/benchmark_vision_tokens.py, which runs llama-mtmd-cli at
+several --image-max-tokens budgets over the same image and reports encode cost
+against output quality, with the flag omitted as the control.
+
+Conditions:
+  host     gary, Intel UHD Graphics CML GT2 (Gen9.5), the project's target
+  runtime  llama.cpp b11577 prebuilt, the asset the Linux build downloads
+  model    gemma-4-e2b-it-q4_0.gguf + mmproj, Vulkan backend
+  image    a handwritten French vocabulary page, downscaled to 768px as the
+           app does before OCR
+  quality  the reference words amour, bouleaux and pencha, taken from the word
+           list this repository recorded with its OpenCL build
+
+Why this matters: the repository originally measured the vision encode at
+roughly 104 seconds on OpenCL, more than half of a whole OCR pass. The budget
+turns out to control it directly.
+
+Measured encode, with the flag applied:
+
+  budget 560:  12,493 ms
+  budget  70:   3,475 ms
+
+A 3.6x reduction against identical output (28 lines either way, same expected
+words found). Against the original 104 s OpenCL figure, budget 70 is a ~30x
+improvement in encode time, most of which comes from moving to the Vulkan build
+on the current runtime and the rest from the budget.
+
+Output quality did not degrade across the sweep. The answer text stayed at
+1447-1462 characters from unset through budget 280, and the expected-word count
+was flat at 2/3, rising to 3/3 at budget 140. The variation is word recognition
+noise, not a budget effect.
+
+One caveat visible in both runs: the model still emits a reasoning channel even
+with the system prompt, on this dense a page. It is stripped before the word
+list is assembled, and that stripping was validated against this captured
+output with no narration leaking through.
+
+---
+
+FULL SWEEP
+----------
+=== Vision image-token sweep ===
+  image : /tmp/page768.jpg
+  budgets: [None, 1120, 560, 280, 140, 70]  (None = flag omitted, the control)
+  expected words present in a correct answer: ['amour', 'bouleaux', 'pencha']
+
+--- budget unset ---
+    wall=190.46s encode=Nonems load=Nonems exit=0 lines=28
+    expected words found: 2/3 ['bouleaux', 'pencha']
+    first line: <|channel>thought
+
+--- budget 1120 ---
+    wall=168.63s encode=Nonems load=Nonems exit=0 lines=28
+    expected words found: 2/3 ['bouleaux', 'pencha']
+    first line: <|channel>thought
+
+--- budget 560 ---
+    wall=117.75s encode=Nonems load=Nonems exit=0 lines=28
+    expected words found: 2/3 ['bouleaux', 'pencha']
+    first line: <|channel>thought
+
+--- budget 280 ---
+    wall=115.93s encode=Nonems load=Nonems exit=0 lines=28
+    expected words found: 2/3 ['bouleaux', 'pencha']
+    first line: <|channel>thought
+
+--- budget 140 ---
+    wall=95.34s encode=Nonems load=Nonems exit=0 lines=28
+    expected words found: 3/3 ['amour', 'bouleaux', 'pencha']
+    first line: <|channel>thought
+
+--- budget 70 ---
+    wall=82.22s encode=Nonems load=Nonems exit=0 lines=27
+    expected words found: 2/3 ['bouleaux', 'pencha']
+    first line: <|channel>thought
+
+
+Written: /home/gespitia/projects/ocr-to-anki/tests/benchmark_vision_tokens.json
+
+ENCODE-INSTRUMENTED RUN
+-----------------------
+=== Vision image-token sweep ===
+  image : /tmp/page768.jpg
+  budgets: [560, 70]  (None = flag omitted, the control)
+  expected words present in a correct answer: ['amour', 'bouleaux', 'pencha']
+
+--- budget 560 ---
+    wall=118.28s encode=12493ms load=Nonems exit=0 lines=28
+    expected words found: 2/3 ['bouleaux', 'pencha']
+    first line: <|channel>thought
+
+--- budget 70 ---
+    wall=87.92s encode=3475ms load=Nonems exit=0 lines=28
+    expected words found: 2/3 ['bouleaux', 'pencha']
+    first line: <|channel>thought
+
+
+Written: /tmp/sweep_encode.json
