@@ -838,12 +838,34 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
   }
 }
 
+final dictionaryRegistryProvider = Provider<DictionaryRegistryService>((ref) {
+  return DictionaryRegistryService();
+});
+
+/// Downloads offline dictionary indices. Dart-side rather than through the
+/// Python backend, because Android has no Python.
+final dictionaryDownloadServiceProvider =
+    Provider<DictionaryDownloadService>((ref) {
+  return DictionaryDownloadService(ref.read(dictionaryRegistryProvider));
+});
+
+/// Offline lookup over any installed dictionary index.
+final dictionaryServiceProvider = Provider<DictionaryService>((ref) {
+  return DictionaryService(ref.read(dictionaryRegistryProvider));
+});
+
 final inferenceServiceProvider = Provider<InferenceService>((ref) {
   final settings = ref.watch(settingsProvider);
   final android = Platform.isAndroid
       ? ref.read(llamaCppAndroidProvider)
       : null;
-  return InferenceService(settings: settings, androidService: android);
+  return InferenceService(
+    settings: settings,
+    androidService: android,
+    // Enrichment checks the dictionary first and only sends misses to the
+    // model. A pair with no installed index falls straight through.
+    dictionaryService: ref.read(dictionaryServiceProvider),
+  );
 });
 
 final ankiExportServiceProvider = Provider<AnkiExportService>((ref) {

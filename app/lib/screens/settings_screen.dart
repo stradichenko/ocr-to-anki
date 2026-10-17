@@ -7,8 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../database/database.dart';
+import '../models/dictionary_info.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
+import 'credits_screen.dart';
 import '../services/model_registry_service.dart';
 import '../services/system_channel.dart';
 import '../utils/responsive.dart';
@@ -469,6 +471,12 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 32),
             _SectionHeader('AI Model'),
             const _AiModelTile(),
+            const SizedBox(height: 32),
+            // Offline dictionaries. Each one is downloaded on demand and
+            // carries its own attribution, so the credits screen is where the
+            // licence obligations are shown.
+            _SectionHeader('Offline Dictionaries'),
+            const _DictionaryTile(),
             const SizedBox(height: 32),
             _SectionHeader('Battery & Background'),
             _BatteryOptimizationTile(),
@@ -2165,6 +2173,99 @@ class _BatteryOptimizationTile extends ConsumerWidget {
                 // _OcrToAnkiAppState.didChangeAppLifecycleState.
               },
       ),
+    );
+  }
+}
+
+
+/// Lists offline dictionaries and lets the user install or remove one.
+class _DictionaryTile extends ConsumerStatefulWidget {
+  const _DictionaryTile();
+
+  @override
+  ConsumerState<_DictionaryTile> createState() => _DictionaryTileState();
+}
+
+class _DictionaryTileState extends ConsumerState<_DictionaryTile> {
+  @override
+  Widget build(BuildContext context) {
+    final registry = ref.watch(dictionaryRegistryProvider);
+
+    return FutureBuilder<List<DictionaryInfo>>(
+      future: registry.listDictionaries(),
+      builder: (context, snapshot) {
+        final all = snapshot.data ?? const <DictionaryInfo>[];
+        if (all.isEmpty) {
+          return const ListTile(
+            leading: Icon(Icons.menu_book_outlined),
+            title: Text('None available'),
+            subtitle: Text(
+              'Definitions come from the local model. No dictionary index is '
+              'published for this build.',
+            ),
+          );
+        }
+        return Column(
+          children: [
+            for (final d in all) _row(context, registry, d),
+            ListTile(
+              leading: const Icon(Icons.article_outlined),
+              title: const Text('Licences'),
+              subtitle: const Text('Attribution for installed dictionaries'),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CreditsScreen()),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _row(BuildContext context, registry, DictionaryInfo d) {
+    return FutureBuilder<bool>(
+      future: registry.isInstalled(d) as Future<bool>,
+      builder: (context, snapshot) {
+        final installed = snapshot.data ?? false;
+        return ListTile(
+          leading: const Icon(Icons.menu_book_outlined),
+          title: Text(d.name),
+          subtitle: Text(
+            installed
+                ? 'Installed, ${d.sizeLabel}'
+                : 'Not installed, ${d.sizeLabel}',
+          ),
+          trailing: installed
+              ? IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Remove',
+                  onPressed: () async {
+                    await registry.delete(d);
+                    ref.read(dictionaryServiceProvider).close();
+                    (context as Element).markNeedsBuild();
+                  },
+                )
+              : const Icon(Icons.download_outlined),
+          onTap: installed
+              ? null
+              : () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  try {
+                    final downloader = ref.read(dictionaryDownloadServiceProvider);
+                    final base = (await registry.loadRegistry()).baseUrl;
+                    await downloader.download(d, baseUrl: base);
+                    messenger.showSnackBar(
+                      SnackBar(content: Text('${d.name} installed')),
+                    );
+                  } catch (e) {
+                    messenger.showSnackBar(
+                      SnackBar(content: Text('Download failed: $e')),
+                    );
+                  }
+                  if (context.mounted) (context as Element).markNeedsBuild();
+                },
+        );
+      },
     );
   }
 }

@@ -35,6 +35,7 @@ ENV/
 *.json
 !app/macos/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
 !app/assets/models.json
+!app/assets/dictionaries.json
 
 # IDE
 .vscode/

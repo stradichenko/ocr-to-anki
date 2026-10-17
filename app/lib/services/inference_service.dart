@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 
 import '../models/app_settings.dart';
 import 'llama_cpp_android_service.dart';
+import 'dictionary_service.dart';
 
 /// Result of a vision OCR call.
 class VisionOcrResult {
@@ -30,6 +31,7 @@ class EnrichWordResult {
     this.warning = '',
     this.correctedWord = '',
     this.fromCache = false,
+    this.source = '',
   });
 
   final String word;
@@ -46,6 +48,11 @@ class EnrichWordResult {
   /// Whether this result was served from the local enrichment cache.
   final bool fromCache;
 
+  /// Where the definition came from: 'dictionary', 'llm', or '' when it was
+  /// written before the distinction existed. A dictionary hit costs an index
+  /// read, so the two are worth telling apart in the review UI.
+  final String source;
+
   Map<String, dynamic> toJson() => {
         'word': word,
         'definition': definition,
@@ -53,6 +60,7 @@ class EnrichWordResult {
         'warning': warning,
         'correctedWord': correctedWord,
         'fromCache': fromCache,
+        'source': source,
       };
 
   factory EnrichWordResult.fromJson(Map<String, dynamic> json) =>
@@ -63,6 +71,7 @@ class EnrichWordResult {
         warning: json['warning'] as String? ?? '',
         correctedWord: json['correctedWord'] as String? ?? '',
         fromCache: json['fromCache'] as bool? ?? false,
+        source: json['source'] as String? ?? '',
       );
 }
 
@@ -75,11 +84,16 @@ class InferenceService {
   InferenceService({
     required AppSettings settings,
     LlamaCppAndroidService? androidService,
+    DictionaryService? dictionaryService,
   })  : _settings = settings,
-        _androidService = androidService;
+        _androidService = androidService,
+        _dictionary = dictionaryService;
 
   final AppSettings _settings;
   final LlamaCppAndroidService? _androidService;
+
+  /// Offline dictionary lookup, when the user has installed an index.
+  final DictionaryService? _dictionary;
 
   bool get _isAndroid => _androidService != null;
 
@@ -317,24 +331,70 @@ class InferenceService {
     final temp = temperature ?? _settings.temperature;
     final tokens = maxTokens ?? 256;
 
-    if (_isAndroid) {
-      // On Android (often CPU-only), limit tokens to avoid timeouts.
-      // 128 tokens is enough for 1-2 words with definitions + examples.
-      final androidTokens = tokens > 128 ? 128 : tokens;
-      return _androidEnrichChunked(
-        words: words,
-        definitionLanguage: defLang,
-        examplesLanguage: exLang,
-        termLanguage: termLang,
-        wordLanguages: wordLanguages,
-        maxTokens: androidTokens,
-        temperature: temp,
-        chunkSize: chunkSize,
-        onChunkDone: onChunkDone,
-      );
+    // Offline dictionary first, when one is installed for this pair. A hit is
+    // an index read; only the words it misses cost a model call.
+    //
+    // The policy lives here rather than in the caller so every entry point
+    // behaves the same, including the retry buttons on the review screen that
+    // call this directly.
+    final dict = _dictionary;
+    if (dict != null && words.isNotEmpty) {
+      try {
+        final hits = await dict.lookup(
+          words,
+          termLanguage: termLang,
+          definitionLanguage: defLang,
+        );
+        if (hits.isNotEmpty) {
+          final misses = [
+            for (final w in words)
+              if (!(hits[_dictKey(w)]?.found ?? false)) w,
+          ];
+          final fromModel = misses.isEmpty
+              ? const <EnrichWordResult>[]
+              : await _enrichViaBackend(
+                  words: misses,
+                  definitionLanguage: defLang,
+                  examplesLanguage: exLang,
+                  termLanguage: termLang,
+                  wordLanguages: wordLanguages,
+                  maxTokens: tokens,
+                  temperature: temp,
+                  chunkSize: chunkSize,
+                  chunkTimeout: chunkTimeout,
+                  onChunkDone: null,
+                );
+          final byWord = {for (final r in fromModel) _dictKey(r.word): r};
+
+          // Rebuild in the order the caller asked for: a hit and a miss sit
+          // side by side in the same list.
+          return [
+            for (final w in words)
+              if (hits[_dictKey(w)]?.found ?? false)
+                EnrichWordResult(
+                  word: w,
+                  definition: hits[_dictKey(w)]!.definition,
+                  examples: hits[_dictKey(w)]!.examples.join('\n'),
+                  source: 'dictionary',
+                )
+              else
+                byWord[_dictKey(w)] ??
+                    EnrichWordResult(
+                      word: w,
+                      definition: '',
+                      examples: '',
+                      warning: 'not_found',
+                      source: 'llm',
+                    ),
+          ];
+        }
+      } catch (_) {
+        // A missing or unreadable index is not an error: fall through to the
+        // model, which is the normal path for a pair with no dictionary.
+      }
     }
 
-    return _remoteEnrichChunked(
+    return _enrichViaBackend(
       words: words,
       definitionLanguage: defLang,
       examplesLanguage: exLang,
@@ -342,6 +402,54 @@ class InferenceService {
       wordLanguages: wordLanguages,
       maxTokens: tokens,
       temperature: temp,
+      chunkSize: chunkSize,
+      chunkTimeout: chunkTimeout,
+      onChunkDone: onChunkDone,
+    );
+  }
+
+  /// Lookup key for a word. Must match DictionaryService and the index builder.
+  String _dictKey(String word) => word.trim().toLowerCase();
+
+  /// Send words to the model, on whichever backend this platform uses.
+  Future<List<EnrichWordResult>> _enrichViaBackend({
+    required List<String> words,
+    required String definitionLanguage,
+    required String examplesLanguage,
+    required String termLanguage,
+    required Map<String, String> wordLanguages,
+    required int maxTokens,
+    required double temperature,
+    required int chunkSize,
+    required Duration chunkTimeout,
+    required void Function(int completedWords, int totalWords,
+        List<EnrichWordResult> chunkResults)? onChunkDone,
+  }) async {
+    if (_isAndroid) {
+      // On Android (often CPU-only), limit tokens to avoid timeouts.
+      // 128 tokens is enough for 1-2 words with definitions + examples.
+      final androidTokens = maxTokens > 128 ? 128 : maxTokens;
+      return _androidEnrichChunked(
+        words: words,
+        definitionLanguage: definitionLanguage,
+        examplesLanguage: examplesLanguage,
+        termLanguage: termLanguage,
+        wordLanguages: wordLanguages,
+        maxTokens: androidTokens,
+        temperature: temperature,
+        chunkSize: chunkSize,
+        onChunkDone: onChunkDone,
+      );
+    }
+
+    return _remoteEnrichChunked(
+      words: words,
+      definitionLanguage: definitionLanguage,
+      examplesLanguage: examplesLanguage,
+      termLanguage: termLanguage,
+      wordLanguages: wordLanguages,
+      maxTokens: maxTokens,
+      temperature: temperature,
       chunkSize: chunkSize,
       chunkTimeout: chunkTimeout,
       onChunkDone: onChunkDone,
