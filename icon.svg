@@ -1,621 +1,214 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<svg
-   viewBox="0 0 836 890"
-   preserveAspectRatio="xMidYMid"
-   version="1.1"
-   id="svg45"
-   sodipodi:docname="icon.svg"
-   width="836"
-   height="890"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns:xlink="http://www.w3.org/1999/xlink"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <sodipodi:namedview
-     id="namedview45"
-     pagecolor="#505050"
-     bordercolor="#eeeeee"
-     borderopacity="1"
-     inkscape:showpageshadow="0"
-     inkscape:pageopacity="0"
-     inkscape:pagecheckerboard="0"
-     inkscape:deskcolor="#505050" />
-  <defs
-     id="defs28">
-    <!-- Icon body gradient (rounded square container) -->
-    <linearGradient
-       id="iconBg"
-       x1="383.37489"
-       y1="95.603549"
-       x2="383.37489"
-       y2="903.35599"
-       gradientTransform="scale(0.97554642,1.0250665)"
-       gradientUnits="userSpaceOnUse">
-      <stop
-         offset="0%"
-         stop-color="#3e4d60"
-         id="stop1" />
-      <stop
-         offset="55%"
-         stop-color="#293544"
-         id="stop2" />
-      <stop
-         offset="100%"
-         stop-color="#161e2a"
-         id="stop3" />
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ns1="http://www.inkscape.org/namespaces/inkscape" xmlns:ns3="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024"><rect x="0" y="0" width="1024" height="1024" fill="#ffffff" /><g transform="translate(7.1674,56.9183) scale(1.326571)"><defs id="defs23">
+    <linearGradient id="linearGradient48" ns1:collect="always">
+      <stop style="stop-color:#989898;stop-opacity:0.05867162;" offset="0" id="stop48" />
+      <stop style="stop-color:#ffffff;stop-opacity:0.58823532;" offset="0.37515625" id="stop50" />
+      <stop style="stop-color:#ffffff;stop-opacity:0.29411765;" offset="0.85853297" id="stop52" />
+      <stop style="stop-color:#ffffff;stop-opacity:0.12156863;" offset="0.94661462" id="stop53" />
+      <stop style="stop-color:#ffffff;stop-opacity:0;" offset="1" id="stop49" />
     </linearGradient>
-    <!-- Top sheen on icon body -->
-    <linearGradient
-       id="iconShine"
-       x1="261.77105"
-       y1="143.63697"
-       x2="261.77105"
-       y2="689.45745"
-       gradientTransform="matrix(1.4363697,0,0,0.6961996,-350,-73.999999)"
-       gradientUnits="userSpaceOnUse">
-      <stop
-         offset="0%"
-         stop-color="#ffffff"
-         stop-opacity="0.18"
-         id="stop4" />
-      <stop
-         offset="100%"
-         stop-color="#ffffff"
-         stop-opacity="0"
-         id="stop5" />
+    <linearGradient id="linearGradient35" ns1:collect="always">
+      <stop style="stop-color:#46317d;stop-opacity:1;" offset="0.30407986" id="stop35" />
+      <stop style="stop-color:#46317d;stop-opacity:0.58431373;" offset="0.80121529" id="stop37" />
+      <stop style="stop-color:#46317d;stop-opacity:0;" offset="1" id="stop36" />
     </linearGradient>
-    <!-- Paper gradient -->
-    <linearGradient
-       id="docGrad"
-       x1="568.01561"
-       y1="209.19672"
-       x2="568.01561"
-       y2="694.73971"
-       gradientTransform="scale(0.86089184,1.1615861)"
-       gradientUnits="userSpaceOnUse">
-      <stop
-         offset="0%"
-         stop-color="#ffffff"
-         id="stop6" />
-      <stop
-         offset="100%"
-         stop-color="#e6ecf3"
-         id="stop7" />
+    
+    <linearGradient id="docGrad" x1="447.23138" y1="122.22532" x2="447.23138" y2="559.66332" gradientTransform="matrix(1.1513736,0,0,1.2498105,-104.19685,-19.503376)" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" id="stop1" />
+      <stop offset="100%" stop-color="#e6ecf3" id="stop2" />
     </linearGradient>
-    <!-- Back-of-paper for fold -->
-    <linearGradient
-       id="foldGrad"
-       x1="827"
-       y1="243.00071"
-       x2="906.99929"
-       y2="323"
-       gradientUnits="userSpaceOnUse">
-      <stop
-         offset="0%"
-         stop-color="#aab3bf"
-         id="stop8" />
-      <stop
-         offset="100%"
-         stop-color="#cdd4dd"
-         id="stop9" />
+    
+    <linearGradient id="foldGrad" x1="825.13019" y1="141.35425" x2="780.02484" y2="195.61192" gradientUnits="userSpaceOnUse" gradientTransform="matrix(2.1865038,0,0,1.4896562,-1106.1931,-61.108657)">
+      <stop offset="0%" stop-color="#aab3bf" id="stop3" />
+      <stop offset="100%" stop-color="#cdd4dd" id="stop4" />
     </linearGradient>
-    <!-- OCR header -->
-    <linearGradient
-       id="headerGrad"
-       x1="257.72854"
-       y1="475.35287"
-       x2="257.72854"
-       y2="651.69345"
-       gradientTransform="scale(1.9167454,0.52171769)"
-       gradientUnits="userSpaceOnUse">
-      <stop
-         offset="0%"
-         stop-color="#5ba0e8"
-         id="stop10" />
-      <stop
-         offset="100%"
-         stop-color="#2f7fd1"
-         id="stop11" />
+    
+    <linearGradient id="headerGrad" x1="226.44172" y1="253.52219" x2="226.44172" y2="429.88545" gradientTransform="scale(1.8371173,0.54433105)" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#5ba0e8" id="stop5" />
+      <stop offset="100%" stop-color="#2f7fd1" id="stop6" />
     </linearGradient>
-    <!-- Card gradient -->
-    <linearGradient
-       id="cardGrad"
-       x1="681.10782"
-       y1="459.42249"
-       x2="681.10782"
-       y2="762.0361"
-       gradientTransform="scale(1.1004131,0.90874959)"
-       gradientUnits="userSpaceOnUse">
-      <stop
-         offset="0%"
-         stop-color="#2c3849"
-         id="stop12" />
-      <stop
-         offset="100%"
-         stop-color="#0d141d"
-         id="stop13" />
+    
+    <linearGradient id="cardGrad" x1="785.2407" y1="244.2041" x2="785.2407" y2="520.89888" gradientTransform="scale(1.0480863,0.95411992)" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2c3849" id="stop7" />
+      <stop offset="100%" stop-color="#0d141d" id="stop8" />
     </linearGradient>
-    <!-- Star gradient (Anki-style: blue to white) -->
-    <linearGradient
-       id="starGrad"
-       x1="850.77998"
-       y1="472.85937"
-       x2="850.77998"
-       y2="562.19552"
-       gradientTransform="scale(1.0229516,0.97756337)"
-       gradientUnits="userSpaceOnUse">
-      <stop
-         offset="0%"
-         stop-color="#0084dd"
-         id="stop14" />
-      <stop
-         offset="100%"
-         stop-color="#ffffff"
-         id="stop15" />
+    
+    <linearGradient id="starGrad" x1="901.61327" y1="286.68218" x2="901.61327" y2="376.01833" gradientTransform="scale(1.0229516,0.97756337)" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0084dd" id="stop9" />
+      <stop offset="100%" stop-color="#ffffff" id="stop10" />
     </linearGradient>
-    <!-- Arrow gradient -->
-    <linearGradient
-       id="arrowGrad"
-       x1="505.07149"
-       y1="574.02987"
-       x2="627.38213"
-       y2="574.02987"
-       gradientTransform="scale(1.3899023,0.71947505)"
-       gradientUnits="userSpaceOnUse">
-      <stop
-         offset="0%"
-         stop-color="#3a8be0"
-         id="stop16" />
-      <stop
-         offset="100%"
-         stop-color="#1f6dc0"
-         id="stop17" />
+    
+    <linearGradient id="arrowGrad" x1="430.74384" y1="542.68951" x2="419.72668" y2="652.34869" gradientTransform="matrix(2.1817245,0,0,0.86445397,-225.75395,-129.17551)" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3a8be0" id="stop11" />
+      <stop offset="100%" stop-color="#1f6dc0" id="stop12" />
     </linearGradient>
-    <!-- Surface highlight overlays -->
-    <linearGradient
-       id="surfaceShine"
-       x1="0"
-       y1="0"
-       x2="0"
-       y2="1">
-      <stop
-         offset="0%"
-         stop-color="#ffffff"
-         stop-opacity="0.45"
-         id="stop18" />
-      <stop
-         offset="100%"
-         stop-color="#ffffff"
-         stop-opacity="0"
-         id="stop19" />
+    
+    <linearGradient id="surfaceShine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.45" id="stop13" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" id="stop14" />
     </linearGradient>
-    <linearGradient
-       id="darkShine"
-       x1="435.48907"
-       y1="725.25356"
-       x2="435.48907"
-       y2="915.20092"
-       gradientTransform="scale(1.7267942,0.57910781)"
-       gradientUnits="userSpaceOnUse">
-      <stop
-         offset="0%"
-         stop-color="#ffffff"
-         stop-opacity="0.18"
-         id="stop20" />
-      <stop
-         offset="100%"
-         stop-color="#ffffff"
-         stop-opacity="0"
-         id="stop21" />
+    <linearGradient id="darkShine" x1="499.90088" y1="385.70846" x2="499.90088" y2="560.4311" gradientTransform="scale(1.6483268,0.60667582)" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.18" id="stop15" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" id="stop16" />
     </linearGradient>
-    <!-- Drop shadows -->
-    <filter
-       id="dropShadow"
-       x="-0.05152439"
-       y="-0.062592593"
-       width="1.1030488"
-       height="1.1548148">
-      <feGaussianBlur
-         in="SourceAlpha"
-         stdDeviation="6"
-         id="feGaussianBlur21" />
-      <feOffset
-         dx="0"
-         dy="8"
-         id="feOffset21" />
-      <feComponentTransfer
-         id="feComponentTransfer21">
-        <feFuncA
-           type="linear"
-           slope="0.40"
-           id="feFuncA21" />
+    
+    <filter id="dropShadow" x="-0.045108438" y="-0.036060408" width="1.0995683" height="1.0888461">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6" id="feGaussianBlur16" />
+      <feOffset dx="0" dy="8" id="feOffset16" />
+      <feComponentTransfer id="feComponentTransfer16">
+        <feFuncA type="linear" slope="0.30" id="feFuncA16" />
       </feComponentTransfer>
-      <feMerge
-         id="feMerge22">
-        <feMergeNode
-           id="feMergeNode21" />
-        <feMergeNode
-           in="SourceGraphic"
-           id="feMergeNode22" />
+      <feMerge id="feMerge17">
+        <feMergeNode id="feMergeNode16" />
+        <feMergeNode in="SourceGraphic" id="feMergeNode17" />
       </feMerge>
     </filter>
-    <filter
-       id="iconShadow"
-       x="-0.033163265"
-       y="-0.031553398"
-       width="1.0663265"
-       height="1.0800971">
-      <feGaussianBlur
-         in="SourceAlpha"
-         stdDeviation="10"
-         id="feGaussianBlur22" />
-      <feOffset
-         dx="0"
-         dy="14"
-         id="feOffset22" />
-      <feComponentTransfer
-         id="feComponentTransfer22">
-        <feFuncA
-           type="linear"
-           slope="0.35"
-           id="feFuncA22" />
+    
+    <filter id="arrowShadow" x="-0.076795875" y="-0.077144028" width="1.1535284" height="1.1824891">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2.3054943" id="feGaussianBlur17" />
+      <feOffset dx="0" dy="5" id="feOffset17" />
+      <feComponentTransfer id="feComponentTransfer17">
+        <feFuncA type="linear" slope="0.35" id="feFuncA17" />
       </feComponentTransfer>
-      <feMerge
-         id="feMerge24">
-        <feMergeNode
-           id="feMergeNode23" />
-        <feMergeNode
-           in="SourceGraphic"
-           id="feMergeNode24" />
+      <feMerge id="feMerge19">
+        <feMergeNode id="feMergeNode18" />
+        <feMergeNode in="SourceGraphic" id="feMergeNode19" />
       </feMerge>
     </filter>
-    <filter
-       id="arrowShadow"
-       x="-0.069879518"
-       y="-0.13809317"
-       width="1.1397581"
-       height="1.3357078">
-      <feGaussianBlur
-         in="SourceAlpha"
-         stdDeviation="4"
-         id="feGaussianBlur24" />
-      <feOffset
-         dx="0"
-         dy="5"
-         id="feOffset24" />
-      <feComponentTransfer
-         id="feComponentTransfer24">
-        <feFuncA
-           type="linear"
-           slope="0.40"
-           id="feFuncA24" />
+    
+    <filter id="starGlow" x="-0.16805554" y="-0.17615886" width="1.3361111" height="1.3525568">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5" result="blur" id="feGaussianBlur19" />
+      <feFlood flood-color="#3a8be0" flood-opacity="0.55" id="feFlood19" />
+      <feComposite in2="blur" operator="in" result="glow" id="feComposite19" />
+      <feMerge id="feMerge21">
+        <feMergeNode in="glow" id="feMergeNode20" />
+        <feMergeNode in="SourceGraphic" id="feMergeNode21" />
+      </feMerge>
+    </filter>
+    
+    <filter id="textShadow" x="-0.0069241822" y="-0.054468085" width="1.0138484" height="1.1429787">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2" id="feGaussianBlur21" />
+      <feOffset dx="0" dy="3" id="feOffset21" />
+      <feComponentTransfer id="feComponentTransfer21">
+        <feFuncA type="linear" slope="0.18" id="feFuncA21" />
       </feComponentTransfer>
-      <feMerge
-         id="feMerge26">
-        <feMergeNode
-           id="feMergeNode25" />
-        <feMergeNode
-           in="SourceGraphic"
-           id="feMergeNode26" />
+      <feMerge id="feMerge23">
+        <feMergeNode id="feMergeNode22" />
+        <feMergeNode in="SourceGraphic" id="feMergeNode23" />
       </feMerge>
     </filter>
-    <!-- Star glow -->
-    <filter
-       id="starGlow"
-       x="-0.16805554"
-       y="-0.17615886"
-       width="1.3361111"
-       height="1.3525568">
-      <feGaussianBlur
-         in="SourceAlpha"
-         stdDeviation="5"
-         result="blur"
-         id="feGaussianBlur26" />
-      <feFlood
-         flood-color="#3a8be0"
-         flood-opacity="0.65"
-         id="feFlood26" />
-      <feComposite
-         in2="blur"
-         operator="in"
-         result="glow"
-         id="feComposite26" />
-      <feMerge
-         id="feMerge28">
-        <feMergeNode
-           in="glow"
-           id="feMergeNode27" />
-        <feMergeNode
-           in="SourceGraphic"
-           id="feMergeNode28" />
-      </feMerge>
-    </filter>
-    <!-- Rounded 5-point star, R=48, r=27 (Anki-style proportions, rounded corners) -->
-    <symbol
-       id="starShape"
-       overflow="visible">
-      <path
-         d="m 3.3,-42.5 9.3,15.2 q 3.3,5.5 9.5,6.9 l 17.3,4.1 q 6.3,1.5 2.1,6.3 L 29.9,3.5 q -4.2,4.8 -3.7,11.2 l 1.5,17.8 q 0.5,6.3 -5.4,3.9 L 5.9,29.5 Q 0,27 -5.9,29.5 l -16.4,6.9 q -5.9,2.4 -5.4,-3.9 l 1.5,-17.8 Q -25.7,8.3 -29.9,3.5 L -41.5,-10 q -4.2,-4.8 2.1,-6.3 l 17.3,-4.1 q 6.2,-1.4 9.5,-6.9 l 9.3,-15.2 q 3.3,-5.5 6.6,0 z"
-         id="path28" />
+    
+    <symbol id="starShape" overflow="visible">
+      <path d="m 3.3,-42.5 9.3,15.2 q 3.3,5.5 9.5,6.9 l 17.3,4.1 q 6.3,1.5 2.1,6.3 L 29.9,3.5 q -4.2,4.8 -3.7,11.2 l 1.5,17.8 q 0.5,6.3 -5.4,3.9 L 5.9,29.5 Q 0,27 -5.9,29.5 l -16.4,6.9 q -5.9,2.4 -5.4,-3.9 l 1.5,-17.8 Q -25.7,8.3 -29.9,3.5 L -41.5,-10 q -4.2,-4.8 2.1,-6.3 l 17.3,-4.1 q 6.2,-1.4 9.5,-6.9 l 9.3,-15.2 q 3.3,-5.5 6.6,0 z" id="path23" />
     </symbol>
-    <linearGradient
-       inkscape:collect="always"
-       xlink:href="#surfaceShine"
-       id="linearGradient45"
-       x1="165.63816"
-       y1="739.63633"
-       x2="165.63816"
-       y2="852.9677"
-       gradientTransform="scale(2.9824045,0.33529992)"
-       gradientUnits="userSpaceOnUse" />
-    <linearGradient
-       inkscape:collect="always"
-       xlink:href="#surfaceShine"
-       id="linearGradient46"
-       x1="450.5812"
-       y1="648.40698"
-       x2="450.5812"
-       y2="754.65198"
-       gradientTransform="scale(1.5624265,0.64003012)"
-       gradientUnits="userSpaceOnUse" />
+    <linearGradient ns1:collect="always" xlink:href="#surfaceShine" id="linearGradient41" x1="142.46646" y1="402.95801" x2="142.46646" y2="513.91746" gradientTransform="scale(2.9199856,0.34246744)" gradientUnits="userSpaceOnUse" />
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath2815">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect1913" width="23" height="30" x="5" y="1" ry="4.6187186" rx="4.6187186" />
+    </clipPath>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath2868">
+      <rect style="opacity:1;fill:none;fill-opacity:1;stroke:#000000;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect1950" width="41" height="28" x="19.880381" y="16.849239" ry="4" rx="4" />
+    </clipPath>
+    <linearGradient id="linearGradient4825">
+      <stop id="stop4827" offset="0" style="stop-color:#0084dd;stop-opacity:1" />
+      <stop id="stop4829" offset="1" style="stop-color:white;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="linearGradient4843">
+      <stop style="stop-color:white;stop-opacity:0.49411765;" offset="0" id="stop4845" />
+      <stop style="stop-color:white;stop-opacity:0.25098041;" offset="1" id="stop4847" />
+    </linearGradient>
+    <linearGradient ns1:collect="always" xlink:href="#linearGradient4825" id="linearGradient2989" gradientUnits="userSpaceOnUse" x1="253.74718" y1="412.82977" x2="188.00023" y2="542.33295" />
+    <linearGradient ns1:collect="always" xlink:href="#linearGradient35" id="linearGradient36" x1="265.13522" y1="104.13297" x2="283.62436" y2="191.11757" gradientUnits="userSpaceOnUse" />
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath38">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:7.97799;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect38" width="183.49326" height="239.33904" x="874.93994" y="-46.522083" ry="36.847988" rx="36.847988" transform="rotate(22.470355)" />
+    </clipPath>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath39">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:10.8215;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect39" width="248.8929" height="324.64294" x="46.979843" y="313.76794" ry="49.981144" rx="49.981144" transform="rotate(-7.1391799)" />
+    </clipPath>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath40">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:7.97799;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect40" width="183.49326" height="239.33904" x="874.93994" y="-46.522083" ry="36.847988" rx="36.847988" />
+    </clipPath>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath41">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:7.97799;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect41" width="183.49326" height="239.33904" x="874.93994" y="-46.522083" ry="36.847988" rx="36.847988" />
+    </clipPath>
+    <linearGradient ns1:collect="always" xlink:href="#linearGradient3769" id="linearGradient2973" gradientUnits="userSpaceOnUse" gradientTransform="matrix(10.858867,0,0,10.983684,424.74617,297.95055)" x1="15.5" y1="5.9497476" x2="4" y2="31" />
+    <linearGradient id="linearGradient3769" ns1:collect="always">
+      <stop id="stop3771" offset="0" style="stop-color:#3c3c3c;stop-opacity:1" />
+      <stop id="stop3773" offset="1" style="stop-color:#9e9e9e;stop-opacity:1" />
+    </linearGradient>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath42">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:11.376;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect42" width="261.64709" height="341.27884" x="462.23514" y="303.05011" ry="52.542362" rx="52.542362" />
+    </clipPath>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath43">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:24.87;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect43" width="572.00763" height="746.09698" x="66.630188" y="19.726316" ry="114.86706" rx="114.86706" transform="rotate(38.851926)" />
+    </clipPath>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath44">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:13.3198;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect44" width="306.35416" height="399.59238" x="98.138832" y="185.46385" ry="61.520157" rx="61.520157" transform="rotate(-0.33567501)" />
+    </clipPath>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath45">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:10.8215;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect45" width="248.8929" height="324.64294" x="40.581558" y="320.53131" ry="49.981144" rx="49.981144" transform="rotate(-7.1391799)" />
+    </clipPath>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath46">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:11.376;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect46" width="261.64709" height="341.27884" x="462.23514" y="303.05011" ry="52.542362" rx="52.542362" />
+    </clipPath>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath47">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:11.376;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect47" width="261.64709" height="341.27884" x="462.23514" y="303.05011" ry="52.542362" rx="52.542362" />
+    </clipPath>
+    <clipPath clipPathUnits="userSpaceOnUse" id="clipPath47-0">
+      <rect style="opacity:1;fill:#d533e4;fill-opacity:0.540984;stroke:none;stroke-width:11.376;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect47-5" width="261.64709" height="341.27884" x="462.23514" y="303.05011" ry="52.542362" rx="52.542362" />
+    </clipPath>
+    <linearGradient ns1:collect="always" xlink:href="#linearGradient48" id="linearGradient49" x1="512.51569" y1="576.77985" x2="673.60162" y2="370.59918" gradientUnits="userSpaceOnUse" />
   </defs>
-  <!-- ===== Rounded square container ===== -->
-  <g
-     filter="url(#iconShadow)"
-     id="g28"
-     transform="translate(-350,-73.999999)">
-    <rect
-       x="376"
-       y="100"
-       width="784"
-       height="824"
-       rx="148"
-       ry="148"
-       fill="url(#iconBg)"
-       stroke="#0a1018"
-       stroke-width="4"
-       id="rect28"
-       style="fill:url(#iconBg)" />
+  
+  <g filter="url(#dropShadow)" id="g34" transform="matrix(0.98194399,0,0,1.0001841,-858.71413,-140.66342)">
+    
+    <path d="m 437.04387,138.99791 h 385.88458 l 1.01945,79.8604 v 438.74995 c 0,13.77799 -6.68215,18.44102 -20.04595,18.37696 l -366.85808,-1.75831 c -13.36381,-0.064 -20.04596,-6.12565 -20.04596,-18.37696 V 157.37487 c 0,-12.25131 6.68199,-18.37696 20.04596,-18.37696 z" fill="url(#docGrad)" stroke="#1a232f" stroke-width="11.9958" stroke-linejoin="round" id="path24" style="fill:url(#docGrad)" ns3:nodetypes="sccssssss" />
+    
+    <path d="M 697.39249,147.70568 V 249.0023 h 148.68226 z" fill="url(#foldGrad)" stroke="#1a232f" stroke-width="18.0477" stroke-linejoin="round" id="path25" style="fill:url(#foldGrad)" ns3:nodetypes="cccc" />
+    
+    <path d="m 432,138 h 308 v 96 H 416 v -80 q 0,-16 16,-16 z" fill="url(#headerGrad)" id="path26" style="fill:url(#headerGrad)" />
+    
+    <line x1="416" y1="234" x2="740" y2="234" stroke="#1a232f" stroke-width="10" stroke-linecap="round" id="line26" />
+    
+    <path d="m 432,138 h 308 v 38 H 416 v -22 q 0,-16 16,-16 z" fill="url(#surfaceShine)" opacity="0.55" id="path27" style="fill:url(#linearGradient41)" />
+    
+    <text x="578" y="216" text-anchor="middle" font-family="'Arial Black', Arial, Helvetica, 'Liberation Sans', sans-serif" font-size="64px" font-weight="900" fill="#ffffff" letter-spacing="4" id="text27">OCR</text>
+    
+    <rect x="448" y="270" width="220" height="10" rx="4" fill="#a8c8e8" id="rect27" />
+    <rect x="448" y="294" width="296" height="10" rx="4" fill="#a8c8e8" id="rect28" />
+    
+    <rect x="448" y="324" width="200" height="62" rx="8" fill="#3a8be0" id="rect29" />
+    <rect x="448" y="324" width="200" height="62" rx="8" fill="none" stroke="#1a232f" stroke-width="4" stroke-dasharray="9, 5" stroke-linejoin="round" id="rect30" />
+    <text x="548" y="370" text-anchor="middle" font-family="'Arial Black', Arial, Helvetica, 'Liberation Sans', sans-serif" font-size="36px" font-weight="900" fill="#ffffff" letter-spacing="3" id="text30">TERM</text>
+    
+    <rect x="448" y="396" width="200" height="6" rx="3" fill="#4ec78a" id="rect31" />
+    
+    <rect x="448" y="510" width="280" height="10" rx="4" fill="#a8c8e8" id="rect32" />
+    <rect x="448" y="534" width="240" height="10" rx="4" fill="#a8c8e8" id="rect33" />
+    <rect x="448" y="558" width="200" height="10" rx="4" fill="#a8c8e8" id="rect34" />
   </g>
-  <!-- Top sheen (clipped to container shape) -->
-  <rect
-     x="26"
-     y="26"
-     width="784"
-     height="380"
-     rx="148"
-     ry="148"
-     fill="url(#iconShine)"
-     id="rect29"
-     style="fill:url(#iconShine)" />
-  <!-- ===== Document ===== -->
-  <g
-     filter="url(#dropShadow)"
-     id="g40"
-     transform="translate(-350,-73.999999)">
-    <!-- Body with cut top-right corner -->
-    <path
-       d="m 510,248 h 322 l 70,70 v 468 q 0,16 -16,16 H 510 q -16,0 -16,-16 V 264 q 0,-16 16,-16 z"
-       fill="url(#docGrad)"
-       stroke="#0e151f"
-       stroke-width="10"
-       stroke-linejoin="round"
-       id="path29"
-       style="fill:url(#docGrad)" />
-    <!-- Folded corner triangle -->
-    <path
-       d="m 832,248 v 70 h 70 z"
-       fill="url(#foldGrad)"
-       stroke="#0e151f"
-       stroke-width="10"
-       stroke-linejoin="round"
-       id="path30"
-       style="fill:url(#foldGrad)" />
-    <!-- Header bar -->
-    <path
-       d="m 510,248 h 322 v 92 H 494 v -76 q 0,-16 16,-16 z"
-       fill="url(#headerGrad)"
-       id="path31"
-       style="fill:url(#headerGrad)" />
-    <line
-       x1="494"
-       y1="340"
-       x2="832"
-       y2="340"
-       stroke="#0e151f"
-       stroke-width="10"
-       stroke-linecap="round"
-       id="line31" />
-    <!-- Header sheen -->
-    <path
-       d="m 510,248 h 322 v 38 H 494 v -22 q 0,-16 16,-16 z"
-       fill="url(#surfaceShine)"
-       opacity="0.55"
-       id="path32"
-       style="fill:url(#linearGradient45)" />
-    <!-- "OCR" label -->
-    <text
-       x="663"
-       y="318"
-       text-anchor="middle"
-       font-family="'Arial Black', Arial, Helvetica, 'Liberation Sans', sans-serif"
-       font-size="62px"
-       font-weight="900"
-       fill="#ffffff"
-       letter-spacing="4"
-       id="text32">OCR</text>
-    <!-- Two text lines above TERM -->
-    <rect
-       x="528"
-       y="378"
-       width="220"
-       height="10"
-       rx="4"
-       fill="#a8c8e8"
-       id="rect32" />
-    <rect
-       x="528"
-       y="402"
-       width="296"
-       height="10"
-       rx="4"
-       fill="#a8c8e8"
-       id="rect33" />
-    <!-- Bounding box highlight: TERM token -->
-    <rect
-       x="528"
-       y="436"
-       width="200"
-       height="62"
-       rx="8"
-       fill="#3a8be0"
-       id="rect34" />
-    <rect
-       x="528"
-       y="436"
-       width="200"
-       height="62"
-       rx="8"
-       fill="none"
-       stroke="#0e151f"
-       stroke-width="4"
-       stroke-dasharray="9, 5"
-       stroke-linejoin="round"
-       id="rect35" />
-    <text
-       x="628"
-       y="481"
-       text-anchor="middle"
-       font-family="'Arial Black', Arial, Helvetica, 'Liberation Sans', sans-serif"
-       font-size="36px"
-       font-weight="900"
-       fill="#ffffff"
-       letter-spacing="3"
-       id="text35">TERM</text>
-    <!-- Green underline (extracted-token marker) -->
-    <rect
-       x="528"
-       y="510"
-       width="200"
-       height="6"
-       rx="3"
-       fill="#4ec78a"
-       id="rect36" />
-    <!-- Lower body lines -->
-    <rect
-       x="528"
-       y="660"
-       width="280"
-       height="10"
-       rx="4"
-       fill="#a8c8e8"
-       id="rect37" />
-    <rect
-       x="528"
-       y="684"
-       width="240"
-       height="10"
-       rx="4"
-       fill="#a8c8e8"
-       id="rect38" />
-    <rect
-       x="528"
-       y="708"
-       width="300"
-       height="10"
-       rx="4"
-       fill="#a8c8e8"
-       id="rect39" />
-    <rect
-       x="528"
-       y="732"
-       width="200"
-       height="10"
-       rx="4"
-       fill="#a8c8e8"
-       id="rect40" />
+  
+  
+  
+  <g id="g38" transform="translate(-606.72995,426.4696)">
+    <rect style="fill:#f4f4f4;fill-opacity:1;fill-rule:evenodd;stroke:#151f2d;stroke-width:8.24046;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" id="rect3" width="312.68921" height="415.79984" x="58.166821" y="44.487827" rx="6.8136272" ry="5.9533329" />
+    <path style="fill:none;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:14.121;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" d="m 123.10463,353.48614 c -1.17242,2.05175 -2.24858,4.16158 -3.51727,6.15524 -4.88835,7.68169 -9.63431,15.46873 -14.94842,22.86228 -3.62889,5.04889 -8.947324,8.64429 -13.189787,13.18978 -1.56199,1.67356 -2.77786,3.65719 -4.3966,5.27592 -2.34485,2.34485 -1.46553,-0.87932 -2.63795,2.63795 -0.92688,2.78065 2.76255,5.52653 5.27591,7.03455 18.935187,11.36111 44.918247,14.92409 65.948917,7.91387 3.17043,-1.05681 5.48779,-3.85684 7.91387,-6.15523 10.62086,-10.06187 12.05688,-16.72134 16.70705,-29.89684 1.3919,-3.94372 2.99391,-8.12354 3.51728,-12.31046 0.10907,-0.87253 -0.17245,-1.77571 0,-2.63796 0.12853,-0.64267 1.53472,-1.75863 0.87932,-1.75863 -1.05681,0 -2.03192,0.89286 -2.63796,1.75863 -18.02362,25.74803 -13.34479,18.02042 -21.98297,42.20731 -0.84229,2.3584 -1.84602,4.65876 -2.63795,7.03455 -0.0927,0.27806 -0.28436,0.9504 0,0.87931 1.27167,-0.31791 2.35611,-1.15041 3.51727,-1.75863 26.48782,-13.87458 3.62201,-1.37485 31.65548,-19.34502 4.73349,-3.03429 23.1038,-16.8198 32.53479,-14.0691 4.7835,1.39519 9.09937,4.18905 13.18978,7.03455 4.75894,3.31057 13.18978,12.00783 13.18978,18.4657" id="path28" />
+    <path style="fill:none;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:14.121;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" d="m 109.91485,209.27787 c -5.07386,3.66211 -6.15523,9.10295 -6.15523,14.94842 0,6.5241 -0.29067,8.55036 6.15523,12.31046 5.33174,3.11019 12.62302,2.63796 18.46569,2.63796 2.34485,0 4.86632,0.8928 7.03455,0 3.09021,-1.27244 5.37649,-3.98034 7.91387,-6.15523 1.57362,-1.34882 2.93106,-2.93107 4.3966,-4.3966 0.2931,-0.2931 0.4648,-0.87932 0.87931,-0.87932 0.29311,0 0.0636,0.5932 0,0.87932 -0.85738,3.85822 -3.71364,11.91772 -1.75863,15.82774 1.01925,2.0385 10.28774,2.167 11.43114,1.75864 18.76387,-6.70138 18.68351,-8.70883 32.53479,-21.98297 2.3942,-2.29444 4.68971,-4.6897 7.03456,-7.03455 0.2931,-0.29311 1.01039,-1.27256 0.87931,-0.87932 -1.36585,4.09756 -2.59479,3.30147 -3.51727,7.91387 -0.10759,0.53794 -2.90954,17.92253 -1.75864,20.22433 3.45152,6.90304 24.37253,9.9209 29.01752,5.27591" id="path29" />
+    <path style="fill:none;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:14.121;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" d="m 123.98394,297.20974 c 5.66101,-5.15361 5.46025,-14.56065 0,0 -1.59769,4.26052 -2.07837,8.87305 -3.51728,13.18978 -1.20494,3.61485 -3.02874,6.99543 -4.39659,10.55183 -0.10522,0.27357 -0.20726,0.67206 0,0.87932 2.13449,2.13449 10.61954,-2.60282 14.0691,-4.3966 22.77944,-11.8453 44.05146,-24.67223 65.94891,-37.8107 2.10934,-1.26561 2.23432,5.24731 1.75864,11.43114 -0.92194,11.98517 -5.74017,15.58518 17.58637,0.87932 7.93815,-5.00448 14.56573,-11.83802 21.98297,-17.58637 4.30942,-3.3398 8.82811,-6.40126 13.18978,-9.67251 0.33161,-0.24871 1.08498,-1.23922 0.87932,-0.87932 -4.7215,8.26262 -9.69096,15.92922 -11.43114,25.50024 -0.20973,1.15352 -0.97552,2.86693 0,3.51728 8.18526,5.45684 26.38323,-11.03379 32.53479,-14.94842 1.74855,-1.11271 0.22391,4.18902 0.87932,6.15523 0.40284,1.20853 5.18738,8.05432 7.03455,8.79319 1.63285,0.65314 3.51728,0 5.27591,0 1.75864,0 3.52803,0.19421 5.27592,0 4.63128,-0.51459 0.83908,-0.86926 4.39659,-1.75864 6.15824,-1.53956 13.58871,-1.51844 19.34501,-4.39659" id="path30" />
+    <path style="fill:none;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:9.49984;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" d="m 111.11252,68.919861 c 4.55906,3.948659 2.85008,8.258102 2.85008,12.523787" id="path31" />
+    <path style="fill:none;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:14.121;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" d="m 74.742095,85.29392 c 1.465531,-0.586212 2.945792,-1.136865 4.396594,-1.758637 1.500855,0.311118 1.692717,-1.286018 2.637956,-1.758638 0.469258,-0.234628 5.258972,-0.06776 5.275913,0 0.971824,3.887296 -1.911829,13.91591 0.879319,16.707057" id="path32" />
   </g>
-  <!-- ===== Card (flashcard glyph, tilted, overlaps icon edge) ===== -->
-  <g
-     transform="rotate(7,1349.9446,-2343.2247)"
-     filter="url(#dropShadow)"
-     id="g44">
-    <rect
-       x="752"
-       y="420"
-       width="328"
-       height="270"
-       rx="26"
-       fill="url(#cardGrad)"
-       stroke="#080d15"
-       stroke-width="5"
-       id="rect41"
-       style="fill:url(#cardGrad)" />
-    <!-- Top highlight -->
-    <rect
-       x="752"
-       y="420"
-       width="328"
-       height="110"
-       rx="26"
-       fill="url(#darkShine)"
-       id="rect42"
-       style="fill:url(#darkShine)" />
-    <!-- Star: filled gradient with white halo + glow -->
-    <g
-       filter="url(#starGlow)"
-       id="g42">
-      <use
-         href="#starShape"
-         x="916"
-         y="510"
-         fill="url(#starGrad)"
-         stroke="#ffffff"
-         stroke-width="5"
-         stroke-linejoin="round"
-         id="use42"
-         style="fill:url(#starGrad)" />
+  <rect ry="0" rx="0" y="291.67416" x="405.35532" height="364.03076" width="364.03076" id="rect2802" style="display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:13.6512;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" clip-path="url(#clipPath47)" transform="matrix(2.4762718,0,0,1.8745033,-1087.8295,-544.81587)" />
+  <rect style="fill:url(#linearGradient2973);fill-opacity:1;stroke:none;stroke-width:11.376;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" id="rect4875" width="238.89519" height="318.52692" x="473.61108" y="314.42609" ry="45.503845" rx="45.503845" clip-path="url(#clipPath46)" transform="matrix(2.4762718,0,0,1.839784,-1087.8295,-525.78264)" />
+  <path transform="matrix(2.5829833,0.33811652,-0.32352142,2.6995099,-47.255863,-848.78561)" d="m 312.50679,544.32837 c -20.28396,20.1643 -45.83498,-32.08006 -74.19864,-28.40036 -29.32333,3.80421 -41.202,60.28859 -67.50841,46.78663 -25.44547,-13.06007 16.34617,-53.50493 4.08171,-79.34329 -12.67942,-26.71258 -70.06997,-20.55523 -65.35797,-49.74645 4.55778,-28.23586 55.93746,-0.9878 76.72126,-20.63649 21.48703,-20.31349 -2.10362,-72.99241 27.11497,-77.53162 28.26233,-4.39065 18.22508,52.89443 43.33464,66.58923 25.95913,14.15816 68.76986,-24.55656 82.11594,1.82928 12.9093,25.52229 -44.67374,33.67836 -49.93898,61.7909 -5.4434,29.06371 44.60573,57.81562 23.63548,78.66217 z" ns1:randomized="0" ns1:rounded="0.36" ns1:flatsided="false" ns3:arg2="1.4167054" ns3:arg1="0.81345017" ns3:r2="60.646587" ns3:r1="121.55363" ns3:cy="456" ns3:cx="229" ns3:sides="5" id="path4877" style="fill:none;fill-opacity:1;stroke:none;stroke-width:16.2321;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1" ns3:type="star" clip-path="url(#clipPath45)" />
+  <g id="g48" transform="matrix(1.3137526,0,0,1.0961636,289.07623,296.69752)">
+    <g id="g47" transform="matrix(2.463384,0,0,3.2157381,-621.78681,-362.37213)">
+      <path id="path33" style="fill:#cdcdcd;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:6.31274;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" d="m 281.52837,89.304097 a 72.837518,71.82533 0 0 0 -68.59342,47.666873 72.837518,71.82533 0 0 0 67.01074,43.67585 72.837518,71.82533 0 0 0 68.59342,-47.66688 72.837518,71.82533 0 0 0 -67.01074,-43.675843 z" />
+      <path id="path33-5" style="fill:url(#linearGradient36);fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:6.27155;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" d="m 274.37973,116.20537 a 41.327984,41.327984 0 0 0 -41.32812,41.32813 41.327984,41.327984 0 0 0 0.21484,4.20117 71.857718,71.857718 0 0 0 46.77539,17.31055 71.857718,71.857718 0 0 0 33.49219,-8.2832 41.327984,41.327984 0 0 0 2.17383,-13.22852 41.327984,41.327984 0 0 0 -41.32813,-41.32813 z" />
     </g>
-    <!-- Card content lines -->
-    <rect
-       x="800"
-       y="600"
-       width="232"
-       height="14"
-       rx="5"
-       fill="#3a8be0"
-       id="rect43" />
-    <rect
-       x="800"
-       y="630"
-       width="160"
-       height="10"
-       rx="4"
-       fill="#3a8be0"
-       opacity="0.55"
-       id="rect44" />
+    <path style="fill:#46317d;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:22.6186;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" d="m -87.468021,-113.6769 c 49.858719,68.037649 49.858719,68.037649 49.858719,68.037649 v 0" id="path38" />
+    <path style="fill:#46317d;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:22.6186;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" d="m 231.81063,-112.49649 c -49.85872,68.037678 -49.85872,68.037678 -49.85872,68.037678 v 0" id="path38-8" />
+    <path style="fill:#46317d;fill-opacity:1;fill-rule:evenodd;stroke:#000000;stroke-width:22.6186;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1" d="m 71.932073,-171.3409 c -1.472069,85.685468 -1.472069,85.685468 -1.472069,85.685468 v 0" id="path38-2" />
+    <path ns3:type="star" style="opacity:0.775774;fill:url(#linearGradient2989);fill-opacity:1;stroke:#ffffff;stroke-width:16.2321;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;filter:url(#arrowShadow)" id="path4634" ns3:sides="5" ns3:cx="229" ns3:cy="456" ns3:r1="94" ns3:r2="52" ns3:arg1="0.80032243" ns3:arg2="1.428641" ns1:flatsided="false" ns1:rounded="0.21" ns1:randomized="0" d="m 294.46869,523.45259 c -9.08043,8.81335 -45.57491,-17.76993 -58.10148,-15.97712 -12.52658,1.79282 -40.09949,37.54547 -51.28749,31.63294 -11.18801,-5.91252 2.81678,-48.83551 -2.75921,-60.19499 -5.57599,-11.35947 -48.09928,-26.53469 -45.93342,-39.00218 2.16586,-12.46749 47.31577,-12.41208 56.39619,-21.22544 9.08043,-8.81335 10.3725,-53.9448 22.89908,-55.73762 12.52657,-1.79281 26.42597,41.16443 37.61397,47.07695 11.188,5.91252 54.50984,-6.80503 60.08583,4.55445 5.57599,11.35947 -30.98363,37.85309 -33.14948,50.32059 -2.16586,12.46749 23.31643,49.73906 14.23601,58.55242 z" transform="matrix(0.48818669,0.32169482,-0.2774361,0.56606591,145.03144,-266.43678)" clip-path="url(#clipPath39)" />
   </g>
-  <!-- ===== Arrow (curved swoosh, drawn on top of card) ===== -->
-  <g
-     filter="url(#arrowShadow)"
-     id="g45"
-     transform="translate(-350,-73.999999)">
-    <!-- Curved arrow body + triangular head, uniform 32px shaft thickness -->
-    <path
-       d="m 704,467 q 56,-70 106,-28 v -24 l 60,40 -60,40 v -24 q -50,-42 -106,28 z"
-       fill="url(#arrowGrad)"
-       stroke="#0e2950"
-       stroke-width="4"
-       stroke-linejoin="round"
-       id="path44"
-       style="fill:url(#arrowGrad)" />
-    <!-- Top sheen along the upper curve -->
-    <path
-       d="m 704,467 q 56,-70 106,-28 v -24 l 60,40 h -60 q -50,-42 -106,28 z"
-       fill="url(#surfaceShine)"
-       opacity="0.45"
-       id="path45"
-       style="fill:url(#linearGradient46)" />
-  </g>
-</svg>
+  <path id="rect2802-1" clip-path="url(#clipPath47-0)" style="display:inline;fill:url(#linearGradient49);fill-opacity:1;stroke:none;stroke-width:13.6512;stroke-miterlimit:4;stroke-dasharray:none;stroke-opacity:1;opacity:0.49413578" d="M 405.35544 291.67395 L 405.35544 452.6666 A 242.15983 301.95437 0 0 1 519.94539 416.72062 A 242.15983 301.95437 0 0 1 756.78076 655.70476 L 769.38634 655.70476 L 769.38634 291.67395 L 405.35544 291.67395 z " transform="matrix(2.4762718,0,0,1.8745033,-1087.8933,-545.04847)" />
+</g></svg>
