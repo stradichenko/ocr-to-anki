@@ -33,8 +33,11 @@ LOGO_SVG="github_logo.svg"
 ICON_SVG="icon.svg"
 
 # Square canvas for the app icon, and the margin left around the artwork.
+#
+# No margin: the artwork is trimmed to its own bounds and then fills the canvas
+# edge to edge. A padding ring here reads as dead space on a launcher.
 ICON_CANVAS=1024
-ICON_MARGIN_FRACTION=0.08
+ICON_MARGIN_FRACTION=0.0
 # Background behind the artwork. The logo is drawn for a light surface and its
 # detail is lost on a dark launcher without one.
 ICON_BACKGROUND="#ffffff"
