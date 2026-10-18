@@ -8,6 +8,7 @@ import 'package:image/image.dart' as img;
 import '../models/app_settings.dart';
 import 'llama_cpp_android_service.dart';
 import 'dictionary_service.dart';
+import 'enrich_parse.dart';
 
 /// Result of a vision OCR call.
 class VisionOcrResult {
@@ -669,86 +670,8 @@ class InferenceService {
         'Words:\n$wordList\n');
   }
 
-  List<EnrichWordResult> _parseEnrichResponse(String text, List<String> words) {
-    final results = <EnrichWordResult>[];
-    final lines = text.split('\n');
-    String? currentWord;
-    String? currentDef;
-    String? currentEx1;
-    String? currentEx2;
-    // Track which expected word we're on when WORD: is missing.
-    var fallbackWordIndex = 0;
-
-    void flush() {
-      if (currentWord != null) {
-        final examples = [currentEx1, currentEx2]
-            .whereType<String>()
-            .join('\n');
-        results.add(EnrichWordResult(
-          word: currentWord!,
-          definition: currentDef ?? '',
-          examples: examples,
-          warning: (currentDef == null || currentDef!.isEmpty) ? 'not_found' : '',
-        ));
-      }
-      currentWord = null;
-      currentDef = null;
-      currentEx1 = null;
-      currentEx2 = null;
-    }
-
-    for (final rawLine in lines) {
-      final line = rawLine.trim();
-      if (line.isEmpty) continue;
-
-      final upper = line.toUpperCase();
-      if (upper.startsWith('WORD:')) {
-        flush();
-        currentWord = line.substring(5).trim();
-      } else if (upper.startsWith('DEF:')) {
-        // If no WORD: was seen before DEF:, try to infer the word.
-        if (currentWord == null) {
-          flush();
-          // Try matching the definition text against expected words.
-          final defText = line.substring(4).trim().toLowerCase();
-          for (var i = fallbackWordIndex; i < words.length; i++) {
-            final w = words[i].toLowerCase();
-            if (defText.contains(w)) {
-              currentWord = words[i];
-              fallbackWordIndex = i + 1;
-              break;
-            }
-          }
-          // Fallback: use the next expected word if no match.
-          if (currentWord == null && fallbackWordIndex < words.length) {
-            currentWord = words[fallbackWordIndex];
-            fallbackWordIndex++;
-          }
-        }
-        currentDef = line.substring(4).trim();
-      } else if (upper.startsWith('EX1:')) {
-        currentEx1 = line.substring(4).trim();
-      } else if (upper.startsWith('EX2:')) {
-        currentEx2 = line.substring(4).trim();
-      }
-    }
-    flush();
-
-    // If parsing produced fewer results than words, fill gaps with not_found.
-    if (results.length < words.length) {
-      final parsedWords = results.map((r) => r.word.toLowerCase()).toSet();
-      for (final w in words) {
-        if (!parsedWords.contains(w.toLowerCase())) {
-          results.add(EnrichWordResult(
-            word: w,
-            definition: '',
-            examples: '',
-            warning: 'not_found',
-          ));
-        }
-      }
-    }
-
-    return results;
-  }
+  /// Parse a batched enrichment response. See [parseEnrichResponse] in
+  /// enrich_parse.dart, which is where this lives so it can be tested.
+  List<EnrichWordResult> _parseEnrichResponse(String text, List<String> words) =>
+      parseEnrichResponse(text, words);
 }

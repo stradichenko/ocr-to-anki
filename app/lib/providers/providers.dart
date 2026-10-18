@@ -298,9 +298,23 @@ class ServerStartupNotifier extends Notifier<ServerStartupState> {
       if (modelsExist) {
         state = const ServerStartupState(
           status: ServerStatus.starting,
-          message: 'Verifying model integrity…',
+          message: 'Checking model files…',
         );
-        final ok = await llama.verifyModels();
+        // Reports progress because a first-run check hashes over 4 GB in pure
+        // Dart, which is slow enough on a phone that a static message reads as
+        // a hang. Once verified the check is remembered and this is instant.
+        final ok = await llama.verifyModels(
+          onProgress: (fraction) {
+            if (_disposed) return;
+            state = ServerStartupState(
+              status: ServerStatus.starting,
+              message: fraction >= 1.0
+                  ? 'Model files verified'
+                  : 'Verifying model integrity… '
+                      '${(fraction * 100).round()}%',
+            );
+          },
+        );
         if (_disposed) return;
         if (!ok) {
           // Delete corrupt files so the download path below re-fetches them.

@@ -271,12 +271,28 @@ class LlamaCppAndroidService {
     return File(modelPath).existsSync() && File(mmprojPath).existsSync();
   }
 
+  /// Where a successful verification is remembered.
+  ///
+  /// Hashing the model costs a full read of every weight file - over 4 GB with
+  /// the projector - in pure Dart, which on a phone is minutes of a frozen
+  /// screen. Doing that on every launch to re-prove something that cannot have
+  /// changed is what made startup look like it had hung.
+  File get _verificationMarker =>
+      File('${modelDir.path}/.verified.json');
+
   /// Verify model files against the active model's SHA-256 hashes.
   ///
-  /// Returns `true` if all files match their expected SHA-256 hashes.
-  /// Returns `false` if any file is missing, the wrong size, or has a
-  /// mismatched hash — the caller should trigger re-download in this case.
-  Future<bool> verifyModels() async {
+  /// Files are hashed once and then remembered against their size and
+  /// modification time, so a launch that has not touched them skips straight
+  /// past. A download that replaces a file changes both, so it is hashed again.
+  ///
+  /// Returns `true` if all files match. Returns `false` if any file is missing,
+  /// the wrong size, or has a mismatched hash — the caller should trigger
+  /// re-download in this case.
+  ///
+  /// [onProgress] receives the fraction of the work done, which is dominated by
+  /// hashing, so a first-run verification can at least show movement.
+  Future<bool> verifyModels({void Function(double)? onProgress}) async {
     await ensureBinaries();
 
     final model = _model;
@@ -287,24 +303,71 @@ class LlamaCppAndroidService {
         (mmprojPath, model.mmprojSizeBytes, model.sha256Mmproj),
     ];
 
+    final remembered = await _readVerificationMarker();
+    final updated = <String, Map<String, int>>{};
+    var index = 0;
+
     for (final (path, expectedSize, expectedHash) in files) {
       final file = File(path);
       if (!file.existsSync()) return false;
 
-      final actualSize = file.lengthSync();
+      final stat = file.statSync();
+      final actualSize = stat.size;
       if (actualSize != expectedSize) return false;
 
-      final sink = _DigestSink();
-      final input = sha256.startChunkedConversion(sink);
-      await for (final chunk in file.openRead()) {
-        input.add(chunk);
+      final name = path.split('/').last;
+      final mtime = stat.modified.millisecondsSinceEpoch;
+      final previous = remembered[name];
+
+      final unchanged = previous != null &&
+          previous['size'] == actualSize &&
+          previous['mtime'] == mtime;
+
+      if (!unchanged) {
+        final sink = _DigestSink();
+        final input = sha256.startChunkedConversion(sink);
+        await for (final chunk in file.openRead()) {
+          input.add(chunk);
+        }
+        input.close();
+        final actualHash = sink.digest.toString();
+        if (actualHash != expectedHash) return false;
       }
-      input.close();
-      final actualHash = sink.digest.toString();
-      if (actualHash != expectedHash) return false;
+
+      updated[name] = {'size': actualSize, 'mtime': mtime};
+      index++;
+      onProgress?.call(index / files.length);
     }
 
+    await _writeVerificationMarker(updated);
     return true;
+  }
+
+  Future<Map<String, Map<String, int>>> _readVerificationMarker() async {
+    try {
+      if (!await _verificationMarker.exists()) return {};
+      final decoded = jsonDecode(await _verificationMarker.readAsString());
+      final out = <String, Map<String, int>>{};
+      (decoded as Map<String, dynamic>).forEach((key, value) {
+        final entry = value as Map<String, dynamic>;
+        out[key] = {
+          'size': (entry['size'] as num).toInt(),
+          'mtime': (entry['mtime'] as num).toInt(),
+        };
+      });
+      return out;
+    } catch (_) {
+      // An unreadable marker only costs a re-hash, so ignore it.
+      return {};
+    }
+  }
+
+  Future<void> _writeVerificationMarker(Map<String, Map<String, int>> data) async {
+    try {
+      await _verificationMarker.writeAsString(jsonEncode(data));
+    } catch (_) {
+      // Likewise: failing to record it just means hashing again next launch.
+    }
   }
 
   // ---------------------------------------------------------------------------
