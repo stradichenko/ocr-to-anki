@@ -13,6 +13,7 @@ and the parsing that depends on them sit together.
 import logging
 import re
 import unicodedata
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -201,61 +202,113 @@ def _is_close_variant(candidate: str, expected: str) -> bool:
     return False
 
 
-def parse_enrich_response(text: str, words: list[str]) -> list[dict]:
-    """Parse a batched enrichment response into one dict per requested word."""
-    results = []
-    # Split by WORD: markers (supports translated labels)
-    blocks = _WORD_SPLIT_RE.split(text)
-    parsed: dict[str, dict] = {}
-    parsed_ordered: list[dict] = []  # positional fallback, keeps its own label
-    for block in blocks:
-        block = block.strip()
-        if not block:
+_BULLET_RE = re.compile(r"^[\s*\-\u2022\u00b7#>]+")
+
+
+def _clean_label(line: str) -> str:
+    """Strip list decoration from a line standing in for a WORD: label."""
+    return _BULLET_RE.sub("", line).strip().strip("*").strip()
+
+
+def _split_enrich_entries(text: str) -> list[dict]:
+    """Break a response into per-word entries.
+
+    Line-oriented rather than marker-oriented, because the model does not
+    reliably repeat the WORD: label. Asked for three words it will often emit:
+
+        WORD: 探す
+        DEF: ...
+        EX1: ...
+        - 静か
+        DEF: ...
+        扉
+        DEF: ...
+
+    Only the first entry carries the label. Splitting on WORD: swallowed
+    everything after the first entry into it, and because the last DEF: in a
+    block won, the first word was handed the last word's definition — a wrong
+    card, with no warning. Entries are therefore started either by a WORD: line
+    or by a bare line that turns out to precede a DEF:.
+    """
+    entries: list[dict] = []
+    current: Optional[dict] = None
+    pending_label: Optional[str] = None
+
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
             continue
-        lines = block.split("\n", 1)
-        word_key = lines[0].strip()
-        body = lines[1] if len(lines) > 1 else ""
-        defn = ""
-        examples = ""
-        for line in body.split("\n"):
-            line = line.strip()
-            if _CORRECTED_RE.match(line):
-                pass  # Ignore any CORRECTED: the model emits
-            elif _DEF_RE.match(line):
-                defn = _DEF_RE.sub("", line).strip()
-            elif _EX1_RE.match(line):
-                examples = _EX1_RE.sub("", line).strip()
-            elif _EX2_RE.match(line):
+        if _CORRECTED_RE.match(line):
+            continue
+
+        if _WORD_SPLIT_RE.match(line):
+            current = {
+                "label": _WORD_SPLIT_RE.sub("", line).strip(),
+                "definition": "",
+                "examples": "",
+            }
+            entries.append(current)
+            pending_label = None
+            continue
+
+        if _DEF_RE.match(line):
+            if current is None or pending_label is not None:
+                current = {
+                    "label": pending_label or "",
+                    "definition": "",
+                    "examples": "",
+                }
+                entries.append(current)
+                pending_label = None
+            current["definition"] = _DEF_RE.sub("", line).strip()
+            continue
+
+        if _EX1_RE.match(line):
+            if current is not None:
+                current["examples"] = _EX1_RE.sub("", line).strip()
+            continue
+
+        if _EX2_RE.match(line):
+            if current is not None:
                 ex2 = _EX2_RE.sub("", line).strip()
                 if ex2:
-                    examples += "\n" + ex2
-        data = {"label": word_key, "definition": defn, "examples": examples}
-        # Strip markdown-style asterisks the LLM may insert despite instructions.
+                    current["examples"] = (
+                        current["examples"] + "\n" + ex2
+                        if current["examples"] else ex2
+                    )
+            continue
+
+        # Not a label. Once the open entry has a definition this is almost
+        # certainly the next word, missing its marker.
+        if current is None or current["definition"]:
+            pending_label = _clean_label(line)
+
+    for entry in entries:
         for key in ("definition", "examples"):
-            data[key] = data[key].replace("*", "")
-        key = word_key.lower()
-        if key in parsed:
-            # The model repeated a word. Keep the first block; a repeat is a
-            # sign the response drifted, and silently overwriting would decide
-            # which definition is correct with no evidence either way.
-            log.debug("Duplicate WORD label %r in response; keeping first", word_key)
-        else:
-            parsed[key] = data
-        parsed_ordered.append(data)
+            entry[key] = entry[key].replace("*", "")
+    return entries
+
+
+def parse_enrich_response(text: str, words: list[str]) -> list[dict]:
+    """Parse a batched enrichment response into one dict per requested word."""
+    entries = _split_enrich_entries(text)
+
+    parsed: dict[str, dict] = {}
+    parsed_ordered: list[dict] = []
+    for entry in entries:
+        key = entry.get("label", "").lower()
+        if key and key not in parsed:
+            parsed[key] = entry
+        parsed_ordered.append(entry)
 
     # The positional fallback may only be trusted when the block count matches
     # the word count. One skipped or merged word shifts every later block.
     counts_match = len(parsed_ordered) == len(words)
 
-    # Match back to original word list.
+    results = []
     for idx, w in enumerate(words):
-        # 1. Exact case-insensitive match on the block's own label.
         entry = parsed.get(w.lower())
         corrected = ""
-        # 2. Positional fallback, only when the counts line up AND the block at
-        #    this position names a plausible variant of the expected word.
-        #    Attaching a neighbour's definition would produce a card that looks
-        #    right and is silently wrong.
         if entry is None and counts_match and idx < len(parsed_ordered):
             candidate = parsed_ordered[idx]
             if _is_close_variant(candidate.get("label", ""), w):
@@ -263,19 +316,21 @@ def parse_enrich_response(text: str, words: list[str]) -> list[dict]:
                 corrected = candidate.get("label", "")
         if entry is None:
             entry = {}
+
         defn = entry.get("definition", "")
         examples = entry.get("examples", "")
 
-        # Detect UNKNOWN marker from LLM
-        if (
-            defn.strip().upper() == "UNKNOWN"
-            or defn.strip().upper().startswith("UNKNOWN")
-            or "UNKNOWN" in defn.upper()
-        ):
+        # The marker is the whole definition, per the prompt's instruction to
+        # "write DEF: UNKNOWN" when a word is unrecognisable. It used to be a
+        # substring test, so any definition containing the word "unknown" was
+        # thrown away as a miss: "To search for something that is lost or
+        # unknown." was discarded, and the word was retried and then reported
+        # missing despite the model having answered correctly.
+        defn_stripped = defn.strip().strip(".!?").strip()
+        if defn_stripped.upper() == "UNKNOWN":
             defn = ""
             examples = ""
             warning = "not_found"
-        # Detect truncated definitions (no terminal punctuation)
         elif defn and not defn.rstrip().endswith(('.', '!', '?', '"', ')')):
             warning = "truncated"
         elif not defn:
@@ -283,13 +338,8 @@ def parse_enrich_response(text: str, words: list[str]) -> list[dict]:
         else:
             warning = ""
 
-        # Detect untranslated: original word appears verbatim in examples.
-        # Skip very short words (<=2 chars) to avoid false positives.
         if not warning and len(w) > 2 and examples:
-            w_lower = w.lower()
-            ex_lower = examples.lower()
-            # Check if the original word (or a close variant) leaked into examples.
-            if re.search(r'\b' + re.escape(w_lower) + r'\w{0,2}\b', ex_lower):
+            if re.search(r'\b' + re.escape(w.lower()) + r'\w{0,2}\b', examples.lower()):
                 warning = "untranslated"
 
         results.append({

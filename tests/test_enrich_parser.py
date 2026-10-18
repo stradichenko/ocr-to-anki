@@ -259,3 +259,88 @@ class TestPromptDiscouragesMixedLanguageExamples:
         assert "naturally in german" in p.lower()
         s = build_enrich_system("german", "german", "spanish")
         assert "entirely in german" in s.lower()
+
+
+class TestMissingWordMarkers:
+    """Found by running the real pipeline and reading what the model returned.
+
+    Asked for three words, the model often labels only the first and then emits
+    the remaining words bare:
+
+        WORD: 探す
+        DEF: ...
+        - 静か
+        DEF: ...
+        扉
+        DEF: ...
+
+    Splitting on WORD: put everything after the first entry inside it, and since
+    the last DEF: in a block won, the first word was handed the last word's
+    definition — a confidently wrong card, with no warning at all.
+    """
+
+    RAW = (
+        "WORD: 探す\n"
+        "DEF: To search for something.\n"
+        "EX1: We search the house.\n"
+        "EX2: They searched all day.\n"
+        "\n"
+        "- 静か\n"
+        "DEF: Quiet and free from noise.\n"
+        "EX1: The library is quiet.\n"
+        "EX2: Keep your voice down.\n"
+        "\n"
+        "扉\n"
+        "DEF: A hinged barrier that closes an opening.\n"
+        "EX1: Open the door.\n"
+    )
+
+    def test_every_word_keeps_its_own_definition(self):
+        results = parse_enrich_response(self.RAW, ["探す", "静か", "扉"])
+        assert [r["word"] for r in results] == ["探す", "静か", "扉"]
+        assert "search" in results[0]["definition"]
+        assert "Quiet" in results[1]["definition"]
+        assert "hinged" in results[2]["definition"]
+        assert all(r["warning"] == "" for r in results)
+
+    def test_the_first_word_is_not_given_the_last_definition(self):
+        results = parse_enrich_response(self.RAW, ["探す", "静か", "扉"])
+        assert "hinged" not in results[0]["definition"]
+
+    def test_a_bulleted_word_is_read_without_the_bullet(self):
+        results = parse_enrich_response(self.RAW, ["探す", "静か", "扉"])
+        assert results[1]["word"] == "静か"
+
+    def test_positions_still_align(self):
+        results = parse_enrich_response(self.RAW, ["探す", "静か", "扉"])
+        assert len(results) == 3
+
+
+class TestUnknownIsNotASubstringMatch:
+    """The marker is the whole definition, not any definition containing the
+    word. A definition reading "To search for something that is lost or
+    unknown." was being discarded as a miss."""
+
+    def test_a_definition_containing_unknown_is_kept(self):
+        text = (
+            "WORD: 探す\n"
+            "DEF: To search for something that is lost or unknown.\n"
+            "EX1: We search the house.\n"
+        )
+        [r] = parse_enrich_response(text, ["探す"])
+        assert r["warning"] == ""
+        assert "lost or unknown" in r["definition"]
+
+    def test_the_bare_marker_is_still_a_miss(self):
+        [r] = parse_enrich_response("WORD: xyzzy\nDEF: UNKNOWN\n", ["xyzzy"])
+        assert r["warning"] == "not_found"
+        assert r["definition"] == ""
+
+    def test_the_marker_with_punctuation_is_still_a_miss(self):
+        [r] = parse_enrich_response("WORD: xyzzy\nDEF: UNKNOWN.\n", ["xyzzy"])
+        assert r["warning"] == "not_found"
+
+    def test_other_words_containing_unknown_are_unaffected(self):
+        text = "WORD: casa\nDEF: An unknown quantity.\nEX1: A house.\n"
+        [r] = parse_enrich_response(text, ["casa"])
+        assert r["warning"] == ""
