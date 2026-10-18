@@ -167,7 +167,16 @@ class LlamaCppServer:
         self._last_health_check = (now, ok)
         return ok
 
-    def start(self, wait_ready: bool = True, timeout: int = 120):
+    # How long to allow for loading the model before giving up.
+    #
+    # This was 120 s, which assumes the weights are on local storage. They can
+    # legitimately sit on a network share, where a 3 GB model reads at around
+    # 27 MB/s and takes over 170 s: the server was then declared dead while it
+    # was still loading. The same number appeared independently in the API's
+    # restart path, and both had to be raised.
+    MODEL_LOAD_TIMEOUT_S = 300
+
+    def start(self, wait_ready: bool = True, timeout: int = MODEL_LOAD_TIMEOUT_S):
         """Start the llama-server subprocess."""
         if self.is_running():
             log.info("Server already running at %s", self.base_url)

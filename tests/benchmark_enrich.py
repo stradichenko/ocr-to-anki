@@ -89,6 +89,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--model", required=True, help="path to the GGUF model")
     ap.add_argument("--mmproj", default=None, help="optional vision projector")
+    ap.add_argument(
+        "--text-only", action="store_true",
+        help=(
+            "Do not load a projector. Enrichment is text only, and the server "
+            "otherwise pairs the active model with whatever projector happens "
+            "to be on disk, which fails when comparing two models."
+        ),
+    )
     ap.add_argument("--server-binary", default=None, help="path to llama-server")
     ap.add_argument("--context-size", type=int, default=8192)
     ap.add_argument("--n-gpu-layers", type=int, default=-1)
@@ -123,9 +131,12 @@ def main() -> int:
     print(f"  word list:  {len(DEFAULT_WORDS)} words")
     print()
 
+    # A path that does not exist reads as "no projector" to the server, which
+    # is what a text-only run wants.
+    mmproj = "/nonexistent-no-mmproj" if args.text_only else args.mmproj
     server = LlamaCppServer(
         model_path=str(model),
-        mmproj_path=args.mmproj,
+        mmproj_path=mmproj,
         binary_path=args.server_binary,
         context_size=args.context_size,
         n_gpu_layers=args.n_gpu_layers,

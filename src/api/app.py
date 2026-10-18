@@ -951,14 +951,10 @@ async def ocr_vision_upload(
 # Text generation & enrichment
 # -------------------------------------------------------------------
 
-# How long to allow the text server to load its model.
-#
-# This was 90s, which is fine from a local SSD but not when the weights sit on
-# a network share: a 3 GB model over NFS plus an 8192-token context exceeded it,
-# and the server was declared dead while it was still loading. The pipeline
-# stops the text server before vision to free the integrated GPU and restarts
-# it afterwards, so this timeout is on the normal path rather than a rare one.
-TEXT_SERVER_START_TIMEOUT_S = 300
+# How long to allow the text server to load its model. Defined on the server
+# class so the two cannot drift apart; both were independently too short, and
+# both had to be raised when the weights turned out to live on a network share.
+TEXT_SERVER_START_TIMEOUT_S = LlamaCppServer.MODEL_LOAD_TIMEOUT_S
 
 
 def _ensure_text_server():

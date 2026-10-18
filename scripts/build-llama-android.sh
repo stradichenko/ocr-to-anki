@@ -417,6 +417,15 @@ build_variant() {
                 echo "[WARN] SPIRV-Headers could not be installed — skipping $variant build"
                 return 1
             }
+            # Two different mechanisms, because they behave differently under
+            # a cross-compile toolchain. CMAKE_PREFIX_PATH is ignored: the NDK
+            # restricts package discovery to its sysroot, so the prefix never
+            # gets searched. Pointing SPIRV-Headers_DIR straight at the config
+            # bypasses the search. Verified locally against a toolchain file
+            # carrying the same restriction.
+            local spirv_cfg="$spirv_prefix/share/cmake/SPIRV-Headers"
+            [[ -d "$spirv_cfg" ]] || spirv_cfg="$spirv_prefix/lib/cmake/SPIRV-Headers"
+            cmake_args+=(-DSPIRV-Headers_DIR="$spirv_cfg")
             cmake_args+=(-DCMAKE_PREFIX_PATH="$spirv_prefix")
             echo "   Vulkan: enabled (NDK headers at $vulkan_include, HPP at $vulkan_hpp_include, SPIRV package at $spirv_prefix)"
             ;;
