@@ -207,18 +207,51 @@ ensure_opencl_headers() {
 # Helper: build a stub OpenCL static library for linking
 # ------------------------------------------------------------------
 build_opencl_stub() {
+    # Args: directory holding the Khronos OpenCL headers (CL/cl.h and friends).
+    #
+    # The stub exists so CMake can link at build time; the device supplies the
+    # real libOpenCL.so at runtime.
+    #
+    # It used to be a hand-written list of function names, which meant that
+    # every time llama.cpp called a new OpenCL function the Android build
+    # failed to link — and because a GPU variant failing is only a warning
+    # while a CPU failure is fatal, the result shipped as a CPU-only APK with
+    # no indication that anything was wrong. The list is now generated from the
+    # headers, so it cannot fall behind.
+    local headers_dir="${1:-}"
     local stub_dir="$BUILD_DIR/opencl-stub"
+    local stub_c="$stub_dir/stub.c"
     local stub_lib="$stub_dir/libOpenCL.a"
     mkdir -p "$stub_dir"
 
-    if [[ -f "$stub_lib" ]]; then
-        echo "$stub_lib"
-        return 0
+    if [[ -z "$headers_dir" || ! -f "$headers_dir/CL/cl.h" ]]; then
+        echo "[WARN] OpenCL headers not found in '${headers_dir}' — cannot generate the stub" >&2
+        return 1
     fi
 
-    echo ":: Building OpenCL stub library..." >&2
+    echo ":: Generating OpenCL stub from $headers_dir ..." >&2
 
-    # Use the NDK cross-compiler for arm64
+    {
+        echo "// Generated from the Khronos OpenCL headers. Do not edit."
+        echo "// One no-op definition per declared entry point, so linking succeeds"
+        echo "// for whatever llama.cpp currently calls."
+        # Entry points are declared as clFoo(...) and exported from libOpenCL.
+        grep -rhoE '\bcl[A-Z][A-Za-z0-9_]*[[:space:]]*\(' "$headers_dir/CL" 2>/dev/null \
+            | sed 's/[[:space:]]*($//' \
+            | sort -u \
+            | while read -r fn; do
+                echo "void* ${fn}(void) { return 0; }"
+              done
+    } > "$stub_c"
+
+    local count
+    count=$(grep -c '^void\* ' "$stub_c" || echo 0)
+    if [[ "$count" -lt 20 ]]; then
+        echo "[WARN] Only $count OpenCL entry points found — the headers may not be intact" >&2
+        return 1
+    fi
+    echo ":: Stub covers $count OpenCL entry points" >&2
+
     local clang="$HOST_PREBUILT/bin/aarch64-linux-android28-clang"
     local ar="$HOST_PREBUILT/bin/llvm-ar"
 
@@ -227,57 +260,56 @@ build_opencl_stub() {
         return 1
     fi
 
-    cat > "$stub_dir/stub.c" << 'EOF'
-// Stub OpenCL library for build-time linking.
-// The real libOpenCL.so is provided by the Android device at runtime.
-void* clGetPlatformIDs(void) { return 0; }
-void* clGetPlatformInfo(void) { return 0; }
-void* clGetDeviceIDs(void) { return 0; }
-void* clGetDeviceInfo(void) { return 0; }
-void* clCreateContext(void) { return 0; }
-void* clCreateContextFromType(void) { return 0; }
-void* clRetainContext(void) { return 0; }
-void* clReleaseContext(void) { return 0; }
-void* clCreateCommandQueue(void) { return 0; }
-void* clRetainCommandQueue(void) { return 0; }
-void* clReleaseCommandQueue(void) { return 0; }
-void* clCreateBuffer(void) { return 0; }
-void* clRetainMemObject(void) { return 0; }
-void* clReleaseMemObject(void) { return 0; }
-void* clCreateProgramWithSource(void) { return 0; }
-void* clRetainProgram(void) { return 0; }
-void* clReleaseProgram(void) { return 0; }
-void* clBuildProgram(void) { return 0; }
-void* clCreateKernel(void) { return 0; }
-void* clRetainKernel(void) { return 0; }
-void* clReleaseKernel(void) { return 0; }
-void* clSetKernelArg(void) { return 0; }
-void* clEnqueueNDRangeKernel(void) { return 0; }
-void* clEnqueueReadBuffer(void) { return 0; }
-void* clEnqueueWriteBuffer(void) { return 0; }
-void* clFinish(void) { return 0; }
-void* clFlush(void) { return 0; }
-void* clGetProgramBuildInfo(void) { return 0; }
-// Additional symbols required by newer llama.cpp
-void* clGetKernelWorkGroupInfo(void) { return 0; }
-void* clCreateImage(void) { return 0; }
-void* clCreateSubBuffer(void) { return 0; }
-void* clEnqueueBarrierWithWaitList(void) { return 0; }
-void* clWaitForEvents(void) { return 0; }
-void* clReleaseEvent(void) { return 0; }
-void* clEnqueueMarkerWithWaitList(void) { return 0; }
-void* clCreateBufferWithProperties(void) { return 0; }
-void* clEnqueueFillBuffer(void) { return 0; }
-void* clEnqueueCopyBuffer(void) { return 0; }
-EOF
-
-    "$clang" -c -o "$stub_dir/stub.o" "$stub_dir/stub.c" >&2
+    rm -f "$stub_lib"
+    "$clang" -c -o "$stub_dir/stub.o" "$stub_c" >&2
     "$ar" rcs "$stub_lib" "$stub_dir/stub.o" >&2
 
     if [[ -f "$stub_lib" ]]; then
         echo "$stub_lib"
         return 0
     fi
+    return 1
+}
+
+# ------------------------------------------------------------------
+# Helper: install SPIRV-Headers so CMake can find the package
+# ------------------------------------------------------------------
+install_spirv_headers() {
+    # Args: the cloned SPIRV-Headers source directory.
+    #
+    # Header-only, so nothing is compiled; tests are off so the install stays a
+    # file copy. Prints the install prefix on success.
+    local src="$1"
+    local prefix="$BUILD_DIR/spirv-headers-install"
+
+    if [[ -f "$prefix/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake" ]]; then
+        echo "$prefix"
+        return 0
+    fi
+
+    command -v cmake >/dev/null 2>&1 || {
+        echo "[WARN] cmake not available to install SPIRV-Headers" >&2
+        return 1
+    }
+
+    echo ":: Installing SPIRV-Headers into $prefix ..." >&2
+    cmake -S "$src" -B "$BUILD_DIR/spirv-headers-build" \
+        -DCMAKE_INSTALL_PREFIX="$prefix" \
+        -DSPIRV_HEADERS_ENABLE_TESTS=OFF \
+        -DSPIRV_HEADERS_ENABLE_INSTALL=ON \
+        >&2 || return 1
+    cmake --install "$BUILD_DIR/spirv-headers-build" >&2 || return 1
+
+    if [[ -f "$prefix/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake" ]]; then
+        echo "$prefix"
+        return 0
+    fi
+    # Some layouts put the config under lib/cmake instead.
+    if [[ -f "$prefix/lib/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake" ]]; then
+        echo "$prefix"
+        return 0
+    fi
+    echo "[WARN] SPIRV-Headers installed but no CMake config was produced" >&2
     return 1
 }
 
@@ -361,13 +393,26 @@ build_variant() {
             cmake_args+=(-DGGML_VULKAN=ON)
             # Prepend the downloaded headers so vulkan.hpp and spirv.hpp are found.
             cmake_args+=(-DCMAKE_CXX_FLAGS="-I$vulkan_hpp_include -I$spirv_include -I$vulkan_include")
-            echo "   Vulkan: enabled (NDK headers at $vulkan_include, HPP at $vulkan_hpp_include, SPIRV at $spirv_include)"
+
+            # ggml-vulkan asks for the SPIRV-Headers *package*, not just its
+            # include path, so the headers have to be installed for CMake to
+            # find a config file. Cloning and adding -I was enough until
+            # upstream changed to find_package, at which point the Vulkan build
+            # started failing — silently, because a GPU variant failing is only
+            # a warning, so the release shipped CPU-only.
+            local spirv_prefix
+            spirv_prefix=$(install_spirv_headers "$spirv_include") || {
+                echo "[WARN] SPIRV-Headers could not be installed — skipping $variant build"
+                return 1
+            }
+            cmake_args+=(-DCMAKE_PREFIX_PATH="$spirv_prefix")
+            echo "   Vulkan: enabled (NDK headers at $vulkan_include, HPP at $vulkan_hpp_include, SPIRV package at $spirv_prefix)"
             ;;
         opencl)
             local opencl_headers
             opencl_headers=$(ensure_opencl_headers)
             local opencl_stub
-            opencl_stub=$(build_opencl_stub) || {
+            opencl_stub=$(build_opencl_stub "$opencl_headers") || {
                 echo "[WARN] OpenCL stub library build failed — skipping $variant build"
                 return 1
             }
@@ -445,6 +490,14 @@ mkdir -p "$JNILIBS_DIR"
 build_variant "cpu" || exit 1
 
 # Build GPU variants if --all or requested
+#
+# A failed GPU variant is recorded rather than shrugged off. It used to be a
+# bare warning, and the script still ended by announcing that the binaries had
+# been copied, so a release could ship a CPU-only APK with nothing in the log
+# saying the GPU backends were missing. That is what happened: the app offered
+# Vulkan and OpenCL backend detection on Android while neither binary existed.
+FAILED_VARIANTS=()
+
 if [[ "$BUILD_ALL" == true ]]; then
     # Vulkan
     if build_variant "vulkan"; then
@@ -453,6 +506,7 @@ if [[ "$BUILD_ALL" == true ]]; then
     else
         echo ""
         echo "[WARN] Vulkan variant failed"
+        FAILED_VARIANTS+=("vulkan")
     fi
 
     # OpenCL
@@ -462,6 +516,7 @@ if [[ "$BUILD_ALL" == true ]]; then
     else
         echo ""
         echo "[WARN] OpenCL variant failed"
+        FAILED_VARIANTS+=("opencl")
     fi
 fi
 
@@ -473,6 +528,28 @@ if [[ -n "$STL_LIB" ]]; then
 fi
 
 echo ""
+echo "Binaries in $JNILIBS_DIR:"
+for f in "$JNILIBS_DIR"/libllama-*.so; do
+    [[ -e "$f" ]] && echo "  $(basename "$f")"
+done
+echo ""
+
+if [[ ${#FAILED_VARIANTS[@]} -gt 0 ]]; then
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║  [FAIL] These GPU variants did not build:        ║"
+    for v in "${FAILED_VARIANTS[@]}"; do
+        printf "║     %-44s ║\n" "$v"
+    done
+    echo "╚══════════════════════════════════════════════════╝"
+    echo ""
+    echo "The APK would ship without them, so Android would run on CPU only."
+    echo "Set ALLOW_CPU_ONLY=1 to accept that deliberately."
+    echo ""
+    if [[ "${ALLOW_CPU_ONLY:-0}" != "1" ]]; then
+        exit 1
+    fi
+fi
+
 echo "╔══════════════════════════════════════════════════╗"
 echo "║  [OK] Binaries copied to jniLibs:                ║"
 echo "║     $JNILIBS_DIR"
