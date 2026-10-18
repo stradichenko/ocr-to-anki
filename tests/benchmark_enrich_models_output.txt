@@ -1,0 +1,46 @@
+Enrichment: Gemma 4 E2B against Gemma 3 4B
+=========================================
+
+Produced by tests/benchmark_enrich.py with --text-only, on the target laptop
+(Intel Gen9.5 iGPU, Vulkan, llama.cpp b11577), twelve Japanese words in two
+batches of six, identical prompts for both models.
+
+The question this answers is whether moving the default to Gemma 4 E2B was
+right. It had been moved on licence and architecture grounds without ever
+checking the output.
+
+First run, before the parser was fixed:
+
+    Gemma 4 E2B    3 of 12 usable   10.47s per word
+    Gemma 3 4B    12 of 12 usable   15.95s per word
+
+That looked damning, and it was wrong. Reading what the model actually returned
+showed it labels only the first entry:
+
+    WORD: 探す
+    DEF: To search for something that is lost or unknown.
+    - 静か
+    DEF: Quiet and free from noise or activity.
+
+The parser split on WORD:, so every later entry was swallowed into the first,
+and the last DEF: in a block won - the first word was given the last word's
+definition, silently. Separately, the UNKNOWN marker was matched as a substring,
+so the definition above, which contains the word "unknown", was discarded as a
+miss despite being a correct answer.
+
+With both fixed:
+
+    Gemma 4 E2B   12 of 12 usable   11.86s per word   prompt eval 3354ms/word
+    Gemma 3 4B    12 of 12 usable   15.99s per word   prompt eval 4376ms/word
+
+Both produce a usable result for every word. Gemma 4 is about 26% faster per
+word and spends less on prompt evaluation, which is consistent with being a
+smaller model.
+
+So the move to Gemma 4 was right. It was nearly reversed on the strength of a
+bug in the code reading its output, which is worth recording: the parser was
+the thing that was worse, not the model.
+
+Caveat: twelve words, one word list, one machine. Enough to show the earlier
+conclusion was an artifact and to justify the default, not enough to rank the
+two models in general.
