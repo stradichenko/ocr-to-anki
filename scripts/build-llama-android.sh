@@ -279,7 +279,19 @@ install_spirv_headers() {
     #
     # Header-only, so nothing is compiled; tests are off so the install stays a
     # file copy. Prints the install prefix on success.
-    local src="$1"
+    # The caller passes the include directory, because that is what the rest of
+    # the build needs; CMake wants the repository root.
+    local include_dir="$1"
+    local src
+    if [[ -f "$include_dir/CMakeLists.txt" ]]; then
+        src="$include_dir"
+    else
+        src="$(dirname "$include_dir")"
+    fi
+    if [[ ! -f "$src/CMakeLists.txt" ]]; then
+        echo "[WARN] No CMakeLists.txt above '$include_dir'; cannot install SPIRV-Headers" >&2
+        return 1
+    fi
     local prefix="$BUILD_DIR/spirv-headers-install"
 
     if [[ -f "$prefix/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake" ]]; then
