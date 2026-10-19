@@ -28,7 +28,32 @@ import 'inference_service.dart';
 /// it. A word the model never mentioned comes back empty for the retry pass.
 /// The result is always one entry per requested word, in the requested order.
 
+/// Gemma 4 answers inside a reasoning channel unless told not to, and the
+/// channel's closing marker is written immediately before the answer with no
+/// separator:
+///
+///     <|channel>thought
+///     ...narration...
+///     <channel|>WORD: casa
+///
+/// The first label line therefore does not begin with "WORD:" and every entry
+/// is lost. The channel is removed before parsing rather than relying on the
+/// model being told not to use one, because the instruction is not always
+/// obeyed and this is the difference between working and returning nothing.
+String stripReasoningChannel(String text) {
+  final close = text.indexOf('<channel|>');
+  if (close >= 0) {
+    return text.substring(close + '<channel|>'.length).trim();
+  }
+  if (text.contains('<|channel>thought')) {
+    // Opened and never closed: generation stopped before the answer.
+    return '';
+  }
+  return text.trim();
+}
+
 List<EnrichWordResult> parseEnrichResponse(String text, List<String> words) {
+  text = stripReasoningChannel(text);
   final entries = <_ParsedEntry>[];
   _ParsedEntry? current;
   String? pendingLabel;

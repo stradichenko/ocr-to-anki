@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
 
 import '../models/app_settings.dart';
@@ -615,11 +616,16 @@ class InferenceService {
           temperature: temperature,
         );
         final parsed = _parseEnrichResponse(response, chunk);
-        // If the model returned content but parsing produced no results,
-        // the response format was unexpected. Log it so we can diagnose.
-        if (parsed.isEmpty && response.trim().isNotEmpty) {
-          debugPrint('[enrich] parsing produced 0 results for chunk '
-              '${ci + 1}/${chunks.length}. Raw response:\n$response');
+        // If the model returned content but nothing usable came out of it, the
+        // response shape was not what the parser expects. Keep it: the parser
+        // always returns one entry per word now, so an empty list is no longer
+        // the signal, and without the raw text there is nothing to diagnose
+        // from.
+        final usable = parsed.where((r) => r.definition.isNotEmpty).length;
+        if (usable == 0 && response.trim().isNotEmpty) {
+          debugPrint('[enrich] chunk ${ci + 1}/${chunks.length} produced no '
+              'definitions for ${chunk.length} word(s). Raw response:\n$response');
+          await _dumpEnrichResponse(ci + 1, chunk, response);
         }
         allResults.addAll(parsed);
       } catch (e) {
@@ -652,6 +658,15 @@ class InferenceService {
         ? 'The word is in $termLang. '
         : '';
     return (
+        // Gemma 4 narrates inside a reasoning channel by default, and the
+        // narration is generated token by token before any answer: on a slow
+        // device that is most of the wait, and it can exhaust the budget before
+        // a single word is defined. The Python backend suppresses this with a
+        // system prompt; /completion has no system field, so the instruction
+        // leads the prompt instead. The parser strips a channel anyway, since
+        // the instruction is not always obeyed.
+        'Respond with the entries only. Do not explain, do not describe what '
+        'you are doing, and do not think out loud.\n\n'
         '$langHint'
         'For each word, give a definition in $defLang and 2 example sentences in $exLang.\n'
         'WORD: must contain the EXACT original word, unchanged. Do NOT translate, correct, or modify it.\n'
@@ -668,6 +683,33 @@ class InferenceService {
         'EX1: Meeting my best friend was a serendipity.\n'
         'EX2: The discovery of penicillin was pure serendipity.\n\n'
         'Words:\n$wordList\n');
+  }
+
+  /// Append a response that produced nothing to a file on the device.
+  ///
+  /// Readable with `adb shell run-as <package> cat files/enrich_diagnostics.txt`,
+  /// or from the app's Files entry. Logcat is truncated and awkward to read for
+  /// a multi-line model output, so this keeps the exact text somewhere it can
+  /// be sent on.
+  Future<void> _dumpEnrichResponse(
+    int chunkNumber,
+    List<String> words,
+    String response,
+  ) async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/enrich_diagnostics.txt');
+      final header = '===== ${DateTime.now().toIso8601String()} '
+          'chunk $chunkNumber, ${words.length} word(s): '
+          '${words.join(", ")} =====';
+      await file.writeAsString(
+        '$header\n$response\n\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (e) {
+      debugPrint('[enrich] could not write diagnostics: $e');
+    }
   }
 
   /// Parse a batched enrichment response. See [parseEnrichResponse] in

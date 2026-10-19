@@ -137,4 +137,52 @@ void main() {
       expect(r[1].examples, 'Dos mas.\nSolo dos.');
     });
   });
+
+
+  group('reasoning channel', () {
+    // Gemma 4 narrates before answering. The closing marker is glued to the
+    // first label line, so without stripping it the label is never recognised
+    // and the run reports nothing enriched.
+    const narration = '<|channel>thought\n'
+        'Thinking process:\n'
+        '1. The user wants definitions.\n'
+        '2. I will write them out.';
+
+    test('a closed channel is stripped before parsing', () {
+      final text = '$narration'
+          '<channel|>WORD: casa\n'
+          'DEF: A house.\n'
+          'EX1: I live in a big house.\n';
+      final r = parseEnrichResponse(text, ['casa']);
+      expect(r[0].definition, 'A house.');
+      expect(r[0].warning, '');
+    });
+
+    test('entries after the channel are not lost', () {
+      final text = '$narration'
+          '<channel|>WORD: casa\nDEF: A house.\n'
+          'WORD: perro\nDEF: A dog.\n';
+      final r = parseEnrichResponse(text, ['casa', 'perro']);
+      expect(r[0].definition, 'A house.');
+      expect(r[1].definition, 'A dog.');
+    });
+
+    test('an unclosed channel yields misses, not the narration', () {
+      final r = parseEnrichResponse(narration, ['casa']);
+      expect(r[0].warning, 'not_found');
+      expect(r[0].definition, '');
+    });
+
+    test('narration text never becomes a definition', () {
+      final text = '$narration<channel|>WORD: casa\nDEF: A house.\n';
+      final r = parseEnrichResponse(text, ['casa']);
+      expect(r[0].definition, isNot(contains('Thinking')));
+      expect(r[0].definition, isNot(contains('user wants')));
+    });
+
+    test('a response with no channel is untouched', () {
+      final r = parseEnrichResponse('WORD: casa\nDEF: A house.\n', ['casa']);
+      expect(r[0].definition, 'A house.');
+    });
+  });
 }
