@@ -212,6 +212,19 @@ build_opencl_stub() {
     # The stub exists so CMake can link at build time; the device supplies the
     # real libOpenCL.so at runtime.
     #
+    # It is a SHARED library carrying the soname `libOpenCL.so`, and it must
+    # never be copied into jniLibs. Linking the binaries against it records
+    # DT_NEEDED "libOpenCL.so", and at spawn time the app sets LD_LIBRARY_PATH
+    # to the vendor partitions (/vendor/lib64, /odm/lib64, ...) so the dynamic
+    # linker loads the device's real driver. The stub's own no-op definitions
+    # are therefore never called — they only satisfy the link.
+    #
+    # This replaced a static stub, which was a silent no-op factory: static
+    # archive members are copied into the executable, and definitions inside
+    # the executable beat any shared library at symbol resolution, so every
+    # cl* call hit the no-op forever and every OpenCL binary reported "could
+    # not find any OpenCL devices" while falling back to CPU internally.
+    #
     # It used to be a hand-written list of function names, which meant that
     # every time llama.cpp called a new OpenCL function the Android build
     # failed to link — and because a GPU variant failing is only a warning
@@ -221,7 +234,7 @@ build_opencl_stub() {
     local headers_dir="${1:-}"
     local stub_dir="$BUILD_DIR/opencl-stub"
     local stub_c="$stub_dir/stub.c"
-    local stub_lib="$stub_dir/libOpenCL.a"
+    local stub_lib="$stub_dir/libOpenCL-stub.so"
     mkdir -p "$stub_dir"
 
     if [[ -z "$headers_dir" || ! -f "$headers_dir/CL/cl.h" ]]; then
@@ -253,7 +266,6 @@ build_opencl_stub() {
     echo ":: Stub covers $count OpenCL entry points" >&2
 
     local clang="$HOST_PREBUILT/bin/aarch64-linux-android28-clang"
-    local ar="$HOST_PREBUILT/bin/llvm-ar"
 
     if [[ ! -f "$clang" ]]; then
         echo "[WARN] Android cross-compiler not found at $clang — OpenCL stub build skipped" >&2
@@ -261,8 +273,7 @@ build_opencl_stub() {
     fi
 
     rm -f "$stub_lib"
-    "$clang" -c -o "$stub_dir/stub.o" "$stub_c" >&2
-    "$ar" rcs "$stub_lib" "$stub_dir/stub.o" >&2
+    "$clang" -shared -Wl,-soname,libOpenCL.so -o "$stub_lib" "$stub_c" >&2
 
     if [[ -f "$stub_lib" ]]; then
         echo "$stub_lib"
@@ -438,8 +449,10 @@ build_variant() {
                 return 1
             }
             # On Android we only have headers; the device provides libOpenCL.so
-            # at runtime.  We compile a stub static library so CMake can link
-            # at build time without pulling in a host OpenCL library.
+            # at runtime. We link against a stub SHARED library carrying the
+            # libOpenCL.so soname, which records DT_NEEDED without shipping
+            # or shadowing the driver — see build_opencl_stub for the full
+            # mechanism and why a static stub was broken.
             cmake_args+=(-DGGML_OPENCL=ON)
             cmake_args+=(-DGGML_OPENCL_EMBED_KERNELS=ON)
             cmake_args+=(-DOpenCL_INCLUDE_DIR="$opencl_headers")

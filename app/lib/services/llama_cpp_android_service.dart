@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
-import 'package:ffi/ffi.dart';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/model_info.dart';
+import 'backend_probe.dart';
 import 'foreground_task_service.dart';
 
 /// Manages llama.cpp native binaries on Android.
@@ -69,6 +68,21 @@ class LlamaCppAndroidService {
 
   /// Number of GPU layers to offload. 999 means all layers.
   int _nGpuLayers = 999;
+
+  /// Per-backend notes from the last detection run, for the diagnostics
+  /// screen. One line per probed backend.
+  final List<String> _backendProbe = [];
+
+  /// Why the resolved GPU backend was abandoned for CPU at server start,
+  /// when that happened. Null while the chosen backend is still trusted.
+  String? _backendFallbackReason;
+
+  /// Device properties fetched once at startup (model, SoC, SDK level).
+  final Map<String, String> _deviceProps = {};
+
+  /// Memory figures from /proc/meminfo in kB, or null when unreadable.
+  int? _memTotalKb;
+  int? _memAvailableKb;
 
   /// The currently selected model. Must be set before [startServer] or
   /// [runVisionOcr] are called.
@@ -139,6 +153,9 @@ class LlamaCppAndroidService {
     _availableBackends = await _detectAvailableBackends();
     _resolvedBackend = _resolveBackend();
 
+    // Best-effort device facts for the diagnostics screen.
+    await _collectDeviceInfo();
+
     // Verify the variant-specific binaries were extracted by the installer.
     // Fall back to CPU if the resolved backend binaries are missing (e.g.
     // the APK was built without Vulkan support).
@@ -181,52 +198,100 @@ class LlamaCppAndroidService {
     if (nGpuLayers != null) _nGpuLayers = nGpuLayers;
   }
 
-  /// Detect which GPU backends are available on this device by probing
-  /// for system libraries. Always returns a set containing at least 'cpu'.
+  /// Directories that hold vendor GPU driver libraries on Android. The
+  /// OpenCL runtime (Adreno, Mali) lives here rather than in /system/lib64.
+  ///
+  /// A spawned binary resolves its DT_NEEDED `libOpenCL.so` through
+  /// LD_LIBRARY_PATH, and these directories are where it can actually be
+  /// found — verified on a Galaxy Note10+ (Adreno 640, Android 12), where a
+  /// test binary linked against `libOpenCL.so` and run with
+  /// LD_LIBRARY_PATH=/vendor/lib64 enumerated the Adreno device. LD_PRELOAD
+  /// of the same library is rejected by the linker namespace, and Dart-side
+  /// dlopen is useless: vendor public libraries are not visible to the app
+  /// namespace at all without a manifest declaration, and loading a library
+  /// says nothing about whether a backend can use it.
+  static const _vendorLibDirs = [
+    '/vendor/lib64',
+    '/odm/lib64',
+    '/system/vendor/lib64',
+    '/system/vendor/lib',
+  ];
+
+  /// LD_LIBRARY_PATH for spawned llama.cpp processes: our own native lib
+  /// dir first (libc++_shared.so), then the vendor driver directories.
+  String get _childLdLibraryPath => [_libDir, ..._vendorLibDirs].join(':');
+
+  /// Detect which GPU backends actually work on this device by asking the
+  /// shipped binaries themselves. Always returns a set containing at least
+  /// 'cpu'.
+  ///
+  /// Each variant's `llama-mtmd-cli` is run with `--list-devices`, which
+  /// initializes the backend for real — including any runtime driver
+  /// interaction a static check cannot see. A variant counts as available
+  /// only if the binary lists a device.
   Future<Set<String>> _detectAvailableBackends() async {
     final backends = <String>{'cpu'};
+    _backendProbe.clear();
 
-    // Vulkan: check if libvulkan.so is loadable AND the device supports
-    // Vulkan 1.2+. llama.cpp requires 1.2 at runtime; older drivers fail
-    // with "ggml_vulkan: Error: Vulkan 1.2 required."
-    try {
-      final vk = DynamicLibrary.open('libvulkan.so');
-      final enumerateVersion = vk.lookup<NativeFunction<Int32 Function(Pointer<Uint32>)>>('vkEnumerateInstanceVersion');
-      final versionPtr = calloc<Uint32>();
-      try {
-        final result = enumerateVersion.asFunction<int Function(Pointer<Uint32>)>()(versionPtr);
-        if (result == 0) {
-          // VK_SUCCESS — parse version: major = bits 22-31, minor = bits 12-21
-          final version = versionPtr.value;
-          final major = (version >> 22) & 0x7F;
-          final minor = (version >> 12) & 0x3FF;
-          if (major > 1 || (major == 1 && minor >= 2)) {
-            backends.add('vulkan');
-          }
-        }
-        // If result != VK_SUCCESS, the loader doesn't support version queries;
-        // fall back to assuming it's an old loader and skip Vulkan.
-      } finally {
-        calloc.free(versionPtr);
+    for (final variant in const ['vulkan', 'opencl']) {
+      final bin = '$_nativeLibDir/libllama-mtmd-cli-$variant.so';
+      if (!File(bin).existsSync()) {
+        _backendProbe.add('$variant: binary not in APK');
+        continue;
       }
-    } catch (_) {}
 
-    // OpenCL: different vendors ship under different names.
-    final openclLibs = [
-      'libOpenCL.so',
-      'libGLES_mali.so',
-      'libllvm-qgl.so',
-      'libPVROCL.so',
-    ];
-    for (final lib in openclLibs) {
       try {
-        DynamicLibrary.open(lib);
-        backends.add('opencl');
-        break;
-      } catch (_) {}
+        final env = Map<String, String>.from(Platform.environment);
+        env['LD_LIBRARY_PATH'] = _childLdLibraryPath;
+        final result = await Process.run(bin, ['--list-devices'],
+                environment: env, stdoutEncoding: utf8, stderrEncoding: utf8)
+            .timeout(const Duration(seconds: 30));
+        final output = '${result.stdout}\n${result.stderr}';
+        if (listDevicesFoundDevice(output)) {
+          _backendProbe.add('$variant: device listed');
+          backends.add(variant);
+        } else {
+          _backendProbe.add('$variant: no device — ${firstBackendErrorLine(output)}');
+        }
+      } catch (e) {
+        _backendProbe.add('$variant: probe failed — $e');
+      }
     }
 
     return backends;
+  }
+
+  /// Fetch device properties and memory figures for the diagnostics screen.
+  /// Every lookup is best-effort; a failure just leaves the field empty.
+  Future<void> _collectDeviceInfo() async {
+    for (final key in const [
+      'ro.product.model',
+      'ro.product.brand',
+      'ro.soc.model',
+      'ro.board.platform',
+      'ro.build.version.release',
+      'ro.build.version.sdk',
+    ]) {
+      try {
+        final r = await Process.run('getprop', [key]);
+        final value = (r.stdout as String).trim();
+        if (value.isNotEmpty) _deviceProps[key] = value;
+      } catch (_) {}
+    }
+
+    try {
+      final lines = await File('/proc/meminfo').readAsLines();
+      for (final line in lines.take(3)) {
+        final parts = line.split(RegExp(r'\s+'));
+        if (parts.length >= 2) {
+          final kb = int.tryParse(parts[1]);
+          if (kb != null) {
+            if (parts[0] == 'MemTotal:') _memTotalKb = kb;
+            if (parts[0] == 'MemAvailable:') _memAvailableKb = kb;
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   /// Resolve the backend to use given the user preference and what's
@@ -375,7 +440,25 @@ class LlamaCppAndroidService {
   // ---------------------------------------------------------------------------
 
   /// Start llama-server with the text-generation model.
+  ///
+  /// A GPU backend can pass detection and still fail when the server
+  /// actually initializes it (driver quirks the probe did not exercise).
+  /// In that case the server is retried once on CPU, and the reason is
+  /// kept for the diagnostics screen rather than surfaced as a fatal
+  /// error — slow-but-working beats a wall of text.
   Future<void> startServer() async {
+    try {
+      await _startServerWithBackend();
+    } catch (e) {
+      if (_resolvedBackend == 'cpu') rethrow;
+      _backendFallbackReason = e.toString();
+      _resolvedBackend = 'cpu';
+      await stopServer();
+      await _startServerWithBackend();
+    }
+  }
+
+  Future<void> _startServerWithBackend() async {
     await ensureBinaries();
 
     if (_serverProcess != null) return;
@@ -398,8 +481,10 @@ class LlamaCppAndroidService {
     final port = 8090;
     final binaryPath = _serverBinary;
     final env = Map<String, String>.from(Platform.environment);
-    // Help the dynamic linker find libc++_shared.so — it's in the same dir.
-    env['LD_LIBRARY_PATH'] = _libDir;
+    // libc++_shared.so comes from our own lib dir; GPU driver libraries
+    // (OpenCL on Adreno/Mali) come from the vendor partitions. Our dir
+    // first: it never contains a driver library, so the vendor one wins.
+    env['LD_LIBRARY_PATH'] = _childLdLibraryPath;
 
     // Diagnostics about the binary itself — captured up front so error
     // paths can attach them.
@@ -598,23 +683,24 @@ class LlamaCppAndroidService {
 
   /// Stop llama-server.
   Future<void> stopServer() async {
-    if (_serverProcess == null) return;
+    if (_serverProcess != null) {
+      // Try graceful SIGTERM first.
+      _serverProcess!.kill(ProcessSignal.sigterm);
 
-    // Try graceful SIGTERM first.
-    _serverProcess!.kill(ProcessSignal.sigterm);
-
-    // Wait up to 5s for clean exit.
-    try {
-      await _serverProcess!.exitCode.timeout(const Duration(seconds: 5));
-    } catch (_) {
-      // Force kill if still running.
-      _serverProcess!.kill(ProcessSignal.sigkill);
+      // Wait up to 5s for clean exit.
+      try {
+        await _serverProcess!.exitCode.timeout(const Duration(seconds: 5));
+      } catch (_) {
+        // Force kill if still running.
+        _serverProcess!.kill(ProcessSignal.sigkill);
+      }
     }
 
     _serverProcess = null;
     _serverUrl = null;
 
-    // Stop the foreground service now that the server is down.
+    // Stop the foreground service now that the server is down. Unconditional
+    // so a failed start attempt also cleans up before a fallback retry.
     try {
       await ForegroundTaskService.stop();
     } catch (_) {}
@@ -653,7 +739,7 @@ class LlamaCppAndroidService {
     try {
       final env = Map<String, String>.from(Platform.environment);
       if (Directory(_libDir).existsSync()) {
-        env['LD_LIBRARY_PATH'] = _libDir;
+        env['LD_LIBRARY_PATH'] = _childLdLibraryPath;
       }
 
       final args = [
@@ -888,11 +974,25 @@ class LlamaCppAndroidService {
         ? File(mmprojPath)
         : null;
 
+    final libVariants = <String, bool>{};
+    for (final variant in const ['cpu', 'vulkan', 'opencl']) {
+      libVariants[variant] = _nativeLibDir != null &&
+          File('$_nativeLibDir/libllama-server-$variant.so').existsSync() &&
+          File('$_nativeLibDir/libllama-mtmd-cli-$variant.so').existsSync();
+    }
+
     return {
       'serverRunning': isServerRunning,
       'serverUrl': _serverUrl,
       'resolvedBackend': _resolvedBackend,
       'availableBackends': _availableBackends.toList(),
+      'backendProbe': _backendProbe.toList(),
+      'backendFallbackReason': _backendFallbackReason,
+      'nativeLibVariants': libVariants,
+      'ldLibraryPath': _nativeLibDir != null ? _childLdLibraryPath : null,
+      'device': _deviceProps.isNotEmpty ? Map<String, String>.of(_deviceProps) : null,
+      'memTotalKb': _memTotalKb,
+      'memAvailableKb': _memAvailableKb,
       'gpuMode': _gpuMode,
       'nGpuLayers': _nGpuLayers,
       'nativeLibDir': _nativeLibDir,

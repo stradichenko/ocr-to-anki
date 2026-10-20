@@ -21,6 +21,12 @@
         android:label="ocr_to_anki"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Vendor public GPU libraries the spawned llama.cpp binaries load.
+             Without this declaration Android 12+ (API 31+) denies any dlopen
+             of a vendor public library from the app, which is what made
+             backend detection report "cpu only" on Adreno devices that ship
+             a perfectly usable OpenCL runtime. -->
+        <uses-native-library android:name="libOpenCL.so" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
