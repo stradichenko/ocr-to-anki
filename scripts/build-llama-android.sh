@@ -466,6 +466,18 @@ build_variant() {
             # 2.0 is referenced: any such call fails this build instead of
             # failing on the device.
             cmake_args+=(-DGGML_OPENCL_TARGET_VERSION=200)
+            # The Adreno-tuned kernels (flash-attn repack, wmm gemm) write to
+            # 3D images and require cl_khr_3d_image_writes at JIT compile
+            # time. Older Adreno drivers — Adreno 640 on Android 12, verified
+            # on a Galaxy Note10+ — lack that extension, and the backend
+            # compiles the repack kernels unconditionally inside this block,
+            # so a device that passes every other check still dies at model
+            # load with 'Writable 3d images require the cl_khr_3d_image_writes
+            # extension'. The generic OpenCL kernels remain and work; on this
+            # generation they are the only working GPU path, so the tuned
+            # kernels are off for Android entirely until upstream learns to
+            # skip them when the extension is absent.
+            cmake_args+=(-DGGML_OPENCL_USE_ADRENO_KERNELS=OFF)
             cmake_args+=(-DGGML_OPENCL=ON)
             cmake_args+=(-DGGML_OPENCL_EMBED_KERNELS=ON)
             cmake_args+=(-DOpenCL_INCLUDE_DIR="$opencl_headers")
