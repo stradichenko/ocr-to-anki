@@ -563,6 +563,15 @@ class LlamaCppAndroidService {
         '--cache-ram', '0',
         '--cache-type-k', 'q4_0',
         '--no-webui',
+        // Phones are heterogeneous: e.g. a Snapdragon 855 is 4 big + 4 little
+        // cores. The default of one thread per core saturates the little
+        // cluster too, which slows token generation AND starves the Flutter
+        // UI thread — a rotation or scroll visibly janks the whole app while
+        // a chunk generates. Four threads track the big cores, which is
+        // where llama.cpp wants to be anyway on big.LITTLE.
+        if (_resolvedBackend == 'cpu') ...[
+          '--threads', '4',
+        ],
         if (_resolvedBackend != 'cpu') ...[
           '-ngl', '$_nGpuLayers',
         ],

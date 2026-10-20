@@ -6,10 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../models/anki_note.dart';
-import '../models/enrichment_defaults.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../services/anki_export_service.dart';
+import '../services/inference_service.dart' show EnrichWordResult;
 import '../utils/responsive.dart';
 
 class ReviewScreen extends ConsumerStatefulWidget {
@@ -22,9 +22,6 @@ class ReviewScreen extends ConsumerStatefulWidget {
 class _ReviewScreenState extends ConsumerState<ReviewScreen> {
   late List<_EditableCard> _cards;
   bool _initialised = false;
-  bool _reEnriching = false;
-  bool _reEnrichingSelected = false;
-  int? _retryingIndex;
 
   @override
   void didChangeDependencies() {
@@ -61,6 +58,51 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
     final theme = Theme.of(context);
     final compact = isCompact(context);
     final warningCount = _cards.where((c) => c.warning.isNotEmpty).length;
+    final reEnrich = ref.watch(reEnrichProvider);
+
+    // Re-enrichment results are written through the processing provider (see
+    // ReEnrichController), so they land here even when this State was
+    // recreated mid-run by a rotation across the two-pane threshold. Only
+    // the fresh definitions/examples are pulled in; the user's edits and
+    // selections stay as they are.
+    ref.listen<ProcessingState>(processingProvider, (prev, next) {
+      for (var i = 0; i < _cards.length; i++) {
+        EnrichWordResult? updated;
+        for (final w in next.enrichedWords) {
+          if (w.word == _cards[i].word) {
+            updated = w;
+            break;
+          }
+        }
+        if (updated == null) continue;
+        if (updated.definition == _cards[i].definition &&
+            updated.examples == _cards[i].examples &&
+            updated.warning == _cards[i].warning) {
+          continue;
+        }
+        final nowOk = updated.warning != 'not_found';
+        setState(() {
+          _cards[i] = _cards[i].copyWith(
+            definition: updated!.definition,
+            examples: updated.examples,
+            warning: updated.warning,
+            selected: nowOk ? true : _cards[i].selected,
+            version: _cards[i].version + 1,
+          );
+        });
+      }
+    });
+
+    // Surface a failure once; the controller keeps it in state so this still
+    // fires when the failure happened while no screen was watching.
+    ref.listen<ReEnrichState>(reEnrichProvider, (prev, next) {
+      if (next.error != null && next.error != prev?.error) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Re-enrich failed: ${next.error}')),
+        );
+        ref.read(reEnrichProvider.notifier).clearError();
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -105,8 +147,8 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                     ),
                     actions: [
                       TextButton(
-                        onPressed: _reEnriching ? null : _reEnrichFailed,
-                        child: _reEnriching
+                        onPressed: reEnrich.running ? null : _reEnrichFailed,
+                        child: reEnrich.kind == ReEnrichKind.failed
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
@@ -164,11 +206,11 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                           style: theme.textTheme.bodyMedium),
                       const Spacer(),
                       OutlinedButton.icon(
-                        onPressed: _reEnrichingSelected ||
+                        onPressed: reEnrich.running ||
                                 !_cards.any((c) => c.selected)
                             ? null
                             : _reEnrichSelected,
-                        icon: _reEnrichingSelected
+                        icon: reEnrich.kind == ReEnrichKind.selected
                             ? const SizedBox(
                                 width: 16,
                                 height: 16,
@@ -196,7 +238,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                             setState(() => _cards[index] = updated),
                         onRemoved: () =>
                             setState(() => _cards.removeAt(index)),
-                        isRetrying: _retryingIndex == index,
+                        isRetrying: reEnrich.retryingWord == card.word,
                         onRetry: () => _retryOneWord(index),
                       );
                     },
@@ -483,179 +525,37 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
   }
 
   /// Re-enrich only the cards that have a not_found warning (empty definition).
+  ///
+  /// The run is provider-held (see ReEnrichController): if this screen is
+  /// recreated mid-run — a rotation across the two-pane threshold, a process
+  /// kill — the work continues and the results still reach the card list
+  /// through the processing provider.
   Future<void> _reEnrichFailed() async {
-    // Collect indices and words that need re-enrichment.
-    final failedIndices = <int>[];
     final failedWords = <String>[];
-    for (var i = 0; i < _cards.length; i++) {
-      if (_cards[i].warning == 'not_found' && _cards[i].definition.isEmpty) {
-        failedIndices.add(i);
-        failedWords.add(_cards[i].word);
+    for (final card in _cards) {
+      if (card.warning == 'not_found' && card.definition.isEmpty) {
+        failedWords.add(card.word);
       }
     }
-    if (failedWords.isEmpty) return;
-
-    setState(() => _reEnriching = true);
-
-    try {
-      final inference = ref.read(inferenceServiceProvider);
-      final settings = ref.read(settingsProvider);
-
-      final results = await inference.enrichWords(
-        words: failedWords,
-        definitionLanguage: settings.definitionLanguage,
-        examplesLanguage: settings.examplesLanguage,
-        chunkSize: kEnrichChunkSize,
-        chunkTimeout: enrichChunkTimeout(kEnrichChunkSize),
-      );
-
-      if (!mounted) return;
-
-      // Merge results back into the card list.
-      var recovered = 0;
-      for (var ri = 0; ri < results.length; ri++) {
-        final r = results[ri];
-        if (ri < failedIndices.length && r.definition.isNotEmpty) {
-          final idx = failedIndices[ri];
-          // Keep the original word – only update definition & examples.
-          _cards[idx] = _cards[idx].copyWith(
-            definition: r.definition,
-            examples: r.examples,
-            warning: r.warning,
-            selected: r.warning != 'not_found',
-            version: _cards[idx].version + 1,
-          );
-          recovered++;
-        }
-      }
-
-      setState(() => _reEnriching = false);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Re-enriched $recovered/${failedWords.length} word(s)',
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _reEnriching = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Re-enrich failed: $e')),
-        );
-      }
-    }
+    await ref
+        .read(reEnrichProvider.notifier)
+        .reEnrich(failedWords, ReEnrichKind.failed);
   }
 
   /// Retry enrichment for a single card at [index].
   Future<void> _retryOneWord(int index) async {
-    if (_retryingIndex != null) return; // already retrying another
-
-    final card = _cards[index];
-    setState(() => _retryingIndex = index);
-
-    try {
-      final inference = ref.read(inferenceServiceProvider);
-      final settings = ref.read(settingsProvider);
-
-      final results = await inference.enrichWords(
-        words: [card.word],
-        definitionLanguage: settings.definitionLanguage,
-        examplesLanguage: settings.examplesLanguage,
-        chunkSize: kEnrichChunkSize,
-        chunkTimeout: enrichChunkTimeout(kEnrichChunkSize),
-      );
-
-      if (!mounted) return;
-
-      if (results.isNotEmpty && results.first.definition.isNotEmpty) {
-        final r = results.first;
-        // Keep the original word – only update definition & examples.
-        _cards[index] = _cards[index].copyWith(
-          definition: r.definition,
-          examples: r.examples,
-          warning: r.warning,
-          selected: r.warning != 'not_found',
-          version: _cards[index].version + 1,
-        );
-      }
-
-      setState(() => _retryingIndex = null);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _retryingIndex = null);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Retry failed for "${card.word}": $e')),
-        );
-      }
-    }
+    await ref
+        .read(reEnrichProvider.notifier)
+        .retryOne(_cards[index].word);
   }
 
   /// Re-enrich all currently selected cards.
   Future<void> _reEnrichSelected() async {
-    final indices = <int>[];
-    final words = <String>[];
-    for (var i = 0; i < _cards.length; i++) {
-      if (_cards[i].selected) {
-        indices.add(i);
-        words.add(_cards[i].word);
-      }
-    }
-    if (words.isEmpty) return;
-
-    setState(() => _reEnrichingSelected = true);
-
-    try {
-      final inference = ref.read(inferenceServiceProvider);
-      final settings = ref.read(settingsProvider);
-
-      final results = await inference.enrichWords(
-        words: words,
-        definitionLanguage: settings.definitionLanguage,
-        examplesLanguage: settings.examplesLanguage,
-        chunkSize: kEnrichChunkSize,
-        chunkTimeout: enrichChunkTimeout(kEnrichChunkSize),
-      );
-
-      if (!mounted) return;
-
-      var updated = 0;
-      for (var ri = 0; ri < results.length; ri++) {
-        final r = results[ri];
-        if (ri < indices.length && r.definition.isNotEmpty) {
-          final idx = indices[ri];
-          // Keep the original word – only update definition & examples.
-          _cards[idx] = _cards[idx].copyWith(
-            definition: r.definition,
-            examples: r.examples,
-            warning: r.warning,
-            selected: r.warning != 'not_found',
-            version: _cards[idx].version + 1,
-          );
-          updated++;
-        }
-      }
-
-      setState(() => _reEnrichingSelected = false);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Re-enriched $updated/${words.length} card(s)'),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _reEnrichingSelected = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Re-enrich failed: $e')),
-        );
-      }
-    }
+    final words =
+        _cards.where((c) => c.selected).map((c) => c.word).toList();
+    await ref
+        .read(reEnrichProvider.notifier)
+        .reEnrich(words, ReEnrichKind.selected);
   }
 }
 

@@ -1139,6 +1139,44 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     _wordReviewCompleter?.complete(null);
   }
 
+  /// Merge fresh enrichment results into [enrichedWords], matching by word.
+  ///
+  /// First occurrence wins for a repeated word, so a duplicate updates its
+  /// first entry and later copies keep whatever they had. Results with an
+  /// empty definition are ignored: they are either misses the card already
+  /// reflects or a chunk that produced nothing, and overwriting a good
+  /// definition with a miss via a later duplicate is the exact class of bug
+  /// the parser rewrite removed.
+  ///
+  /// This is the write-back path for review-screen re-enrichment; results
+  /// land here rather than in the screen's local card list so a screen
+  /// recreation (rotation across the two-pane threshold, process death) can
+  /// re-read the merged state instead of losing it.
+  void mergeEnrichResults(List<EnrichWordResult> results) {
+    if (results.isEmpty) return;
+    final list = [...state.enrichedWords];
+    var changed = false;
+    for (final r in results) {
+      if (r.definition.isEmpty) continue;
+      final idx = list.indexWhere((e) => e.word == r.word);
+      if (idx < 0) continue;
+      final old = list[idx];
+      list[idx] = EnrichWordResult(
+        word: old.word,
+        definition: r.definition,
+        examples: r.examples,
+        warning: r.warning,
+        correctedWord: r.correctedWord,
+        fromCache: r.fromCache,
+        source: r.source,
+      );
+      changed = true;
+    }
+    if (changed) {
+      state = state.copyWith(enrichedWords: list);
+    }
+  }
+
   /// Request cancellation of the current pipeline.
   void cancel() {
     if (_cancelled) return; // already requested
@@ -2712,6 +2750,105 @@ class ProcessingNotifier extends Notifier<ProcessingState> {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Review-screen re-enrichment (provider-held)
+// ---------------------------------------------------------------------------
+
+/// What a review-screen re-enrichment run was started as.
+enum ReEnrichKind { none, failed, selected, retry }
+
+/// Progress of a review-screen re-enrichment run.
+class ReEnrichState {
+  const ReEnrichState({
+    this.kind = ReEnrichKind.none,
+    this.done = 0,
+    this.total = 0,
+    this.retryingWord,
+    this.error,
+  });
+
+  final ReEnrichKind kind;
+  final int done;
+  final int total;
+
+  /// The word a single-card retry is running for, when [kind] is retry.
+  final String? retryingWord;
+
+  /// Set when the last run failed. Kept in state rather than shown from the
+  /// future's catch block, so a screen recreation between the failure and
+  /// the moment a screen exists to show it still surfaces the error.
+  final String? error;
+
+  bool get running => kind != ReEnrichKind.none;
+}
+
+/// Runs review-screen re-enrichment.
+///
+/// Provider-held on purpose. The review screen's State is rebuilt when a
+/// rotation crosses the two-pane threshold, and the previous widget-held
+/// versions of these futures died with it: inference kept running
+/// server-side but the results had nowhere to land, which looked exactly
+/// like the run pausing. Here the run and its progress live in the
+/// container, results are written back through [ProcessingNotifier], and a
+/// rebuilt screen reattaches to whatever is in flight.
+class ReEnrichController extends Notifier<ReEnrichState> {
+  @override
+  ReEnrichState build() => const ReEnrichState();
+
+  /// Re-enrich [words] — the failed set or the user's selection.
+  Future<void> reEnrich(List<String> words, ReEnrichKind kind) async {
+    if (state.running || words.isEmpty) return;
+    state = ReEnrichState(kind: kind, total: words.length);
+    await _run(words, kind);
+  }
+
+  /// Retry enrichment for a single card.
+  Future<void> retryOne(String word) async {
+    if (state.running) return;
+    state = ReEnrichState(
+        kind: ReEnrichKind.retry, retryingWord: word, total: 1);
+    await _run([word], ReEnrichKind.retry, retryWord: word);
+  }
+
+  /// Clear a surfaced error once the UI has shown it.
+  void clearError() {
+    if (state.error != null) {
+      state = const ReEnrichState();
+    }
+  }
+
+  Future<void> _run(
+    List<String> words,
+    ReEnrichKind kind, {
+    String? retryWord,
+  }) async {
+    try {
+      final settings = ref.read(settingsProvider);
+      await ref.read(inferenceServiceProvider).enrichWords(
+            words: words,
+            definitionLanguage: settings.definitionLanguage,
+            examplesLanguage: settings.examplesLanguage,
+            chunkSize: kEnrichChunkSize,
+            chunkTimeout: enrichChunkTimeout(kEnrichChunkSize),
+            onChunkDone: (done, total, chunkResults) {
+              ref.read(processingProvider.notifier).mergeEnrichResults(chunkResults);
+              state = ReEnrichState(
+                  kind: kind, done: done, total: total, retryingWord: retryWord);
+            },
+          );
+    } catch (e) {
+      // kind stays none so the screen's buttons re-enable; only the error
+      // survives for the SnackBar.
+      state = ReEnrichState(error: e.toString());
+      return;
+    }
+    state = const ReEnrichState();
+  }
+}
+
+final reEnrichProvider =
+    NotifierProvider<ReEnrichController, ReEnrichState>(ReEnrichController.new);
 
 // ---------------------------------------------------------------------------
 // Android system permission state
