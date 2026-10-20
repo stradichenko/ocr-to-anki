@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
 
 import '../models/app_settings.dart';
+import '../models/enrichment_defaults.dart';
 import 'llama_cpp_android_service.dart';
 import 'dictionary_service.dart';
 import 'enrich_parse.dart';
@@ -431,18 +432,21 @@ class InferenceService {
         List<EnrichWordResult> chunkResults)? onChunkDone,
   }) async {
     if (_isAndroid) {
-      // On Android (often CPU-only), limit tokens to avoid timeouts.
-      // 128 tokens is enough for 1-2 words with definitions + examples.
-      final androidTokens = maxTokens > 128 ? 128 : maxTokens;
+      // On-device generation is slow enough that a request's wall clock is
+      // its token budget, so Android uses small chunks and a generation
+      // budget that scales with the words actually in the chunk — see
+      // kAndroidEnrichChunkSize and androidChunkBudget. The old flat 128
+      // cap truncated every response past the second word of a 6-word
+      // chunk, so those words came back not_found no matter how well the
+      // model was doing.
       return _androidEnrichChunked(
         words: words,
         definitionLanguage: definitionLanguage,
         examplesLanguage: examplesLanguage,
         termLanguage: termLanguage,
         wordLanguages: wordLanguages,
-        maxTokens: androidTokens,
         temperature: temperature,
-        chunkSize: chunkSize,
+        chunkSize: kAndroidEnrichChunkSize,
         onChunkDone: onChunkDone,
       );
     }
@@ -573,7 +577,6 @@ class InferenceService {
     required String examplesLanguage,
     required String termLanguage,
     required Map<String, String> wordLanguages,
-    required int maxTokens,
     required double temperature,
     required int chunkSize,
     void Function(int completedWords, int totalWords,
@@ -612,7 +615,7 @@ class InferenceService {
         );
         final response = await _androidService.generate(
           prompt: prompt,
-          maxTokens: maxTokens,
+          maxTokens: androidChunkBudget(chunk.length),
           temperature: temperature,
         );
         final parsed = _parseEnrichResponse(response, chunk);
