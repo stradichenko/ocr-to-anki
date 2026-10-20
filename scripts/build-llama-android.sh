@@ -453,6 +453,19 @@ build_variant() {
             # libOpenCL.so soname, which records DT_NEEDED without shipping
             # or shadowing the driver — see build_opencl_stub for the full
             # mechanism and why a static stub was broken.
+            #
+            # Target OpenCL 2.0: Adreno 6xx-generation drivers (and other
+            # Android GPUs of that era) ship an OpenCL 2.x libOpenCL.so that
+            # does not export 3.0-only symbols, so the default target of 300
+            # produces a binary that fails to load with
+            # 'cannot locate symbol clCreateBufferWithProperties' — seen on a
+            # Galaxy Note10+ (Adreno 640, Android 12). llama.cpp gates its
+            # 3.0-only call (a Qualcomm large-buffer retry that only ever
+            # activates on 3.0 drivers) and its 2.1-only calls on this macro,
+            # so 200 also guarantees at compile time that nothing newer than
+            # 2.0 is referenced: any such call fails this build instead of
+            # failing on the device.
+            cmake_args+=(-DGGML_OPENCL_TARGET_VERSION=200)
             cmake_args+=(-DGGML_OPENCL=ON)
             cmake_args+=(-DGGML_OPENCL_EMBED_KERNELS=ON)
             cmake_args+=(-DOpenCL_INCLUDE_DIR="$opencl_headers")
