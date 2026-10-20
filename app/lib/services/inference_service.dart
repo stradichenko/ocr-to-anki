@@ -614,7 +614,8 @@ class InferenceService {
           effectiveLang,
         );
         final response = await _androidService.generate(
-          prompt: prompt,
+          system: prompt.system,
+          prompt: prompt.user,
           maxTokens: androidChunkBudget(chunk.length),
           temperature: temperature,
         );
@@ -650,7 +651,7 @@ class InferenceService {
     return allResults;
   }
 
-  String _buildEnrichPrompt(
+  ({String system, String user}) _buildEnrichPrompt(
     List<String> words,
     String defLang,
     String exLang,
@@ -660,18 +661,17 @@ class InferenceService {
     final langHint = termLang.toLowerCase() != 'auto'
         ? 'The word is in $termLang. '
         : '';
-    return (
-        // Gemma 4 narrates inside a reasoning channel by default, and the
-        // narration is generated token by token before any answer: on a slow
-        // device that is most of the wait, and it can exhaust the budget before
-        // a single word is defined. The Python backend suppresses this with a
-        // system prompt; /completion has no system field, so the instruction
-        // leads the prompt instead. The parser strips a channel anyway, since
-        // the instruction is not always obeyed.
-        'Respond with the entries only. Do not explain, do not describe what '
-        'you are doing, and do not think out loud.\n\n'
-        '$langHint'
-        'For each word, give a definition in $defLang and 2 example sentences in $exLang.\n'
+    // Gemma 4 narrates inside a reasoning channel by default, and the
+    // narration is generated token by token before any answer: on a slow
+    // device that is most of the wait, and it can exhaust the budget before
+    // a single word is defined. The instruction lives in the system message;
+    // sent through the chat endpoint it is applied by the model's own
+    // template, which the model follows far more reliably than a bare
+    // continuation — as raw text it drifted into stray bullet fragments and
+    // sometimes echoed the word list instead of answering. The parser strips
+    // a channel anyway, since the instruction is not always obeyed.
+    final system = 'Respond with the entries only. Do not explain, do not '
+        'describe what you are doing, and do not think out loud.\n\n'
         'WORD: must contain the EXACT original word, unchanged. Do NOT translate, correct, or modify it.\n'
         'No asterisks, no bold, no markdown. Plain text only.\n\n'
         'If unrecognizable, write DEF: UNKNOWN and skip examples.\n\n'
@@ -684,8 +684,11 @@ class InferenceService {
         'WORD: serendipity\n'
         'DEF: The occurrence of events by chance in a happy or beneficial way.\n'
         'EX1: Meeting my best friend was a serendipity.\n'
-        'EX2: The discovery of penicillin was pure serendipity.\n\n'
-        'Words:\n$wordList\n');
+        'EX2: The discovery of penicillin was pure serendipity.';
+    final user = '$langHint'
+        'For each word, give a definition in $defLang and 2 example sentences in $exLang.\n'
+        'Words:\n$wordList';
+    return (system: system, user: user);
   }
 
   /// Append a response that produced nothing to a file on the device.

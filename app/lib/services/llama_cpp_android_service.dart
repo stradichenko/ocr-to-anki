@@ -73,6 +73,12 @@ class LlamaCppAndroidService {
   /// screen. One line per probed backend.
   final List<String> _backendProbe = [];
 
+  /// Full probe output per backend, capped, for the diagnostics screen.
+  /// The short [_backendProbe] notes truncate linker and driver errors at
+  /// exactly the wrong place, which cost a round of diagnosis on the
+  /// OpenCL path; the raw text is small and worth keeping.
+  final List<String> _backendProbeOutput = [];
+
   /// Why the resolved GPU backend was abandoned for CPU at server start,
   /// when that happened. Null while the chosen backend is still trusted.
   String? _backendFallbackReason;
@@ -232,11 +238,13 @@ class LlamaCppAndroidService {
   Future<Set<String>> _detectAvailableBackends() async {
     final backends = <String>{'cpu'};
     _backendProbe.clear();
+    _backendProbeOutput.clear();
 
     for (final variant in const ['vulkan', 'opencl']) {
       final bin = '$_nativeLibDir/libllama-mtmd-cli-$variant.so';
       if (!File(bin).existsSync()) {
         _backendProbe.add('$variant: binary not in APK');
+        _backendProbeOutput.add('===== $variant =====\n(binary not in APK)');
         continue;
       }
 
@@ -246,15 +254,24 @@ class LlamaCppAndroidService {
         final result = await Process.run(bin, ['--list-devices'],
                 environment: env, stdoutEncoding: utf8, stderrEncoding: utf8)
             .timeout(const Duration(seconds: 30));
-        final output = '${result.stdout}\n${result.stderr}';
-        if (listDevicesFoundDevice(output)) {
+        final stdout = result.stdout as String;
+        final output = '$stdout\n${result.stderr}';
+        _backendProbeOutput.add(
+            '===== $variant (exit ${result.exitCode}) =====\n'
+            '${output.length > 4000 ? '${output.substring(0, 4000)}…' : output}');
+        // The device list goes to stdout and llama.cpp's log lines to stderr;
+        // parsing the combined buffer counts a trailing error line as a
+        // device, which is how Vulkan 1.1 hardware once passed as capable.
+        if (listDevicesFoundDevice(stdout)) {
           _backendProbe.add('$variant: device listed');
           backends.add(variant);
         } else {
-          _backendProbe.add('$variant: no device — ${firstBackendErrorLine(output)}');
+          final forErrors = output.replaceAll(_nativeLibDir ?? '', '<lib>');
+          _backendProbe.add('$variant: no device — ${firstBackendErrorLine(forErrors)}');
         }
       } catch (e) {
         _backendProbe.add('$variant: probe failed — $e');
+        _backendProbeOutput.add('===== $variant =====\n$e');
       }
     }
 
@@ -895,8 +912,16 @@ class LlamaCppAndroidService {
   // Text generation via llama-server
   // ---------------------------------------------------------------------------
 
-  /// Generate text via llama-server's /completion endpoint.
+  /// Generate text via llama-server's chat endpoint.
+  ///
+  /// /v1/chat/completions rather than /completion: the [system] message is
+  /// applied by the model's own chat template (--jinja is set at server
+  /// start), and instruction-tuned models follow format instructions given
+  /// that way far more reliably than as a raw continuation. Gemma 4 sent a
+  /// bare completion drifted into stray bullet fragments and occasionally
+  /// echoed the word list instead of answering.
   Future<String> generate({
+    required String system,
     required String prompt,
     int maxTokens = 256,
     double temperature = 0.7,
@@ -905,7 +930,7 @@ class LlamaCppAndroidService {
       throw StateError('llama-server is not running');
     }
 
-    final uri = Uri.parse('$_serverUrl/completion');
+    final uri = Uri.parse('$_serverUrl/v1/chat/completions');
     _generateClient = http.Client();
 
     // Gemma 3 uses <end_of_turn> and <eos> as stop tokens.
@@ -920,14 +945,18 @@ class LlamaCppAndroidService {
 
     try {
       final payload = {
-        'prompt': prompt,
-        'n_predict': maxTokens,
+        'messages': [
+          {'role': 'system', 'content': system},
+          {'role': 'user', 'content': prompt},
+        ],
+        'max_tokens': maxTokens,
         'temperature': temperature,
         'stop': stopTokens,
         'cache_prompt': false,
       };
 
-      _logDebug('generate', 'prompt=${prompt.substring(0, prompt.length.clamp(0, 200))}... '
+      _logDebug('generate', 'system=${system.substring(0, system.length.clamp(0, 120))}... '
+          'prompt=${prompt.substring(0, prompt.length.clamp(0, 200))}... '
           'n_predict=$maxTokens temp=$temperature');
 
       final response = await _generateClient!
@@ -946,7 +975,12 @@ class LlamaCppAndroidService {
       }
 
       final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final content = body['content'] as String? ?? '';
+      final choices = body['choices'] as List<dynamic>? ?? const [];
+      String content = '';
+      if (choices.isNotEmpty) {
+        final message = choices.first['message'] as Map<String, dynamic>?;
+        content = message?['content'] as String? ?? '';
+      }
       _logDebug('generate', 'content=${content.substring(0, content.length.clamp(0, 200))}...');
       return content;
     } finally {
@@ -987,6 +1021,7 @@ class LlamaCppAndroidService {
       'resolvedBackend': _resolvedBackend,
       'availableBackends': _availableBackends.toList(),
       'backendProbe': _backendProbe.toList(),
+      'backendProbeOutput': _backendProbeOutput.toList(),
       'backendFallbackReason': _backendFallbackReason,
       'nativeLibVariants': libVariants,
       'ldLibraryPath': _nativeLibDir != null ? _childLdLibraryPath : null,

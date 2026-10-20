@@ -41,6 +41,24 @@ Available devices:
       expect(listDevicesFoundDevice(out), isFalse);
     });
 
+    test('rejects the combined-stream shape that once passed as Vulkan', () {
+      // The probe concatenates stdout then stderr, so after an empty device
+      // list the stderr error line trails it. Counting that line as a device
+      // is how a Vulkan 1.1 phone got reported as Vulkan-capable while its
+      // server actually ran CPU.
+      const out = 'Available devices:\n'
+          '  (none)\n'
+          '0.00.059.114 E ggml_vulkan: Error: Vulkan 1.2 required.\n';
+      expect(listDevicesFoundDevice(out), isFalse);
+    });
+
+    test('still accepts a device that precedes a trailing log line', () {
+      const out = 'Available devices:\n'
+          '  OpenCL 0: QUALCOMM Adreno(TM)\n'
+          '0.00.100.000 I ggml_opencl: backend initialised\n';
+      expect(listDevicesFoundDevice(out), isTrue);
+    });
+
     test('accepts multiple devices', () {
       const out = '''
 Available devices:
@@ -69,7 +87,7 @@ Available devices:
     test('truncates very long lines', () {
       final out = 'E ${'x' * 500}';
       final line = firstBackendErrorLine(out);
-      expect(line.length, 160);
+      expect(line.length, 400);
       expect(line.endsWith('...'), isTrue);
     });
 
